@@ -28,15 +28,23 @@ class RepositoryScreen extends ConsumerWidget {
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(18, 14, 18, 10),
-          child: Row(
-            children: [
-              Text(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final title = Text(
                 'Records / Repository',
                 style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const Spacer(),
-              _FilterBar(),
-            ],
+              );
+              final filterBar = _FilterBar();
+              if (constraints.maxWidth < 560) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [title, const SizedBox(height: 10), filterBar],
+                );
+              }
+              return Row(
+                children: [title, const Spacer(), filterBar],
+              );
+            },
           ),
         ),
         Expanded(
@@ -129,45 +137,53 @@ class _FolderTree extends ConsumerWidget {
               style: Theme.of(context).textTheme.labelSmall,
             ),
           ),
-          _FolderRow(
-            label: 'All records',
-            selected: filters.folderId == null,
-            onTap: () {
-              ref.read(repositoryFiltersProvider.notifier).state = filters
-                  .copyWith(folderId: () => null);
-            },
-          ),
-          foldersAsync.when(
-            loading: () => const Padding(
-              padding: EdgeInsets.all(12),
-              child: LinearProgressIndicator(),
-            ),
-            error: (e, _) => Padding(
-              padding: const EdgeInsets.all(10),
-              child: Text(
-                '$e',
-                style: TextStyle(color: tokens.bad, fontSize: 11),
+          Expanded(
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  _FolderRow(
+                    label: 'All records',
+                    selected: filters.folderId == null,
+                    onTap: () {
+                      ref.read(repositoryFiltersProvider.notifier).state =
+                          filters.copyWith(folderId: () => null);
+                    },
+                  ),
+                  foldersAsync.when(
+                    loading: () => const Padding(
+                      padding: EdgeInsets.all(12),
+                      child: LinearProgressIndicator(),
+                    ),
+                    error: (e, _) => Padding(
+                      padding: const EdgeInsets.all(10),
+                      child: Text(
+                        '$e',
+                        style: TextStyle(color: tokens.bad, fontSize: 11),
+                      ),
+                    ),
+                    data: (folders) {
+                      final sorted = [...folders]
+                        ..sort((a, b) => a.path.compareTo(b.path));
+                      return Column(
+                        children: [
+                          for (final f in sorted)
+                            _FolderRow(
+                              label: f.name,
+                              indent: '/'.allMatches(f.path).length.clamp(0, 4),
+                              selected: filters.folderId == f.id,
+                              folderId: f.id,
+                              onTap: () {
+                                ref.read(repositoryFiltersProvider.notifier).state =
+                                    filters.copyWith(folderId: () => f.id);
+                              },
+                            ),
+                        ],
+                      );
+                    },
+                  ),
+                ],
               ),
             ),
-            data: (folders) {
-              final sorted = [...folders]
-                ..sort((a, b) => a.path.compareTo(b.path));
-              return Column(
-                children: [
-                  for (final f in sorted)
-                    _FolderRow(
-                      label: f.name,
-                      indent: '/'.allMatches(f.path).length.clamp(0, 4),
-                      selected: filters.folderId == f.id,
-                      folderId: f.id,
-                      onTap: () {
-                        ref.read(repositoryFiltersProvider.notifier).state =
-                            filters.copyWith(folderId: () => f.id);
-                      },
-                    ),
-                ],
-              );
-            },
           ),
         ],
       ),
@@ -322,37 +338,44 @@ class _DocumentList extends ConsumerWidget {
               ],
             ),
           ),
-          for (final d in docs)
-            InkWell(
-              onTap: () {
-                ref.read(selectedDocumentProvider.notifier).state = d;
-                context.go(RoutePaths.viewerFor('${d.id}'));
-              },
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 9,
-                ),
-                decoration: BoxDecoration(
-                  color: selected?.id == d.id ? tokens.sel : Colors.transparent,
-                  border: Border(top: BorderSide(color: tokens.line)),
-                ),
-                child: Row(
-                  children: [
-                    cell(d.recordNo, flexes[0]),
-                    cell(d.title, flexes[1]),
-                    cell(d.documentType ?? '—', flexes[2]),
-                    cell(d.department ?? '—', flexes[3]),
-                    cell(
-                      '',
-                      flexes[4],
-                      child: StatusChip.forDocumentStatus(d.status),
+          Expanded(
+            child: ListView.builder(
+              itemCount: docs.length,
+              itemBuilder: (context, i) {
+                final d = docs[i];
+                return InkWell(
+                  onTap: () {
+                    ref.read(selectedDocumentProvider.notifier).state = d;
+                    context.go(RoutePaths.viewerFor('${d.id}'));
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 9,
                     ),
-                    cell(d.createdAt?.split('T').first ?? '—', flexes[5]),
-                  ],
-                ),
-              ),
+                    decoration: BoxDecoration(
+                      color: selected?.id == d.id ? tokens.sel : Colors.transparent,
+                      border: Border(top: BorderSide(color: tokens.line)),
+                    ),
+                    child: Row(
+                      children: [
+                        cell(d.recordNo, flexes[0]),
+                        cell(d.title, flexes[1]),
+                        cell(d.documentType ?? '—', flexes[2]),
+                        cell(d.department ?? '—', flexes[3]),
+                        cell(
+                          '',
+                          flexes[4],
+                          child: StatusChip.forDocumentStatus(d.status),
+                        ),
+                        cell(d.createdAt?.split('T').first ?? '—', flexes[5]),
+                      ],
+                    ),
+                  ),
+                );
+              },
             ),
+          ),
         ],
       ),
     );
@@ -392,7 +415,8 @@ class _PropertiesPanel extends ConsumerWidget {
         color: tokens.surf,
       ),
       padding: const EdgeInsets.all(12),
-      child: Column(
+      child: SingleChildScrollView(
+        child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -430,6 +454,7 @@ class _PropertiesPanel extends ConsumerWidget {
             ),
           ),
         ],
+        ),
       ),
     );
   }
