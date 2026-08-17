@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 
+import '../../features/notifications/presentation/notifications_panel.dart';
 import '../auth/auth_providers.dart';
 import '../auth/module_access.dart';
 import '../navigation/nav_item.dart';
@@ -35,6 +36,7 @@ class ResponsiveScaffold extends ConsumerWidget {
     return Scaffold(
       appBar: _TopAppBar(showHamburger: !isDesktop, showSearch: isDesktop),
       drawer: isDesktop ? null : Drawer(child: _NavDrawerContent(currentPath: currentPath)),
+      endDrawer: const NotificationsPanel(),
       body: Row(
         children: [
           if (isDesktop)
@@ -100,10 +102,12 @@ class _TopAppBar extends ConsumerWidget implements PreferredSizeWidget {
         ],
       ),
       actions: [
-        IconButton(
-          icon: Icon(PhosphorIconsDuotone.bell),
-          tooltip: 'Notifications',
-          onPressed: () => context.go('/notifications'),
+        Builder(
+          builder: (context) => IconButton(
+            icon: Icon(PhosphorIconsDuotone.bell),
+            tooltip: 'Notifications',
+            onPressed: () => Scaffold.of(context).openEndDrawer(),
+          ),
         ),
         IconButton(
           icon: Icon(themeMode == ThemeMode.dark ? PhosphorIconsDuotone.sun : PhosphorIconsDuotone.moon),
