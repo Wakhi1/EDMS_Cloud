@@ -1,0 +1,25 @@
+{
+    "keep": {
+        "days": true,
+        "amount": 30
+    },
+    "auditLog": "C:\\Users\\celim\\projects\\PSPF_EDMS\\pspf-edms\\backend\\logs\\.a49658bb2d4cb56ae9537ef319764ec43385cb71-audit.json",
+    "files": [
+        {
+            "date": 1786824043997,
+            "name": "C:\\Users\\celim\\projects\\PSPF_EDMS\\pspf-edms\\backend\\logs\\app-2026-08-15.log",
+            "hash": "c98663dfc8690fa1283fff08ee603178f901b6f1f247c00b3ba5c339ed12dc29"
+        },
+        {
+            "date": 1786831279348,
+            "name": "C:\\Users\\celim\\projects\\PSPF_EDMS\\pspf-edms\\backend\\logs\\app-2026-08-16.log",
+            "hash": "8d7e8fc7d0f9b8c8b1561329eb2307de96e2488b55832fd7c613918766e0b384"
+        },
+        {
+            "date": 1786919130555,
+            "name": "C:\\Users\\celim\\projects\\PSPF_EDMS\\pspf-edms\\backend\\logs\\app-2026-08-17.log",
+            "hash": "57bac70df469791679b7786817ae043cbfe9888388dcda949f84f8b983346ed1"
+        }
+    ],
+    "hashType": "sha256"
+}

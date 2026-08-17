@@ -1,0 +1,8 @@
+node_modules/
+.env
+logs/*.log
+storage/
+gcp-service-account.json
+gcp-client-secret.json
+backup-tmp/
+tessdata/
