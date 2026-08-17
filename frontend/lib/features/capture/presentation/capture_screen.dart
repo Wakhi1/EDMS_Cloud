@@ -111,57 +111,72 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Text('Records / Capture & Scan', style: Theme.of(context).textTheme.titleMedium),
-              const Spacer(),
-              SizedBox(
-                width: 150,
-                child: DropdownButtonFormField<String?>(
-                  initialValue: filters.source,
-                  isDense: true,
-                  decoration: const InputDecoration(labelText: 'Source', isDense: true),
-                  items: const [
-                    DropdownMenuItem(value: null, child: Text('All sources')),
-                    DropdownMenuItem(value: 'manual_upload', child: Text('Manual upload')),
-                    DropdownMenuItem(value: 'device_upload', child: Text('Device upload')),
-                    DropdownMenuItem(value: 'watched_folder', child: Text('Watched folder')),
-                    DropdownMenuItem(value: 'ftp', child: Text('FTP')),
-                    DropdownMenuItem(value: 'email_intake', child: Text('Email intake')),
-                    DropdownMenuItem(value: 'network_scanner', child: Text('Network scanner')),
-                  ],
-                  onChanged: (v) => ref.read(captureBatchFiltersProvider.notifier).state = filters.copyWith(source: () => v),
-                ),
-              ),
-              const SizedBox(width: 8),
-              SizedBox(
-                width: 150,
-                child: DropdownButtonFormField<String?>(
-                  initialValue: filters.status,
-                  isDense: true,
-                  decoration: const InputDecoration(labelText: 'Status', isDense: true),
-                  items: const [
-                    DropdownMenuItem(value: null, child: Text('All statuses')),
-                    DropdownMenuItem(value: 'running', child: Text('Running')),
-                    DropdownMenuItem(value: 'completed', child: Text('Completed')),
-                    DropdownMenuItem(value: 'completed_with_errors', child: Text('Completed w/ errors')),
-                    DropdownMenuItem(value: 'failed', child: Text('Failed')),
-                  ],
-                  onChanged: (v) => ref.read(captureBatchFiltersProvider.notifier).state = filters.copyWith(status: () => v),
-                ),
-              ),
-              const SizedBox(width: 12),
-              OutlinedButton(
-                onPressed: _exporting ? null : _exportCsv,
-                child: _exporting
-                    ? const SizedBox(height: 14, width: 14, child: CircularProgressIndicator(strokeWidth: 2))
-                    : const Text('Export CSV'),
-              ),
-              const SizedBox(width: 8),
-              OutlinedButton(onPressed: _recordBatch, child: const Text('Log batch')),
-              const SizedBox(width: 8),
-              ElevatedButton(onPressed: _newBatch, child: const Text('New batch')),
-            ],
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final title = Text('Records / Capture & Scan', style: Theme.of(context).textTheme.titleMedium);
+              final controls = Wrap(
+                alignment: WrapAlignment.end,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  SizedBox(
+                    width: 170,
+                    child: DropdownButtonFormField<String?>(
+                      initialValue: filters.source,
+                      isDense: true,
+                      isExpanded: true,
+                      decoration: const InputDecoration(labelText: 'Source', isDense: true),
+                      items: const [
+                        DropdownMenuItem(value: null, child: Text('All sources', overflow: TextOverflow.ellipsis)),
+                        DropdownMenuItem(value: 'manual_upload', child: Text('Manual upload', overflow: TextOverflow.ellipsis)),
+                        DropdownMenuItem(value: 'device_upload', child: Text('Device upload', overflow: TextOverflow.ellipsis)),
+                        DropdownMenuItem(value: 'watched_folder', child: Text('Watched folder', overflow: TextOverflow.ellipsis)),
+                        DropdownMenuItem(value: 'ftp', child: Text('FTP', overflow: TextOverflow.ellipsis)),
+                        DropdownMenuItem(value: 'email_intake', child: Text('Email intake', overflow: TextOverflow.ellipsis)),
+                        DropdownMenuItem(value: 'network_scanner', child: Text('Network scanner', overflow: TextOverflow.ellipsis)),
+                      ],
+                      onChanged: (v) => ref.read(captureBatchFiltersProvider.notifier).state = filters.copyWith(source: () => v),
+                    ),
+                  ),
+                  SizedBox(
+                    width: 170,
+                    child: DropdownButtonFormField<String?>(
+                      initialValue: filters.status,
+                      isDense: true,
+                      isExpanded: true,
+                      decoration: const InputDecoration(labelText: 'Status', isDense: true),
+                      items: const [
+                        DropdownMenuItem(value: null, child: Text('All statuses', overflow: TextOverflow.ellipsis)),
+                        DropdownMenuItem(value: 'running', child: Text('Running', overflow: TextOverflow.ellipsis)),
+                        DropdownMenuItem(value: 'completed', child: Text('Completed', overflow: TextOverflow.ellipsis)),
+                        DropdownMenuItem(value: 'completed_with_errors', child: Text('Completed w/ errors', overflow: TextOverflow.ellipsis)),
+                        DropdownMenuItem(value: 'failed', child: Text('Failed', overflow: TextOverflow.ellipsis)),
+                      ],
+                      onChanged: (v) => ref.read(captureBatchFiltersProvider.notifier).state = filters.copyWith(status: () => v),
+                    ),
+                  ),
+                  OutlinedButton(
+                    onPressed: _exporting ? null : _exportCsv,
+                    child: _exporting
+                        ? const SizedBox(height: 14, width: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Text('Export CSV'),
+                  ),
+                  OutlinedButton(onPressed: _recordBatch, child: const Text('Log batch')),
+                  ElevatedButton(onPressed: _newBatch, child: const Text('New batch')),
+                ],
+              );
+
+              if (constraints.maxWidth < 760) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [title, const SizedBox(height: 10), controls],
+                );
+              }
+              return Row(
+                children: [title, const SizedBox(width: 16), Expanded(child: Align(alignment: Alignment.centerRight, child: controls))],
+              );
+            },
           ),
           const SizedBox(height: 14),
           Expanded(
