@@ -12,6 +12,7 @@ const { authenticate } = require('../middleware/auth.middleware');
 const { requireModuleAccess } = require('../middleware/rbac.middleware');
 const upload = require('../middleware/upload.middleware');
 const { logAudit } = require('../services/audit.service');
+const aclService = require('../services/acl.service');
 const { envelopeEncryptFile } = require('../services/crypto.service');
 const storageService = require('../services/storage/storage.service');
 const ocrService = require('../services/ocr.service');
@@ -21,6 +22,9 @@ router.use(authenticate);
 
 /** GET /api/versions/document/:documentId */
 router.get('/document/:documentId', requireModuleAccess('versions'), asyncHandler(async (req, res) => {
+  if (!await aclService.hasAccess(req.user.id, req.user.role, 'document', req.params.documentId, 'view')) {
+    return fail(res, 'You do not have access to this record', 403);
+  }
   const [rows] = await pool.query(
     `SELECT dv.id, dv.version_no, dv.file_name, dv.size_bytes, dv.is_current, dv.created_at, u.full_name AS created_by
      FROM document_versions dv JOIN users u ON u.id = dv.created_by
@@ -34,6 +38,9 @@ router.get('/document/:documentId', requireModuleAccess('versions'), asyncHandle
 router.post('/document/:documentId', requireModuleAccess('versions', true), upload.single('file'), asyncHandler(async (req, res) => {
   const documentId = req.params.documentId;
   if (!req.file) return fail(res, 'A file is required', 400);
+  if (!await aclService.hasAccess(req.user.id, req.user.role, 'document', documentId, 'edit')) {
+    return fail(res, 'You do not have access to this record', 403);
+  }
 
   const ocrResult = await ocrService.extractText(req.file.buffer, req.file.mimetype, req.file.originalname);
 
@@ -93,6 +100,9 @@ router.post('/document/:documentId', requireModuleAccess('versions', true), uplo
 router.post('/:versionId/restore', requireModuleAccess('versions', true), asyncHandler(async (req, res) => {
   const [[version]] = await pool.query('SELECT * FROM document_versions WHERE id = ?', [req.params.versionId]);
   if (!version) return fail(res, 'Version not found', 404);
+  if (!await aclService.hasAccess(req.user.id, req.user.role, 'document', version.document_id, 'edit')) {
+    return fail(res, 'You do not have access to this record', 403);
+  }
 
   await pool.query('UPDATE document_versions SET is_current = 0 WHERE document_id = ?', [version.document_id]);
   await pool.query('UPDATE document_versions SET is_current = 1 WHERE id = ?', [version.id]);

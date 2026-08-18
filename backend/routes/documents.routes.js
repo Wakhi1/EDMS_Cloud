@@ -23,6 +23,7 @@ const { authenticate } = require('../middleware/auth.middleware');
 const { requireModuleAccess } = require('../middleware/rbac.middleware');
 const upload = require('../middleware/upload.middleware');
 const { logAudit } = require('../services/audit.service');
+const aclService = require('../services/acl.service');
 const { envelopeDecryptFile, sha256 } = require('../services/crypto.service');
 const storageService = require('../services/storage/storage.service');
 const ocrService = require('../services/ocr.service');
@@ -82,7 +83,8 @@ router.get('/', requireModuleAccess('repository'), asyncHandler(async (req, res)
      LIMIT 200`,
     params
   );
-  return ok(res, rows);
+  const accessible = await aclService.filterAccessible(req.user.id, req.user.role, 'document', rows);
+  return ok(res, accessible);
 }));
 
 /** GET /api/documents/:id — full metadata for the document viewer. */
@@ -97,6 +99,9 @@ router.get('/:id', requireModuleAccess('viewer'), asyncHandler(async (req, res) 
     [req.params.id]
   );
   if (!rows[0]) return fail(res, 'Record not found', 404);
+  if (!await aclService.hasAccess(req.user.id, req.user.role, 'document', rows[0].id, 'view')) {
+    return fail(res, 'You do not have access to this record', 403);
+  }
 
   await logAudit({ userId: req.user.id, action: 'View', recordType: 'document', recordId: req.params.id, ip: req.ip });
   return ok(res, rows[0]);
@@ -225,6 +230,9 @@ router.get('/:id/content', requireModuleAccess('viewer'), asyncHandler(async (re
   );
   const row = rows[0];
   if (!row) return fail(res, 'Record or content not found', 404);
+  if (!await aclService.hasAccess(req.user.id, req.user.role, 'document', req.params.id, 'view')) {
+    return fail(res, 'You do not have access to this record', 403);
+  }
 
   const reasonRequired = await getSettingBool('confidential_reason_required', true);
   if (row.classification === 'confidential' && reasonRequired && !req.query.reason) {
@@ -274,6 +282,9 @@ router.get('/:id/ocr-text', requireModuleAccess('viewer'), asyncHandler(async (r
     [req.params.id]
   );
   if (!row) return fail(res, 'Record not found', 404);
+  if (!await aclService.hasAccess(req.user.id, req.user.role, 'document', req.params.id, 'view')) {
+    return fail(res, 'You do not have access to this record', 403);
+  }
 
   let text = row.ocr_text;
   if (await getSettingBool('redact_bank_numbers', true)) {
@@ -293,6 +304,9 @@ router.put(
 
     const [[doc]] = await pool.query('SELECT id FROM documents WHERE id = ?', [req.params.id]);
     if (!doc) return fail(res, 'Record not found', 404);
+    if (!await aclService.hasAccess(req.user.id, req.user.role, 'document', doc.id, 'edit')) {
+      return fail(res, 'You do not have access to this record', 403);
+    }
 
     const { title, documentTypeId, folderId, departmentId, memberNumber, memberName, classification, retentionClassId } = req.body;
     await pool.query(
@@ -318,6 +332,9 @@ router.put(
 router.delete('/:id', requireModuleAccess('repository', true), asyncHandler(async (req, res) => {
   const [[doc]] = await pool.query('SELECT id, record_no, status FROM documents WHERE id = ?', [req.params.id]);
   if (!doc) return fail(res, 'Record not found', 404);
+  if (!await aclService.hasAccess(req.user.id, req.user.role, 'document', doc.id, 'edit')) {
+    return fail(res, 'You do not have access to this record', 403);
+  }
   if (doc.status === 'disposed') return fail(res, 'Record is already disposed', 409);
 
   await pool.query('UPDATE documents SET status = "archived" WHERE id = ?', [req.params.id]);
@@ -332,6 +349,9 @@ router.post('/:id/declare-final', requireModuleAccess('repository', true), async
     [req.params.id]
   );
   if (!doc) return fail(res, 'Record not found', 404);
+  if (!await aclService.hasAccess(req.user.id, req.user.role, 'document', doc.id, 'edit')) {
+    return fail(res, 'You do not have access to this record', 403);
+  }
 
   const dueAt = doc.retention_years
     ? `DATE_ADD(NOW(), INTERVAL ${Number(doc.retention_years)} YEAR)`

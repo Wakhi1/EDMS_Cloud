@@ -12,6 +12,7 @@ const asyncHandler = require('../utils/asyncHandler');
 const { authenticate } = require('../middleware/auth.middleware');
 const { requireModuleAccess } = require('../middleware/rbac.middleware');
 const { logAudit } = require('../services/audit.service');
+const aclService = require('../services/acl.service');
 
 const router = express.Router();
 router.use(authenticate);
@@ -31,7 +32,8 @@ router.get('/', requireModuleAccess('repository'), asyncHandler(async (req, res)
      ${where} ORDER BY f.path`,
     params
   );
-  return ok(res, rows);
+  const accessible = await aclService.filterAccessible(req.user.id, req.user.role, 'folder', rows);
+  return ok(res, accessible);
 }));
 
 /** POST /api/folders */
@@ -73,6 +75,9 @@ router.put(
 
     const [[folder]] = await pool.query('SELECT * FROM folders WHERE id = ?', [req.params.id]);
     if (!folder) return fail(res, 'Folder not found', 404);
+    if (!await aclService.hasAccess(req.user.id, req.user.role, 'folder', folder.id, 'edit')) {
+      return fail(res, 'You do not have access to this folder', 403);
+    }
 
     const { name, parentId, departmentId, retentionClassId } = req.body;
     const newName = name !== undefined ? name : folder.name;
@@ -119,6 +124,9 @@ router.put(
 router.delete('/:id', requireModuleAccess('repository', true), asyncHandler(async (req, res) => {
   const [[folder]] = await pool.query('SELECT id, path FROM folders WHERE id = ?', [req.params.id]);
   if (!folder) return fail(res, 'Folder not found', 404);
+  if (!await aclService.hasAccess(req.user.id, req.user.role, 'folder', folder.id, 'edit')) {
+    return fail(res, 'You do not have access to this folder', 403);
+  }
 
   const [[{ childCount }]] = await pool.query('SELECT COUNT(*) AS childCount FROM folders WHERE parent_id = ?', [req.params.id]);
   if (childCount > 0) return fail(res, 'Cannot delete a folder that contains subfolders', 409);
