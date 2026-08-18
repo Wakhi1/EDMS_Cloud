@@ -105,6 +105,20 @@ class MfaApi {
   }
 
   /// Authenticated-session enrollment calls (Phase 2+ "my account" UI).
+  ///
+  /// Whether the signed-in user's authenticator app enrolment is actually
+  /// confirmed (not just started) and whether they have backup codes —
+  /// lets the Security screen gate backup-code generation behind a
+  /// completed TOTP confirmation instead of allowing the two to drift out
+  /// of sync.
+  Future<({bool totpVerified, bool hasBackupCodes})> getMfaStatus() async {
+    final response = await _client.get(Endpoints.mfaStatus);
+    return _client.unwrap(response, (data) {
+      final json = data as Map<String, dynamic>;
+      return (totpVerified: json['totpVerified'] as bool, hasBackupCodes: json['hasBackupCodes'] as bool);
+    });
+  }
+
   Future<({String qrDataUrl, String base32Secret})> totpEnroll() async {
     final response = await _client.post(Endpoints.mfaTotpEnroll);
     return _client.unwrap(response, (data) {

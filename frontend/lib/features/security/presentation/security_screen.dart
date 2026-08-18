@@ -11,11 +11,37 @@ import '../../../core/auth/auth_providers.dart';
 import '../../../core/theme/pspf_tokens.dart';
 import '../../../core/widgets/error_banner.dart';
 
-class SecurityScreen extends ConsumerWidget {
+class SecurityScreen extends ConsumerStatefulWidget {
   const SecurityScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SecurityScreen> createState() => _SecurityScreenState();
+}
+
+class _SecurityScreenState extends ConsumerState<SecurityScreen> {
+  // null while the initial status fetch is in flight.
+  bool? _totpVerified;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadStatus();
+  }
+
+  Future<void> _loadStatus() async {
+    try {
+      final status = await ref.read(mfaApiProvider).getMfaStatus();
+      if (mounted) setState(() => _totpVerified = status.totpVerified);
+    } on ApiException {
+      // Fall back to treating the authenticator app as unconfirmed —
+      // conservative: this only blocks backup-code generation, it never
+      // grants anything.
+      if (mounted) setState(() => _totpVerified = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final tokens = context.tokens;
     final user = ref.watch(currentUserProvider);
 
@@ -46,9 +72,17 @@ class SecurityScreen extends ConsumerWidget {
               ),
             ),
             const SizedBox(height: 16),
-            const _AuthenticatorAppCard(),
+            _AuthenticatorAppCard(
+              verified: _totpVerified ?? false,
+              // Starting a (re-)enrollment invalidates any previously-confirmed
+              // secret server-side immediately, before the new one is confirmed
+              // — reflect that right away so Backup codes doesn't stay enabled
+              // on stale "verified" state if the user abandons mid-flow.
+              onEnrollStarted: () => setState(() => _totpVerified = false),
+              onConfirmed: () => setState(() => _totpVerified = true),
+            ),
             const SizedBox(height: 16),
-            const _BackupCodesCard(),
+            _BackupCodesCard(totpVerified: _totpVerified ?? false),
           ],
         ),
       ),
@@ -57,7 +91,11 @@ class SecurityScreen extends ConsumerWidget {
 }
 
 class _AuthenticatorAppCard extends ConsumerStatefulWidget {
-  const _AuthenticatorAppCard();
+  const _AuthenticatorAppCard({required this.verified, required this.onEnrollStarted, required this.onConfirmed});
+
+  final bool verified;
+  final VoidCallback onEnrollStarted;
+  final VoidCallback onConfirmed;
 
   @override
   ConsumerState<_AuthenticatorAppCard> createState() => _AuthenticatorAppCardState();
@@ -88,6 +126,7 @@ class _AuthenticatorAppCardState extends ConsumerState<_AuthenticatorAppCard> {
         _qrDataUrl = result.qrDataUrl;
         _base32Secret = result.base32Secret;
       });
+      widget.onEnrollStarted();
     } on ApiException catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
     } finally {
@@ -110,6 +149,7 @@ class _AuthenticatorAppCardState extends ConsumerState<_AuthenticatorAppCard> {
           _base32Secret = null;
           _codeController.clear();
         });
+        widget.onConfirmed();
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Authenticator app confirmed.')));
       }
     } on ApiException catch (e) {
@@ -145,15 +185,25 @@ class _AuthenticatorAppCardState extends ConsumerState<_AuthenticatorAppCard> {
             style: TextStyle(fontSize: 12, color: tokens.ink2),
           ),
           const SizedBox(height: 12),
-          if (!isEnrolling)
+          if (!isEnrolling) ...[
+            if (widget.verified) ...[
+              Row(
+                children: [
+                  Icon(PhosphorIconsDuotone.checkCircle, size: 16, color: tokens.acc),
+                  const SizedBox(width: 6),
+                  const Text('Set up and confirmed', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                ],
+              ),
+              const SizedBox(height: 10),
+            ],
             OutlinedButton.icon(
               onPressed: _enrolling ? null : _startEnroll,
               icon: _enrolling
                   ? const SizedBox(height: 14, width: 14, child: CircularProgressIndicator(strokeWidth: 2))
                   : Icon(PhosphorIconsDuotone.qrCode, size: 16),
-              label: const Text('Set up authenticator app'),
-            )
-          else ...[
+              label: Text(widget.verified ? 'Replace authenticator app' : 'Set up authenticator app'),
+            ),
+          ] else ...[
             Row(
               children: [
                 Icon(PhosphorIconsDuotone.qrCode, size: 15, color: tokens.acc),
@@ -237,7 +287,9 @@ class _AuthenticatorAppCardState extends ConsumerState<_AuthenticatorAppCard> {
 }
 
 class _BackupCodesCard extends ConsumerStatefulWidget {
-  const _BackupCodesCard();
+  const _BackupCodesCard({required this.totpVerified});
+
+  final bool totpVerified;
 
   @override
   ConsumerState<_BackupCodesCard> createState() => _BackupCodesCardState();
@@ -279,12 +331,19 @@ class _BackupCodesCardState extends ConsumerState<_BackupCodesCard> {
           ),
           const SizedBox(height: 12),
           OutlinedButton.icon(
-            onPressed: _generating ? null : _generate,
+            onPressed: !widget.totpVerified || _generating ? null : _generate,
             icon: _generating
                 ? const SizedBox(height: 14, width: 14, child: CircularProgressIndicator(strokeWidth: 2))
                 : Icon(PhosphorIconsDuotone.key, size: 16),
             label: const Text('Generate new backup codes'),
           ),
+          if (!widget.totpVerified) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Set up and confirm your authenticator app first — backup codes are only useful as a fallback for it.',
+              style: TextStyle(fontSize: 12, color: tokens.warn),
+            ),
+          ],
           if (_codes != null) ...[
             const SizedBox(height: 12),
             Container(

@@ -21,6 +21,7 @@ class Endpoints {
   static const authMe = '/api/auth/me';
 
   // mfa.routes.js
+  static const mfaStatus = '/api/mfa/status';
   static const mfaTotpEnroll = '/api/mfa/totp/enroll';
   static const mfaTotpConfirm = '/api/mfa/totp/confirm';
   static const mfaBackupCodesGenerate = '/api/mfa/backup-codes/generate';

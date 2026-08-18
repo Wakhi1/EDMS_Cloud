@@ -103,6 +103,27 @@ async function confirmTotpFor(userId, token) {
   return true;
 }
 
+/**
+ * GET /api/mfa/status — self-service equivalent of `/challenge/status` for
+ * an already signed-in user viewing the Security screen: whether their
+ * TOTP enrolment is actually confirmed (not just started), and whether
+ * they have backup codes. Lets the UI gate "generate backup codes" behind
+ * a completed authenticator confirmation instead of leaving that silently
+ * disconnected from enrolment state.
+ */
+router.get('/status', authenticate, asyncHandler(async (req, res) => {
+  const [rows] = await pool.query(
+    `SELECT method_type, is_verified FROM user_mfa_methods WHERE user_id = ? AND method_type IN ('totp', 'backup_codes')`,
+    [req.user.id]
+  );
+  const totp = rows.find((r) => r.method_type === 'totp');
+  const backupCodes = rows.find((r) => r.method_type === 'backup_codes');
+  return ok(res, {
+    totpVerified: !!totp?.is_verified,
+    hasBackupCodes: !!backupCodes?.is_verified,
+  });
+}));
+
 /** POST /api/mfa/totp/enroll — returns a QR code to scan in an authenticator app. */
 router.post('/totp/enroll', authenticate, asyncHandler(async (req, res) => {
   const { qrDataUrl, base32Secret } = await enrollTotpFor(req.user.id, req.user.email);
