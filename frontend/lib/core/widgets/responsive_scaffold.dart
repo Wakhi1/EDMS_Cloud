@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 import '../../features/notifications/presentation/notifications_panel.dart';
+import '../../features/notifications/providers/notifications_providers.dart';
 import '../auth/auth_providers.dart';
 import '../auth/module_access.dart';
 import '../navigation/nav_item.dart';
@@ -70,6 +71,7 @@ class _TopAppBar extends ConsumerWidget implements PreferredSizeWidget {
     final user = ref.watch(currentUserProvider);
     final themeMode = ref.watch(themeModeProvider);
     final searchController = TextEditingController();
+    final unreadCount = ref.watch(notificationsListProvider).valueOrNull?.where((n) => !n.isRead).length ?? 0;
 
     return AppBar(
       leading: showHamburger
@@ -104,7 +106,11 @@ class _TopAppBar extends ConsumerWidget implements PreferredSizeWidget {
       actions: [
         Builder(
           builder: (context) => IconButton(
-            icon: Icon(PhosphorIconsDuotone.bell),
+            icon: Badge(
+              isLabelVisible: unreadCount > 0,
+              label: Text(unreadCount > 99 ? '99+' : '$unreadCount'),
+              child: Icon(PhosphorIconsDuotone.bell),
+            ),
             tooltip: 'Notifications',
             onPressed: () => Scaffold.of(context).openEndDrawer(),
           ),
@@ -189,6 +195,7 @@ class _NavGroupSection extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final role = ref.watch(currentUserProvider)?.role;
+    final unreadCount = ref.watch(notificationsListProvider).valueOrNull?.where((n) => !n.isRead).length ?? 0;
 
     return Padding(
       padding: const EdgeInsets.only(top: 10, bottom: 2),
@@ -204,6 +211,7 @@ class _NavGroupSection extends ConsumerWidget {
               item: item,
               selected: currentPath == item.path,
               maybeLocked: item.moduleKey != null && role != null && !(kModuleAllowedRoles[item.moduleKey]?.contains(role) ?? true),
+              trailingCount: item.path == RoutePaths.notifications ? unreadCount : 0,
             ),
         ],
       ),
@@ -212,11 +220,12 @@ class _NavGroupSection extends ConsumerWidget {
 }
 
 class _NavTile extends StatelessWidget {
-  const _NavTile({required this.item, required this.selected, required this.maybeLocked});
+  const _NavTile({required this.item, required this.selected, required this.maybeLocked, this.trailingCount = 0});
 
   final NavItem item;
   final bool selected;
   final bool maybeLocked;
+  final int trailingCount;
 
   @override
   Widget build(BuildContext context) {
@@ -239,6 +248,15 @@ class _NavTile extends StatelessWidget {
                 style: TextStyle(fontSize: 13.5, color: selected ? tokens.ink : tokens.ink2, fontWeight: selected ? FontWeight.w600 : FontWeight.w400),
               ),
             ),
+            if (trailingCount > 0)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                color: tokens.bad,
+                child: Text(
+                  trailingCount > 99 ? '99+' : '$trailingCount',
+                  style: const TextStyle(fontSize: 10.5, color: Colors.white, fontWeight: FontWeight.w700),
+                ),
+              ),
             if (maybeLocked) Icon(Icons.lock_outline, size: 13, color: tokens.ink3),
           ],
         ),
