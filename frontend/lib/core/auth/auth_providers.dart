@@ -113,8 +113,14 @@ class AuthController extends _$AuthController {
           return;
         }
       } on ApiException catch (e) {
-        state = AsyncValue.data(current.copyWith(isSubmitting: false, error: e.message));
-        return;
+        // The backend knows better than our possibly-stale totpEnrolled
+        // flag (e.g. an earlier status check that failed/timed out) — a
+        // verified authenticator app actually already exists. Fall through
+        // to code entry instead of surfacing this as an error.
+        if (!e.isConflict) {
+          state = AsyncValue.data(current.copyWith(isSubmitting: false, error: e.message));
+          return;
+        }
       }
     }
 

@@ -173,8 +173,27 @@ router.get('/challenge/status', requireMfaStage, asyncHandler(async (req, res) =
  * `/totp/enroll` for a user who hasn't set up an authenticator app yet.
  * Authenticates with the mfaToken (password already verified) rather than a
  * full session token, since the user isn't fully signed in yet.
+ *
+ * Refuses to run if a verified TOTP method already exists. Unlike the
+ * self-service `/totp/enroll` (an explicit "Set up"/"Replace authenticator
+ * app" click, where overwriting is the intended action), this endpoint is
+ * triggered automatically by the login UI based on a client-side
+ * `totpEnrolled` flag that can be stale/wrong (e.g. a transient failure of
+ * `/challenge/status` that made the frontend assume "not enrolled"). Without
+ * this guard, that false assumption would silently regenerate the secret
+ * and reset `is_verified` to 0 — permanently locking a genuinely-already-
+ * enrolled user out of their real authenticator app entry, even though
+ * nothing was actually wrong with their account.
  */
 router.post('/challenge/totp/enroll', requireMfaStage, asyncHandler(async (req, res) => {
+  const [existing] = await pool.query(
+    `SELECT id FROM user_mfa_methods WHERE user_id = ? AND method_type = 'totp' AND is_verified = 1 LIMIT 1`,
+    [req.mfaUserId]
+  );
+  if (existing.length) {
+    return fail(res, 'An authenticator app is already set up for this account — verify with your existing code instead.', 409);
+  }
+
   const [rows] = await pool.query('SELECT email FROM users WHERE id = ?', [req.mfaUserId]);
   const { qrDataUrl, base32Secret } = await enrollTotpFor(req.mfaUserId, rows[0].email);
   return ok(res, { qrDataUrl, base32Secret }, 'Scan the QR code, then confirm to finish signing in');
