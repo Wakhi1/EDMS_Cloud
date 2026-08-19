@@ -43,12 +43,19 @@ function parseConfig(raw) {
 }
 
 async function pollConnector(connectorId) {
-  const [[row]] = await pool.query('SELECT config_json FROM integrations WHERE id = ?', [connectorId]);
-  if (!row) return;
-  const config = parseConfig(row.config_json);
-  const connector = CONNECTORS[connectorId];
-
+  // Everything in this function body must stay inside this try — setInterval
+  // (see startScheduler/rescheduleConnector below) never awaits or catches
+  // this function's returned promise, so ANY rejection that escapes here
+  // becomes an unhandled promise rejection that crashes the whole process.
+  // This bit the server for real: a transient ECONNRESET on the very first
+  // query below (config lookup) took the whole API down overnight, even
+  // though the connector-poll step a few lines later was already guarded.
   try {
+    const [[row]] = await pool.query('SELECT config_json FROM integrations WHERE id = ?', [connectorId]);
+    if (!row) return;
+    const config = parseConfig(row.config_json);
+    const connector = CONNECTORS[connectorId];
+
     const files = await connector.poll(config);
     if (files.length > 0) {
       const result = await runBatch({ source: connectorId, files, defaultFolderId: config.defaultFolderId });
@@ -60,10 +67,18 @@ async function pollConnector(connectorId) {
       [files.length, connectorId]
     );
   } catch (err) {
-    // A connector failure (e.g. FTP unreachable, no real credentials yet)
-    // must never crash the process or block the other connectors' timers.
+    // A connector failure (e.g. FTP unreachable, no real credentials yet,
+    // or a transient DB blip on the config lookup itself) must never crash
+    // the process or block the other connectors' timers.
     logger.warn('Automated intake poll failed', { connectorId, error: err.message });
-    await pool.query(`UPDATE integrations SET status = 'error', last_sync_at = NOW() WHERE id = ?`, [connectorId]);
+    try {
+      await pool.query(`UPDATE integrations SET status = 'error', last_sync_at = NOW() WHERE id = ?`, [connectorId]);
+    } catch (writeErr) {
+      // Same reasoning as above, one level deeper: if even this write
+      // fails (e.g. the same connection blip), swallow it too rather than
+      // let it escape as a second unhandled rejection.
+      logger.warn('Automated intake poll: failed to record error status', { connectorId, error: writeErr.message });
+    }
   }
 }
 
