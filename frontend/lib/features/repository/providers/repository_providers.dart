@@ -38,3 +38,7 @@ final repositoryDocumentsProvider = FutureProvider.autoDispose<List<DocumentReco
 });
 
 final selectedDocumentProvider = StateProvider<DocumentRecord?>((ref) => null);
+
+enum RepositoryViewMode { list, grid }
+
+final repositoryViewModeProvider = StateProvider<RepositoryViewMode>((ref) => RepositoryViewMode.list);

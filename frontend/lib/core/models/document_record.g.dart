@@ -22,6 +22,9 @@ _DocumentRecord _$DocumentRecordFromJson(Map<String, dynamic> json) =>
       folderPath: json['folder_path'] as String?,
       currentVersionNo: (json['current_version_no'] as num?)?.toInt(),
       ownerName: json['owner_name'] as String?,
+      mimeType: json['mime_type'] as String?,
+      fileName: json['file_name'] as String?,
+      sizeBytes: _intFromDynamic(json['size_bytes']),
     );
 
 Map<String, dynamic> _$DocumentRecordToJson(_DocumentRecord instance) =>
@@ -40,4 +43,7 @@ Map<String, dynamic> _$DocumentRecordToJson(_DocumentRecord instance) =>
       'folder_path': instance.folderPath,
       'current_version_no': instance.currentVersionNo,
       'owner_name': instance.ownerName,
+      'mime_type': instance.mimeType,
+      'file_name': instance.fileName,
+      'size_bytes': instance.sizeBytes,
     };

@@ -35,14 +35,19 @@ class RepositoryScreen extends ConsumerWidget {
                 style: Theme.of(context).textTheme.titleMedium,
               );
               final filterBar = _FilterBar();
+              const viewToggle = _ViewModeToggle();
               if (constraints.maxWidth < 560) {
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [title, const SizedBox(height: 10), filterBar],
+                  children: [
+                    Row(children: [title, const Spacer(), viewToggle]),
+                    const SizedBox(height: 10),
+                    filterBar,
+                  ],
                 );
               }
               return Row(
-                children: [title, const Spacer(), filterBar],
+                children: [title, const Spacer(), filterBar, const SizedBox(width: 10), viewToggle],
               );
             },
           ),
@@ -64,7 +69,9 @@ class RepositoryScreen extends ConsumerWidget {
                       onRetry: () =>
                           ref.invalidate(repositoryDocumentsProvider),
                     ),
-                    data: (docs) => _DocumentList(docs: docs),
+                    data: (docs) => ref.watch(repositoryViewModeProvider) == RepositoryViewMode.grid
+                        ? _DocumentGrid(docs: docs)
+                        : _DocumentList(docs: docs),
                   ),
                 ),
                 if (showDetails) ...[
@@ -108,6 +115,45 @@ class _FilterBarState extends ConsumerState<_FilterBar> {
             q: q,
           );
         },
+      ),
+    );
+  }
+}
+
+class _ViewModeToggle extends ConsumerWidget {
+  const _ViewModeToggle();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final tokens = context.tokens;
+    final mode = ref.watch(repositoryViewModeProvider);
+
+    Widget button(RepositoryViewMode value, IconData icon, String tooltip) {
+      final selected = mode == value;
+      return Tooltip(
+        message: tooltip,
+        child: InkWell(
+          onTap: () => ref.read(repositoryViewModeProvider.notifier).state = value,
+          child: Container(
+            width: 32,
+            height: 32,
+            alignment: Alignment.center,
+            color: selected ? tokens.sel : Colors.transparent,
+            child: Icon(icon, size: 17, color: selected ? tokens.ink : tokens.ink2),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      decoration: BoxDecoration(border: Border.all(color: tokens.line)),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          button(RepositoryViewMode.list, Icons.view_list_outlined, 'List view'),
+          Container(width: 1, height: 32, color: tokens.line),
+          button(RepositoryViewMode.grid, Icons.grid_view_outlined, 'Grid view'),
+        ],
       ),
     );
   }
@@ -378,6 +424,81 @@ class _DocumentList extends ConsumerWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// File-type icon from the current version's mime type — the list endpoint
+/// joins document_versions in for this (see documents.routes.js), so it's
+/// available on every row already fetched for the list view; no extra
+/// request per card. Falls back to a generic file icon when unknown (e.g.
+/// the mime type wasn't recognised, or a pre-migration row has none).
+IconData _iconForMime(String? mimeType) {
+  final m = mimeType ?? '';
+  if (m.startsWith('image/')) return Icons.image_outlined;
+  if (m == 'application/pdf') return Icons.picture_as_pdf_outlined;
+  if (m == 'text/csv' || m.contains('spreadsheet') || m.contains('excel')) return Icons.table_chart_outlined;
+  if (m.contains('wordprocessingml') || m.contains('msword')) return Icons.description_outlined;
+  if (m == 'text/plain') return Icons.article_outlined;
+  return Icons.insert_drive_file_outlined;
+}
+
+class _DocumentGrid extends ConsumerWidget {
+  const _DocumentGrid({required this.docs});
+
+  final List<DocumentRecord> docs;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (docs.isEmpty) {
+      return const EmptyState(message: 'No records match. Try clearing the filters.');
+    }
+    final tokens = context.tokens;
+    final selected = ref.watch(selectedDocumentProvider);
+
+    return GridView.builder(
+      padding: const EdgeInsets.only(bottom: 4),
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 200,
+        mainAxisExtent: 172,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 12,
+      ),
+      itemCount: docs.length,
+      itemBuilder: (context, i) {
+        final d = docs[i];
+        final isSelected = selected?.id == d.id;
+        return InkWell(
+          onTap: () {
+            ref.read(selectedDocumentProvider.notifier).state = d;
+            context.go(RoutePaths.viewerFor('${d.id}'));
+          },
+          child: Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              border: Border.all(color: isSelected ? tokens.accD : tokens.line),
+              color: isSelected ? tokens.sel : tokens.surf,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(_iconForMime(d.mimeType), size: 34, color: tokens.accD),
+                const SizedBox(height: 8),
+                Text(
+                  d.title,
+                  style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                Text(d.recordNo, style: TextStyle(fontSize: 11, color: tokens.ink2)),
+                const Spacer(),
+                StatusChip.forDocumentStatus(d.status),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }

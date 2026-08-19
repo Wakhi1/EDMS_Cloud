@@ -71,7 +71,8 @@ router.get('/', requireModuleAccess('repository'), asyncHandler(async (req, res)
     `SELECT d.id, d.record_no, d.title, d.status, d.classification, d.member_number,
             d.member_name, d.created_at, d.updated_at,
             dt.name AS document_type, dep.name AS department, f.path AS folder_path,
-            v.version_no AS current_version_no, u.full_name AS owner_name
+            v.version_no AS current_version_no, u.full_name AS owner_name,
+            v.mime_type, v.file_name, v.size_bytes
      FROM documents d
      JOIN document_types dt ON dt.id = d.document_type_id
      LEFT JOIN departments dep ON dep.id = d.department_id
