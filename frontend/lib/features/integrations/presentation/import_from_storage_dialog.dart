@@ -28,6 +28,16 @@ class ImportFromStorageDialog extends ConsumerStatefulWidget {
 
 class _ImportFromStorageDialogState extends ConsumerState<ImportFromStorageDialog> {
   int? _folderId;
+  // Riverpod's AsyncValue.when() defaults to skipLoadingOnRefresh: true —
+  // right after ref.invalidate(foldersProvider) below, the very next build
+  // still sees the STALE folder list (by design, to avoid a loading
+  // flicker), not yet including the folder just created. Selecting it by
+  // id immediately would set the dropdown's value to something absent
+  // from its own items, which is a real Flutter assertion failure (the
+  // "red screen"), not just a race that usually gets lucky. Tracking its
+  // path here lets the dropdown always render an item for it until the
+  // real list catches up, regardless of exactly when that happens.
+  String? _pendingFolderPath;
   int? _documentTypeId;
   String _classification = 'internal';
   int? _departmentId;
@@ -53,7 +63,10 @@ class _ImportFromStorageDialogState extends ConsumerState<ImportFromStorageDialo
       final result = await ref.read(foldersApiProvider).create(name: name);
       ref.invalidate(foldersProvider);
       _newFolderController.clear();
-      setState(() => _folderId = result.id);
+      setState(() {
+        _folderId = result.id;
+        _pendingFolderPath = result.path;
+      });
     } on ApiException catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
     } finally {
@@ -121,8 +134,17 @@ class _ImportFromStorageDialogState extends ConsumerState<ImportFromStorageDialo
                   initialValue: _folderId,
                   isExpanded: true,
                   decoration: const InputDecoration(labelText: 'Destination folder'),
-                  items: [for (final f in folders) DropdownMenuItem(value: f.id, child: Text(f.path, overflow: TextOverflow.ellipsis))],
-                  onChanged: (v) => setState(() => _folderId = v),
+                  items: [
+                    for (final f in folders) DropdownMenuItem(value: f.id, child: Text(f.path, overflow: TextOverflow.ellipsis)),
+                    // Covers the gap between creating a folder and foldersProvider's
+                    // refetch actually resolving — see _pendingFolderPath above.
+                    if (_pendingFolderPath != null && _folderId != null && !folders.any((f) => f.id == _folderId))
+                      DropdownMenuItem(value: _folderId!, child: Text(_pendingFolderPath!, overflow: TextOverflow.ellipsis)),
+                  ],
+                  onChanged: (v) => setState(() {
+                    _folderId = v;
+                    _pendingFolderPath = null;
+                  }),
                 ),
               ),
               const SizedBox(height: 6),
