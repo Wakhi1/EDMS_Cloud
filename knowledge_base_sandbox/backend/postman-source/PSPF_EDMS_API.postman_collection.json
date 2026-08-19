@@ -1,0 +1,2674 @@
+{
+  "info": {
+    "_postman_id": "b1e2c3d4-0001-4a2b-8c3d-000000000001",
+    "name": "PSPF EDMS API",
+    "description": "Full route coverage for the PSPF Electronic Document & Records Management System backend.\n\nRun order for a clean end-to-end pass:\n1. Auth > Register (or use a seeded user from pspf_edms_seed_test_data.sql)\n2. Auth > Login  (captures accessToken/refreshToken, or mfaToken if the role requires MFA)\n3. MFA > (enroll + confirm, or verify challenge) if prompted\n4. Folders > Create Folder (captures folderId)\n5. Documents > Register Document (captures documentId)\n6. Versions / Permissions / Approvals / Workflow / Audit / Retention / Reports / Integrations / Notifications / Users as needed\n\nAll requests use collection variables set automatically by the Test scripts on Login/MFA/Create endpoints — you normally don't need to edit anything by hand.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{accessToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          ""
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:4000/api/v1"
+    },
+    {
+      "key": "accessToken",
+      "value": ""
+    },
+    {
+      "key": "refreshToken",
+      "value": ""
+    },
+    {
+      "key": "mfaToken",
+      "value": ""
+    },
+    {
+      "key": "mfaEnrollmentRequired",
+      "value": ""
+    },
+    {
+      "key": "availableMethods",
+      "value": ""
+    },
+    {
+      "key": "userId",
+      "value": ""
+    },
+    {
+      "key": "roleId",
+      "value": "1"
+    },
+    {
+      "key": "departmentId",
+      "value": "1"
+    },
+    {
+      "key": "folderId",
+      "value": ""
+    },
+    {
+      "key": "documentId",
+      "value": ""
+    },
+    {
+      "key": "documentTypeId",
+      "value": "1"
+    },
+    {
+      "key": "recordNo",
+      "value": "PC-2026-TEST-001"
+    },
+    {
+      "key": "versionId",
+      "value": ""
+    },
+    {
+      "key": "aclId",
+      "value": ""
+    },
+    {
+      "key": "approvalId",
+      "value": ""
+    },
+    {
+      "key": "workflowId",
+      "value": ""
+    },
+    {
+      "key": "groupId",
+      "value": "1"
+    },
+    {
+      "key": "retentionClassId",
+      "value": "1"
+    }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Register",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "register"
+              ]
+            },
+            "description": "Creates an account directly. In production this is normally disabled/admin-only — kept for a working dev flow.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fullName\": \"Test Officer\",\n  \"email\": \"test.officer@pspf.co.sz\",\n  \"password\": \"ChangeMe123!Strong\",\n  \"roleId\": 1,\n  \"departmentId\": 1,\n  \"phoneNumber\": \"+26876000000\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Use a seeded account (see database/pspf_edms_seed_test_data.sql) or one you registered. If the role requires MFA, response contains mfaRequired, mfaEnrollmentRequired, availableMethods, and mfaToken — check the Postman Console (View > Show Postman Console) after sending this for a printed instruction on exactly which MFA request to run next.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@pspf.co.sz\",\n  \"password\": \"ChangeMe123!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  const data = json.data || {};",
+                  "  if (data.mfaRequired) {",
+                  "    pm.collectionVariables.set(\"mfaToken\", data.mfaToken);",
+                  "    pm.collectionVariables.set(\"mfaEnrollmentRequired\", String(!!data.mfaEnrollmentRequired));",
+                  "    pm.collectionVariables.set(\"availableMethods\", JSON.stringify(data.availableMethods || []));",
+                  "    console.log(\"mfaEnrollmentRequired =\", data.mfaEnrollmentRequired, \"| availableMethods =\", data.availableMethods);",
+                  "    console.log(data.mfaEnrollmentRequired",
+                  "      ? \">>> Next: MFA > 'Enroll TOTP (login) - Start', then '...- Confirm'. Do NOT call Verify TOTP yet — nothing is enrolled.\"",
+                  "      : \">>> Next: MFA > 'Verify TOTP (login)' (or Send SMS/Email Challenge, then Verify SMS/Email OTP).\");",
+                  "  }",
+                  "}",
+                  "",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  const data = json.data || {};",
+                  "  if (data.mfaRequired && data.mfaToken) {",
+                  "    pm.collectionVariables.set(\"mfaToken\", data.mfaToken);",
+                  "    console.log(\"MFA required — mfaToken saved. Use the MFA folder to complete sign-in.\");",
+                  "  }",
+                  "  if (data.accessToken) pm.collectionVariables.set(\"accessToken\", data.accessToken);",
+                  "  if (data.refreshToken) pm.collectionVariables.set(\"refreshToken\", data.refreshToken);",
+                  "  if (data.user && data.user.id) pm.collectionVariables.set(\"userId\", data.user.id);",
+                  "}",
+                  "pm.test(\"Status is 200 or 201\", () => pm.expect([200,201]).to.include(pm.response.code));",
+                  ""
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Refresh Token",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/refresh",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "refresh"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) { pm.collectionVariables.set(\"accessToken\", pm.response.json().data.accessToken); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Current User (me)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "me"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/logout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "logout"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Google Sign-In",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/google",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "google"
+              ]
+            },
+            "description": "idToken must come from Google Identity Services on the frontend — a hand-typed value will fail verification.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"idToken\": \"<google-id-token-from-frontend-sdk>\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  const data = json.data || {};",
+                  "  if (data.mfaRequired) {",
+                  "    pm.collectionVariables.set(\"mfaToken\", data.mfaToken);",
+                  "    pm.collectionVariables.set(\"mfaEnrollmentRequired\", String(!!data.mfaEnrollmentRequired));",
+                  "    pm.collectionVariables.set(\"availableMethods\", JSON.stringify(data.availableMethods || []));",
+                  "    console.log(\"mfaEnrollmentRequired =\", data.mfaEnrollmentRequired, \"| availableMethods =\", data.availableMethods);",
+                  "    console.log(data.mfaEnrollmentRequired",
+                  "      ? \">>> Next: MFA > 'Enroll TOTP (login) - Start', then '...- Confirm'. Do NOT call Verify TOTP yet — nothing is enrolled.\"",
+                  "      : \">>> Next: MFA > 'Verify TOTP (login)' (or Send SMS/Email Challenge, then Verify SMS/Email OTP).\");",
+                  "  }",
+                  "}",
+                  "",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  const data = json.data || {};",
+                  "  if (data.mfaRequired && data.mfaToken) {",
+                  "    pm.collectionVariables.set(\"mfaToken\", data.mfaToken);",
+                  "    console.log(\"MFA required — mfaToken saved. Use the MFA folder to complete sign-in.\");",
+                  "  }",
+                  "  if (data.accessToken) pm.collectionVariables.set(\"accessToken\", data.accessToken);",
+                  "  if (data.refreshToken) pm.collectionVariables.set(\"refreshToken\", data.refreshToken);",
+                  "  if (data.user && data.user.id) pm.collectionVariables.set(\"userId\", data.user.id);",
+                  "}",
+                  "pm.test(\"Status is 200 or 201\", () => pm.expect([200,201]).to.include(pm.response.code));",
+                  ""
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Microsoft Sign-In",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/microsoft",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "microsoft"
+              ]
+            },
+            "description": "idToken must come from MSAL.js / Microsoft Entra ID on the frontend.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"idToken\": \"<microsoft-id-token-from-msal-js>\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  const data = json.data || {};",
+                  "  if (data.mfaRequired) {",
+                  "    pm.collectionVariables.set(\"mfaToken\", data.mfaToken);",
+                  "    pm.collectionVariables.set(\"mfaEnrollmentRequired\", String(!!data.mfaEnrollmentRequired));",
+                  "    pm.collectionVariables.set(\"availableMethods\", JSON.stringify(data.availableMethods || []));",
+                  "    console.log(\"mfaEnrollmentRequired =\", data.mfaEnrollmentRequired, \"| availableMethods =\", data.availableMethods);",
+                  "    console.log(data.mfaEnrollmentRequired",
+                  "      ? \">>> Next: MFA > 'Enroll TOTP (login) - Start', then '...- Confirm'. Do NOT call Verify TOTP yet — nothing is enrolled.\"",
+                  "      : \">>> Next: MFA > 'Verify TOTP (login)' (or Send SMS/Email Challenge, then Verify SMS/Email OTP).\");",
+                  "  }",
+                  "}",
+                  "",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  const data = json.data || {};",
+                  "  if (data.mfaRequired && data.mfaToken) {",
+                  "    pm.collectionVariables.set(\"mfaToken\", data.mfaToken);",
+                  "    console.log(\"MFA required — mfaToken saved. Use the MFA folder to complete sign-in.\");",
+                  "  }",
+                  "  if (data.accessToken) pm.collectionVariables.set(\"accessToken\", data.accessToken);",
+                  "  if (data.refreshToken) pm.collectionVariables.set(\"refreshToken\", data.refreshToken);",
+                  "  if (data.user && data.user.id) pm.collectionVariables.set(\"userId\", data.user.id);",
+                  "}",
+                  "pm.test(\"Status is 200 or 201\", () => pm.expect([200,201]).to.include(pm.response.code));",
+                  ""
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Active Directory Sign-In",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/active-directory",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "active-directory"
+              ]
+            },
+            "description": "Intentionally returns 501 until a real LDAPS bind (services/ad.service.js) is implemented server-side — matches the prototype's Active Directory / Kerberos reference. This confirms the route and request shape are correct; it will not complete a sign-in yet.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"PSPF\\\\\\\\s.nkambo\",\n  \"password\": \"<domain-password>\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Request Password Reset",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/password-reset/request",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "password-reset",
+                "request"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@pspf.co.sz\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Confirm Password Reset",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/password-reset/confirm",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "password-reset",
+                "confirm"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"<token-from-email-link>\",\n  \"newPassword\": \"AnotherStrongPass123!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "description": "Registration, password login, refresh/logout, Google & Microsoft sign-in, password reset."
+    },
+    {
+      "name": "MFA",
+      "item": [
+        {
+          "name": "Enroll TOTP (login) — Start",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{mfaToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/mfa/enroll/totp/start",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "mfa",
+                "enroll",
+                "totp",
+                "start"
+              ]
+            },
+            "description": "FIRST STEP for an account with no authenticator enrolled yet (login response had mfaEnrollmentRequired: true). Uses the interim mfaToken from Login — not a full accessToken, because the account can't get one until MFA is satisfied. Returns { qrDataUrl, base32Secret }. Scan qrDataUrl (base64 PNG) in any TOTP app (Google Authenticator, Authy, 1Password, etc.), or type base32Secret in manually.",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Enroll TOTP (login) — Confirm",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{mfaToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/mfa/enroll/totp/confirm",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "mfa",
+                "enroll",
+                "totp",
+                "confirm"
+              ]
+            },
+            "description": "SECOND STEP: enter the current 6-digit code your authenticator app is showing for the secret from 'Enroll TOTP (login) — Start'. On success this ALSO completes sign-in (returns accessToken/refreshToken), same as Verify TOTP does — no separate verify call needed.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"123456\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  const data = json.data || {};",
+                  "  if (data.mfaRequired && data.mfaToken) {",
+                  "    pm.collectionVariables.set(\"mfaToken\", data.mfaToken);",
+                  "    console.log(\"MFA required — mfaToken saved. Use the MFA folder to complete sign-in.\");",
+                  "  }",
+                  "  if (data.accessToken) pm.collectionVariables.set(\"accessToken\", data.accessToken);",
+                  "  if (data.refreshToken) pm.collectionVariables.set(\"refreshToken\", data.refreshToken);",
+                  "  if (data.user && data.user.id) pm.collectionVariables.set(\"userId\", data.user.id);",
+                  "}",
+                  "pm.test(\"Status is 200 or 201\", () => pm.expect([200,201]).to.include(pm.response.code));",
+                  ""
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Enroll TOTP (already signed in)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/mfa/totp/enroll",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "mfa",
+                "totp",
+                "enroll"
+              ]
+            },
+            "description": "For a user who is ALREADY fully signed in and wants to add/replace an authenticator (e.g. new phone). Different from the pair above: this needs a real accessToken, which only exists after MFA is already satisfied once.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Confirm TOTP (already signed in)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/mfa/totp/confirm",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "mfa",
+                "totp",
+                "confirm"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"123456\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Generate Backup Codes",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/mfa/backup-codes/generate",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "mfa",
+                "backup-codes",
+                "generate"
+              ]
+            },
+            "description": "Requires a full accessToken (already signed in) — backup codes are a recovery mechanism generated from within Security & Access, not something you can create before your first successful sign-in.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Send SMS Challenge",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{mfaToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/mfa/challenge/sms/send",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "mfa",
+                "challenge",
+                "sms",
+                "send"
+              ]
+            },
+            "description": "Only works if the backend's SMS_PROVIDER/Twilio credentials are configured and reachable. If you're offline or those aren't set up, use the TOTP enroll/verify requests instead — they need no external network call at all.",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Send Email Challenge",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{mfaToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/mfa/challenge/email/send",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "mfa",
+                "challenge",
+                "email",
+                "send"
+              ]
+            },
+            "description": "Only works if the backend's SMTP credentials are configured and reachable. Same offline caveat as Send SMS Challenge.",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Verify TOTP (login)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{mfaToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/mfa/verify/totp",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "mfa",
+                "verify",
+                "totp"
+              ]
+            },
+            "description": "Only call this if mfaEnrollmentRequired was FALSE at login (an authenticator is already enrolled and verified). If you get 'TOTP is not enrolled for this account', that means mfaEnrollmentRequired was actually true — go run 'Enroll TOTP (login) — Start' and '— Confirm' instead, this account has never completed enrolment.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"123456\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  const data = json.data || {};",
+                  "  if (data.mfaRequired && data.mfaToken) {",
+                  "    pm.collectionVariables.set(\"mfaToken\", data.mfaToken);",
+                  "    console.log(\"MFA required — mfaToken saved. Use the MFA folder to complete sign-in.\");",
+                  "  }",
+                  "  if (data.accessToken) pm.collectionVariables.set(\"accessToken\", data.accessToken);",
+                  "  if (data.refreshToken) pm.collectionVariables.set(\"refreshToken\", data.refreshToken);",
+                  "  if (data.user && data.user.id) pm.collectionVariables.set(\"userId\", data.user.id);",
+                  "}",
+                  "pm.test(\"Status is 200 or 201\", () => pm.expect([200,201]).to.include(pm.response.code));",
+                  ""
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Verify SMS/Email OTP (login)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{mfaToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/mfa/verify/otp",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "mfa",
+                "verify",
+                "otp"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"123456\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  const data = json.data || {};",
+                  "  if (data.mfaRequired && data.mfaToken) {",
+                  "    pm.collectionVariables.set(\"mfaToken\", data.mfaToken);",
+                  "    console.log(\"MFA required — mfaToken saved. Use the MFA folder to complete sign-in.\");",
+                  "  }",
+                  "  if (data.accessToken) pm.collectionVariables.set(\"accessToken\", data.accessToken);",
+                  "  if (data.refreshToken) pm.collectionVariables.set(\"refreshToken\", data.refreshToken);",
+                  "  if (data.user && data.user.id) pm.collectionVariables.set(\"userId\", data.user.id);",
+                  "}",
+                  "pm.test(\"Status is 200 or 201\", () => pm.expect([200,201]).to.include(pm.response.code));",
+                  ""
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Verify Backup Code (login)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{mfaToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/mfa/verify/backup-code",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "mfa",
+                "verify",
+                "backup-code"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"ab12cd34ef\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  const data = json.data || {};",
+                  "  if (data.mfaRequired && data.mfaToken) {",
+                  "    pm.collectionVariables.set(\"mfaToken\", data.mfaToken);",
+                  "    console.log(\"MFA required — mfaToken saved. Use the MFA folder to complete sign-in.\");",
+                  "  }",
+                  "  if (data.accessToken) pm.collectionVariables.set(\"accessToken\", data.accessToken);",
+                  "  if (data.refreshToken) pm.collectionVariables.set(\"refreshToken\", data.refreshToken);",
+                  "  if (data.user && data.user.id) pm.collectionVariables.set(\"userId\", data.user.id);",
+                  "}",
+                  "pm.test(\"Status is 200 or 201\", () => pm.expect([200,201]).to.include(pm.response.code));",
+                  ""
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Run order depends on the Login response's `mfaEnrollmentRequired` flag (auto-saved as a collection variable by Login's Test script — check the Postman Console after calling Login to see it logged):\n\n• mfaEnrollmentRequired = true  → 'Enroll TOTP (login) — Start' then '— Confirm'\n• mfaEnrollmentRequired = false → 'Verify TOTP (login)', or Send SMS/Email Challenge then Verify SMS/Email OTP, or Verify Backup Code\n\n'TOTP is not enrolled for this account' from Verify TOTP means you skipped enrolment — this account has never confirmed an authenticator. SMS/Email challenges need the backend's SMTP/Twilio configured and reachable; TOTP enroll/verify need no external network call at all, which is the one to use if you're working offline."
+    },
+    {
+      "name": "Users & Groups",
+      "item": [
+        {
+          "name": "List Users",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Change User Role",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users/{{userId}}/role",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "{{userId}}",
+                "role"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roleId\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Lock / Unlock User",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users/{{userId}}/lock",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "{{userId}}",
+                "lock"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"locked\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "List Groups",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users/groups/all",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "groups",
+                "all"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Add Group Member",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users/groups/{{groupId}}/members",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "groups",
+                "{{groupId}}",
+                "members"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{userId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Update My Profile",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fullName\": \"Updated Name\",\n  \"phoneNumber\": \"+26876000001\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Change My Password",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "password"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentPassword\": \"ChangeMe123!\",\n  \"newPassword\": \"EvenStrongerPass456!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "description": "Administration of accounts and groups (System Administrator / Records Manager)."
+    },
+    {
+      "name": "Folders",
+      "item": [
+        {
+          "name": "List Folders",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/folders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "folders"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Folder",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/folders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "folders"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Retirement\",\n  \"parentId\": null,\n  \"departmentId\": \"{{departmentId}}\",\n  \"retentionClassId\": \"{{retentionClassId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) { pm.collectionVariables.set(\"folderId\", pm.response.json().data.id); }"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Folder tree (e.g. Pension Claims / 2026 / Retirement)."
+    },
+    {
+      "name": "Documents",
+      "item": [
+        {
+          "name": "List / Search Documents",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/documents?q=&folderId={{folderId}}&status=",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "documents"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "",
+                  "disabled": false
+                },
+                {
+                  "key": "folderId",
+                  "value": "{{folderId}}",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Document by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/documents/{{documentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "documents",
+                "{{documentId}}"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Register Document (upload + encrypt)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/documents",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "documents"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": ""
+                },
+                {
+                  "key": "recordNo",
+                  "value": "{{recordNo}}",
+                  "type": "text"
+                },
+                {
+                  "key": "title",
+                  "value": "Application for Retirement Benefit — DLAMINI T.M.",
+                  "type": "text"
+                },
+                {
+                  "key": "documentTypeId",
+                  "value": "{{documentTypeId}}",
+                  "type": "text"
+                },
+                {
+                  "key": "folderId",
+                  "value": "{{folderId}}",
+                  "type": "text"
+                },
+                {
+                  "key": "departmentId",
+                  "value": "{{departmentId}}",
+                  "type": "text"
+                },
+                {
+                  "key": "memberNumber",
+                  "value": "41-882-6117",
+                  "type": "text"
+                },
+                {
+                  "key": "memberName",
+                  "value": "DLAMINI, Themba Musa",
+                  "type": "text"
+                },
+                {
+                  "key": "classification",
+                  "value": "restricted",
+                  "type": "text"
+                },
+                {
+                  "key": "retentionClassId",
+                  "value": "{{retentionClassId}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "description": "In the 'file' field's Value column, click 'Select Files' and choose any PDF/image to upload — Postman cannot pre-fill a file path. The file is encrypted server-side (AES-256-GCM) before it is written to the active cloud storage provider."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) { pm.collectionVariables.set(\"documentId\", pm.response.json().data.id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Decrypted Content",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/documents/{{documentId}}/content?reason=Postman test read",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "documents",
+                "{{documentId}}",
+                "content"
+              ],
+              "query": [
+                {
+                  "key": "reason",
+                  "value": "Postman test read",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Streams the decrypted file. Add ?reason=... if the document's classification is 'confidential'.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Declare Record Final",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/documents/{{documentId}}/declare-final",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "documents",
+                "{{documentId}}",
+                "declare-final"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "description": "Repository: register, search, view metadata, read decrypted content, declare final."
+    },
+    {
+      "name": "Versions",
+      "item": [
+        {
+          "name": "List Versions for Document",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/versions/document/{{documentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "versions",
+                "document",
+                "{{documentId}}"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Upload New Version",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/versions/document/{{documentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "versions",
+                "document",
+                "{{documentId}}"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": ""
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) { pm.collectionVariables.set(\"versionId\", pm.response.json().data.versionId); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Restore Version",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/versions/{{versionId}}/restore",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "versions",
+                "{{versionId}}",
+                "restore"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "description": "Version history, new-version upload (also encrypted), and restore (writes a new current version)."
+    },
+    {
+      "name": "Permissions",
+      "item": [
+        {
+          "name": "Get ACL for Folder",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/permissions/folder/{{folderId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "permissions",
+                "folder",
+                "{{folderId}}"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get ACL for Document",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/permissions/document/{{documentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "permissions",
+                "document",
+                "{{documentId}}"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Grant ACL on Folder",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/permissions/folder/{{folderId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "permissions",
+                "folder",
+                "{{folderId}}"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"principalType\": \"user\",\n  \"principalId\": \"{{userId}}\",\n  \"permissionLevel\": \"edit\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) { pm.collectionVariables.set(\"aclId\", pm.response.json().data.id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Revoke ACL Entry",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/permissions/{{aclId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "permissions",
+                "{{aclId}}"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Role x Module Matrix",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/permissions/matrix/all",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "permissions",
+                "matrix",
+                "all"
+              ]
+            },
+            "description": "System Administrator only.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update Role x Module Matrix Cell",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/permissions/matrix",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "permissions",
+                "matrix"
+              ]
+            },
+            "description": "System Administrator only.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roleId\": \"{{roleId}}\",\n  \"module\": \"repository\",\n  \"canView\": true,\n  \"canEdit\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "description": "Folder/document ACLs (inheritable) and the role x module permission matrix."
+    },
+    {
+      "name": "Approvals",
+      "item": [
+        {
+          "name": "My Approval Inbox",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/approvals",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "approvals"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Approve",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/approvals/{{approvalId}}/approve",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "approvals",
+                "{{approvalId}}",
+                "approve"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"comment\": \"Looks correct.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Reject",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/approvals/{{approvalId}}/reject",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "approvals",
+                "{{approvalId}}",
+                "reject"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"comment\": \"Missing certified HR stamp.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "description": "Awaiting-my-approval inbox and decisions that advance the workflow instance."
+    },
+    {
+      "name": "Workflow",
+      "item": [
+        {
+          "name": "List Workflows",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/workflow",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "workflow"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Workflow",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/workflow",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "workflow"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Retirement Claim Assessment\",\n  \"triggerDocTypeId\": \"{{documentTypeId}}\",\n  \"triggerFolderId\": \"{{folderId}}\",\n  \"steps\": [\n    {\n      \"stepName\": \"Records check\",\n      \"roleId\": 1,\n      \"slaDays\": 2\n    },\n    {\n      \"stepName\": \"Manager authorisation\",\n      \"roleId\": 2,\n      \"slaDays\": 3\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) { pm.collectionVariables.set(\"workflowId\", pm.response.json().data.id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Start Workflow on Document",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/workflow/{{workflowId}}/start/{{documentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "workflow",
+                "{{workflowId}}",
+                "start",
+                "{{documentId}}"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "description": "Workflow Designer: named workflows with ordered role-based steps + SLA."
+    },
+    {
+      "name": "Audit",
+      "item": [
+        {
+          "name": "List Audit Entries",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/audit?action=All actions&q=",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "audit"
+              ],
+              "query": [
+                {
+                  "key": "action",
+                  "value": "All actions",
+                  "disabled": true
+                },
+                {
+                  "key": "q",
+                  "value": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Export Audit CSV",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/audit/export.csv",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "audit",
+                "export.csv"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Verify Hash Chain",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/audit/verify-chain",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "audit",
+                "verify-chain"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "description": "Audit trail viewing, CSV export, and tamper-evidence hash-chain verification."
+    },
+    {
+      "name": "Retention",
+      "item": [
+        {
+          "name": "List Retention Classes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/retention/classes",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "retention",
+                "classes"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update Retention Class",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/retention/classes/{{retentionClassId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "retention",
+                "classes",
+                "{{retentionClassId}}"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"retentionYears\": 7,\n  \"disposalAction\": \"archive\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "List Records Due for Disposal",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/retention/due",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "retention",
+                "due"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Dispose Record",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/retention/{{documentId}}/dispose",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "retention",
+                "{{documentId}}",
+                "dispose"
+              ]
+            },
+            "description": "Records Manager / System Administrator only.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "description": "Retention schedules and the disposal queue."
+    },
+    {
+      "name": "Notifications",
+      "item": [
+        {
+          "name": "List Notifications",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/notifications",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "notifications"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Mark One Read",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/notifications/1/read",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "notifications",
+                "1",
+                "read"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Mark All Read",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/notifications/read-all",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "notifications",
+                "read-all"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "description": ""
+    },
+    {
+      "name": "Integrations & Capture",
+      "item": [
+        {
+          "name": "List Integrations",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/integrations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "integrations"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update Integration",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/integrations/aws_s3",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "integrations",
+                "aws_s3"
+              ]
+            },
+            "description": "System Administrator only. Path param is the integration id, e.g. ad, hris, smtp, sms, aws_s3, azure_blob, gcp_storage.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"connected\",\n  \"endpoint\": \"s3.af-south-1.amazonaws.com\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Capture Batch Summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/integrations/capture-batches/summary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "integrations",
+                "capture-batches",
+                "summary"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Record Capture Batch",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/integrations/capture-batches",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "integrations",
+                "capture-batches"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"batchNo\": \"B-2026-0044\",\n  \"source\": \"watched_folder\",\n  \"pages\": 188,\n  \"documents\": 61,\n  \"successRate\": 98.1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "description": "Active Directory / HRIS / SMTP / SMS / cloud storage status, and scan/intake batch stats."
+    },
+    {
+      "name": "Reports",
+      "item": [
+        {
+          "name": "Records by Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/reports/by-status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "reports",
+                "by-status"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Records by Department",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/reports/by-department",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "reports",
+                "by-department"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Claim Turnaround",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/reports/claim-turnaround",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "reports",
+                "claim-turnaround"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Audit Action Counts",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/reports/audit-actions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "reports",
+                "audit-actions"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "description": ""
+    },
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:4000/health",
+              "host": [
+                "http://localhost:4000"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "description": "Note: this hits {{baseUrl}} minus /api — override the URL to {{baseUrlRoot}}/health, or just call http://localhost:4000/health directly.",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        }
+      ],
+      "description": ""
+    }
+  ]
+}

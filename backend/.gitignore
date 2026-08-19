@@ -1,6 +1,7 @@
 node_modules/
 .env
 logs/*.log
+logs/.*-audit.json
 storage/
 gcp-service-account.json
 gcp-client-secret.json
