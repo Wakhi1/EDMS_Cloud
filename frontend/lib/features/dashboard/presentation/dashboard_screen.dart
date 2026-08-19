@@ -262,7 +262,10 @@ class _BarChart extends StatelessWidget {
         ),
         barGroups: [
           for (var i = 0; i < counts.length; i++)
-            BarChartGroupData(x: i, barRods: [BarChartRodData(toY: counts[i].total.toDouble(), color: color, width: 22)]),
+            BarChartGroupData(
+              x: i,
+              barRods: [BarChartRodData(toY: counts[i].total.toDouble(), color: color, width: 22, borderRadius: BorderRadius.zero)],
+            ),
         ],
       ),
     );

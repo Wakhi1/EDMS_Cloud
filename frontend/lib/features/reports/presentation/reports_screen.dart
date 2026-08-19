@@ -6,6 +6,7 @@ import '../../../core/api/api_exception.dart';
 import '../../../core/models/count_item.dart';
 import '../../../core/theme/pspf_tokens.dart';
 import '../../../core/utils/format_bytes.dart';
+import '../../../core/widgets/compact_date_range_picker.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/label_value_bar_chart.dart';
 import '../../../core/widgets/label_value_bar_list.dart';
@@ -41,11 +42,12 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     final initialFrom = filters.from != null ? DateTime.tryParse(filters.from!) : null;
     final initialTo = filters.to != null ? DateTime.tryParse(filters.to!) : null;
 
-    final picked = await showDateRangePicker(
-      context: context,
+    final picked = await showCompactDateRangePicker(
+      context,
       firstDate: DateTime(now.year - 10),
       lastDate: now,
-      initialDateRange: (initialFrom != null && initialTo != null) ? DateTimeRange(start: initialFrom, end: initialTo) : null,
+      initialFrom: initialFrom,
+      initialTo: initialTo,
     );
     if (picked == null) return;
 

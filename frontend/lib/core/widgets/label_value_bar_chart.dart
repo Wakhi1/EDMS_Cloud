@@ -40,7 +40,10 @@ class LabelValueBarChart extends StatelessWidget {
         ),
         barGroups: [
           for (var i = 0; i < points.length; i++)
-            BarChartGroupData(x: i, barRods: [BarChartRodData(toY: points[i].$2, color: color, width: 22)]),
+            BarChartGroupData(
+              x: i,
+              barRods: [BarChartRodData(toY: points[i].$2, color: color, width: 22, borderRadius: BorderRadius.zero)],
+            ),
         ],
       ),
     );
