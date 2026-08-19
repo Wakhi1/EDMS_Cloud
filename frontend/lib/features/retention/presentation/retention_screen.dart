@@ -45,9 +45,9 @@ class RetentionScreen extends StatelessWidget {
                 ? const Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(child: classes),
+                      Expanded(child: SingleChildScrollView(child: classes)),
                       SizedBox(width: 16),
-                      Expanded(child: due),
+                      Expanded(child: SingleChildScrollView(child: due)),
                     ],
                   )
                 : const SingleChildScrollView(
