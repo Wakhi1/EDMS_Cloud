@@ -20,6 +20,7 @@ import 'resources/notifications_api.dart';
 import 'resources/permissions_api.dart';
 import 'resources/reports_api.dart';
 import 'resources/retention_api.dart';
+import 'resources/roles_api.dart';
 import 'resources/settings_api.dart';
 import 'resources/users_api.dart';
 import 'resources/versions_api.dart';
@@ -71,6 +72,7 @@ final versionsApiProvider = Provider<VersionsApi>((ref) => VersionsApi(ref.watch
 final auditApiProvider = Provider<AuditApi>((ref) => AuditApi(ref.watch(apiClientProvider)));
 final retentionApiProvider = Provider<RetentionApi>((ref) => RetentionApi(ref.watch(apiClientProvider)));
 final usersApiProvider = Provider<UsersApi>((ref) => UsersApi(ref.watch(apiClientProvider)));
+final rolesApiProvider = Provider<RolesApi>((ref) => RolesApi(ref.watch(apiClientProvider)));
 final permissionsApiProvider = Provider<PermissionsApi>((ref) => PermissionsApi(ref.watch(apiClientProvider)));
 final integrationsApiProvider = Provider<IntegrationsApi>((ref) => IntegrationsApi(ref.watch(apiClientProvider)));
 final captureBatchesApiProvider = Provider<CaptureBatchesApi>((ref) => CaptureBatchesApi(ref.watch(apiClientProvider)));

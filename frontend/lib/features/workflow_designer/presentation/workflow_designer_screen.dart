@@ -3,12 +3,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/api_exception.dart';
 import '../../../core/api/api_providers.dart';
-import '../../../core/auth/known_roles.dart';
+import '../../../core/models/role_row.dart';
 import '../../../core/models/workflow_row.dart';
 import '../../../core/theme/pspf_tokens.dart';
+import '../../../core/widgets/confirm_dialog.dart';
 import '../../../core/widgets/empty_state.dart';
+import '../../../core/widgets/status_chip.dart';
 import '../../repository/providers/repository_providers.dart';
+import '../../users/providers/users_providers.dart';
 import '../providers/workflow_providers.dart';
+import 'start_workflow_dialog.dart';
 
 class WorkflowDesignerScreen extends ConsumerWidget {
   const WorkflowDesignerScreen({super.key});
@@ -18,8 +22,15 @@ class WorkflowDesignerScreen extends ConsumerWidget {
     final width = MediaQuery.sizeOf(context).width;
     final wide = width >= 1000;
 
+    final editingId = ref.watch(editingWorkflowIdProvider);
+    final workflows = ref.watch(workflowsProvider).valueOrNull ?? const <WorkflowRow>[];
+    final editingWorkflow = editingId == null ? null : workflows.where((w) => w.id == editingId).firstOrNull;
+
     final list = _ExistingWorkflowsList();
-    final form = const _NewWorkflowForm();
+    // Keyed on the workflow being edited (or 'new') so switching targets
+    // fully remounts the form's state instead of trying to sync controllers
+    // and the step list mid-flight.
+    final form = _WorkflowForm(key: ValueKey(editingWorkflow?.id ?? 'new'), editing: editingWorkflow);
 
     return Padding(
       padding: const EdgeInsets.all(18),
@@ -87,23 +98,98 @@ class _ExistingWorkflowsList extends ConsumerWidget {
   }
 }
 
-class _WorkflowTile extends StatelessWidget {
+class _WorkflowTile extends ConsumerStatefulWidget {
   const _WorkflowTile({required this.workflow});
 
   final WorkflowRow workflow;
 
   @override
+  ConsumerState<_WorkflowTile> createState() => _WorkflowTileState();
+}
+
+class _WorkflowTileState extends ConsumerState<_WorkflowTile> {
+  bool _busy = false;
+
+  Future<void> _start(BuildContext context) async {
+    final documentId = await showDialog<int>(context: context, builder: (_) => StartWorkflowDialog(workflow: widget.workflow));
+    if (documentId == null) return;
+
+    setState(() => _busy = true);
+    try {
+      await ref.read(workflowApiProvider).startInstance(workflowId: widget.workflow.id, documentId: documentId);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Started "${widget.workflow.name}" on the selected record.')));
+      }
+    } on ApiException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _toggleActive(BuildContext context) async {
+    setState(() => _busy = true);
+    try {
+      await ref.read(workflowApiProvider).update(widget.workflow.id, isActive: !widget.workflow.isActive);
+      ref.invalidate(workflowsProvider);
+    } on ApiException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _delete(BuildContext context) async {
+    final confirmed = await ConfirmDialog.show(
+      context,
+      title: 'Delete "${widget.workflow.name}"?',
+      body: 'Refused if any instance of this workflow is still in progress.',
+      okLabel: 'Delete',
+      danger: true,
+    );
+    if (confirmed == null) return;
+
+    setState(() => _busy = true);
+    try {
+      await ref.read(workflowApiProvider).delete(widget.workflow.id);
+      if (ref.read(editingWorkflowIdProvider) == widget.workflow.id) {
+        ref.read(editingWorkflowIdProvider.notifier).state = null;
+      }
+      ref.invalidate(workflowsProvider);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Workflow deleted.')));
+    } on ApiException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final tokens = context.tokens;
+    final workflow = widget.workflow;
+    final isEditing = ref.watch(editingWorkflowIdProvider) == workflow.id;
+
     return Container(
       padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(border: Border(top: BorderSide(color: tokens.line))),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(workflow.name, style: Theme.of(context).textTheme.titleSmall),
-          const SizedBox(height: 6),
-          for (final s in workflow.steps)
+      decoration: BoxDecoration(
+        border: Border(top: BorderSide(color: tokens.line)),
+        color: isEditing ? tokens.surf2 : null,
+      ),
+      child: Opacity(
+        opacity: _busy ? 0.6 : 1,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: Text(workflow.name, style: Theme.of(context).textTheme.titleSmall)),
+                StatusChip(workflow.isActive ? 'Active' : 'Inactive', tone: workflow.isActive ? StatusTone.ok : StatusTone.plain),
+              ],
+            ),
+            const SizedBox(height: 6),
+            for (final s in workflow.steps)
             Padding(
               padding: const EdgeInsets.only(bottom: 3),
               child: Row(
@@ -127,7 +213,32 @@ class _WorkflowTile extends StatelessWidget {
                 ],
               ),
             ),
-        ],
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                OutlinedButton(
+                  onPressed: _busy || workflow.steps.isEmpty || !workflow.isActive ? null : () => _start(context),
+                  child: const Text('Start'),
+                ),
+                OutlinedButton(
+                  onPressed: _busy ? null : () => ref.read(editingWorkflowIdProvider.notifier).state = isEditing ? null : workflow.id,
+                  child: Text(isEditing ? 'Cancel edit' : 'Edit'),
+                ),
+                OutlinedButton(
+                  onPressed: _busy ? null : () => _toggleActive(context),
+                  child: Text(workflow.isActive ? 'Deactivate' : 'Activate'),
+                ),
+                OutlinedButton(
+                  onPressed: _busy ? null : () => _delete(context),
+                  style: OutlinedButton.styleFrom(foregroundColor: tokens.bad, side: BorderSide(color: tokens.bad)),
+                  child: const Text('Delete'),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -135,25 +246,42 @@ class _WorkflowTile extends StatelessWidget {
 
 class _StepDraft {
   String stepName = '';
-  int roleId = kDefaultRoleId;
+  int roleId = 1; // Records Officer — a system role, always id 1 and never deletable.
   int slaDays = 2;
   int? escalationRoleId;
   int? subWorkflowId;
 }
 
-class _NewWorkflowForm extends ConsumerStatefulWidget {
-  const _NewWorkflowForm();
+class _WorkflowForm extends ConsumerStatefulWidget {
+  const _WorkflowForm({super.key, this.editing});
+
+  /// The workflow being edited, or null for "new workflow" mode. The widget
+  /// is keyed on this in the parent so switching targets remounts fresh
+  /// state rather than trying to sync controllers mid-flight.
+  final WorkflowRow? editing;
 
   @override
-  ConsumerState<_NewWorkflowForm> createState() => _NewWorkflowFormState();
+  ConsumerState<_WorkflowForm> createState() => _WorkflowFormState();
 }
 
-class _NewWorkflowFormState extends ConsumerState<_NewWorkflowForm> {
-  final _nameController = TextEditingController();
-  int? _triggerDocTypeId;
-  int? _triggerFolderId;
-  final List<_StepDraft> _steps = [_StepDraft()];
+class _WorkflowFormState extends ConsumerState<_WorkflowForm> {
+  late final _nameController = TextEditingController(text: widget.editing?.name ?? '');
+  late int? _triggerDocTypeId = widget.editing?.triggerDocTypeId;
+  late int? _triggerFolderId = widget.editing?.triggerFolderId;
+  late final List<_StepDraft> _steps = widget.editing == null || widget.editing!.steps.isEmpty
+      ? [_StepDraft()]
+      : [
+          for (final s in widget.editing!.steps)
+            _StepDraft()
+              ..stepName = s.stepName
+              ..roleId = s.roleId
+              ..slaDays = s.slaDays ?? 2
+              ..escalationRoleId = s.escalationRoleId
+              ..subWorkflowId = s.subWorkflowId,
+        ];
   bool _submitting = false;
+
+  bool get _isEditing => widget.editing != null;
 
   @override
   void dispose() {
@@ -172,35 +300,43 @@ class _NewWorkflowFormState extends ConsumerState<_NewWorkflowForm> {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Add at least one named step.')));
       return;
     }
+    final stepTuples = [
+      for (final s in steps)
+        (
+          stepName: s.stepName.trim(),
+          roleId: s.roleId,
+          slaDays: s.slaDays,
+          escalationRoleId: s.escalationRoleId,
+          subWorkflowId: s.subWorkflowId,
+        ),
+    ];
 
     setState(() => _submitting = true);
     try {
-      await ref.read(workflowApiProvider).create(
-            name: name,
-            triggerDocTypeId: _triggerDocTypeId,
-            triggerFolderId: _triggerFolderId,
-            steps: [
-              for (final s in steps)
-                (
-                  stepName: s.stepName.trim(),
-                  roleId: s.roleId,
-                  slaDays: s.slaDays,
-                  escalationRoleId: s.escalationRoleId,
-                  subWorkflowId: s.subWorkflowId,
-                ),
-            ],
-          );
+      if (_isEditing) {
+        await ref.read(workflowApiProvider).update(widget.editing!.id, name: name, steps: stepTuples);
+        ref.read(editingWorkflowIdProvider.notifier).state = null;
+      } else {
+        await ref.read(workflowApiProvider).create(
+              name: name,
+              triggerDocTypeId: _triggerDocTypeId,
+              triggerFolderId: _triggerFolderId,
+              steps: stepTuples,
+            );
+      }
       ref.invalidate(workflowsProvider);
       if (mounted) {
-        setState(() {
-          _nameController.clear();
-          _triggerDocTypeId = null;
-          _triggerFolderId = null;
-          _steps
-            ..clear()
-            ..add(_StepDraft());
-        });
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Workflow saved.')));
+        if (!_isEditing) {
+          setState(() {
+            _nameController.clear();
+            _triggerDocTypeId = null;
+            _triggerFolderId = null;
+            _steps
+              ..clear()
+              ..add(_StepDraft());
+          });
+        }
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_isEditing ? 'Workflow updated.' : 'Workflow saved.')));
       }
     } on ApiException catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
@@ -216,6 +352,7 @@ class _NewWorkflowFormState extends ConsumerState<_NewWorkflowForm> {
     final typesAsync = ref.watch(documentTypesProvider);
     final foldersAsync = ref.watch(foldersProvider);
     final availableWorkflows = ref.watch(workflowsProvider).valueOrNull ?? const <WorkflowRow>[];
+    final roles = ref.watch(rolesProvider).valueOrNull ?? const <RoleRow>[];
 
     return Container(
       decoration: BoxDecoration(border: Border.all(color: tokens.line), color: tokens.surf),
@@ -223,13 +360,33 @@ class _NewWorkflowFormState extends ConsumerState<_NewWorkflowForm> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('New workflow', style: textTheme.titleSmall),
+          Row(
+            children: [
+              Text(_isEditing ? 'Edit workflow' : 'New workflow', style: textTheme.titleSmall),
+              if (_isEditing) ...[
+                const Spacer(),
+                TextButton(
+                  onPressed: () => ref.read(editingWorkflowIdProvider.notifier).state = null,
+                  child: const Text('Cancel edit'),
+                ),
+              ],
+            ],
+          ),
           const SizedBox(height: 10),
           TextField(
             controller: _nameController,
             decoration: const InputDecoration(labelText: 'Workflow name', isDense: true),
           ),
           const SizedBox(height: 10),
+          if (_isEditing)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Text(
+                'Trigger document type/folder are fixed at creation and can\'t be changed here.',
+                style: TextStyle(fontSize: 11.5, color: tokens.ink2),
+              ),
+            )
+          else
           Row(
             children: [
               Expanded(
@@ -269,6 +426,7 @@ class _NewWorkflowFormState extends ConsumerState<_NewWorkflowForm> {
                 canMoveDown: i < _steps.length - 1,
                 canRemove: _steps.length > 1,
                 availableWorkflows: availableWorkflows,
+                roles: roles,
                 onChanged: () => setState(() {}),
                 onMoveUp: () => setState(() {
                   final s = _steps.removeAt(i);
@@ -291,7 +449,7 @@ class _NewWorkflowFormState extends ConsumerState<_NewWorkflowForm> {
             onPressed: _submitting ? null : _submit,
             child: _submitting
                 ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                : const Text('Save workflow'),
+                : Text(_isEditing ? 'Save changes' : 'Save workflow'),
           ),
         ],
       ),
@@ -307,6 +465,7 @@ class _StepEditor extends StatelessWidget {
     required this.canMoveDown,
     required this.canRemove,
     required this.availableWorkflows,
+    required this.roles,
     required this.onChanged,
     required this.onMoveUp,
     required this.onMoveDown,
@@ -319,6 +478,7 @@ class _StepEditor extends StatelessWidget {
   final bool canMoveDown;
   final bool canRemove;
   final List<WorkflowRow> availableWorkflows;
+  final List<RoleRow> roles;
   final VoidCallback onChanged;
   final VoidCallback onMoveUp;
   final VoidCallback onMoveDown;
@@ -365,7 +525,7 @@ class _StepEditor extends StatelessWidget {
                     isExpanded: true,
                     decoration: const InputDecoration(labelText: 'Assigned role', isDense: true),
                     items: [
-                      for (final r in kKnownRoles) DropdownMenuItem(value: r.id, child: Text(r.name, overflow: TextOverflow.ellipsis)),
+                      for (final r in roles) DropdownMenuItem(value: r.id, child: Text(r.name, overflow: TextOverflow.ellipsis)),
                     ],
                     onChanged: (v) {
                       if (v != null) step.roleId = v;
@@ -393,7 +553,7 @@ class _StepEditor extends StatelessWidget {
                     decoration: const InputDecoration(labelText: 'Escalate to (optional)', isDense: true),
                     items: [
                       const DropdownMenuItem(value: null, child: Text('Records Manager (default)')),
-                      for (final r in kKnownRoles) DropdownMenuItem(value: r.id, child: Text(r.name, overflow: TextOverflow.ellipsis)),
+                      for (final r in roles) DropdownMenuItem(value: r.id, child: Text(r.name, overflow: TextOverflow.ellipsis)),
                     ],
                     onChanged: (v) {
                       step.escalationRoleId = v;

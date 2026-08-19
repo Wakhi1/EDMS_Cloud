@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/api_providers.dart';
 import '../../../core/models/group_row.dart';
+import '../../../core/models/role_row.dart';
 import '../../../core/models/user_row.dart';
 
 class UsersFilters {
@@ -29,4 +30,8 @@ final usersListProvider = FutureProvider.autoDispose<List<UserRow>>((ref) {
 
 final groupsListProvider = FutureProvider.autoDispose<List<GroupRow>>((ref) {
   return ref.watch(usersApiProvider).listGroups();
+});
+
+final rolesProvider = FutureProvider.autoDispose<List<RoleRow>>((ref) {
+  return ref.watch(rolesApiProvider).list();
 });

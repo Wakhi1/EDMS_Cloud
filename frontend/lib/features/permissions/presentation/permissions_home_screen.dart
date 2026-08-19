@@ -5,14 +5,16 @@ import 'package:go_router/go_router.dart';
 import '../../../core/api/api_exception.dart';
 import '../../../core/api/api_providers.dart';
 import '../../../core/auth/auth_providers.dart';
-import '../../../core/auth/known_roles.dart';
 import '../../../core/auth/module_access.dart';
 import '../../../core/models/permission_matrix_cell.dart';
+import '../../../core/models/role_row.dart';
 import '../../../core/router/route_paths.dart';
 import '../../../core/theme/pspf_tokens.dart';
 import '../../../core/widgets/confirm_dialog.dart';
 import '../../../core/widgets/empty_state.dart';
+import '../../users/providers/users_providers.dart';
 import '../providers/permissions_providers.dart';
+import 'create_role_dialog.dart';
 
 class PermissionsHomeScreen extends ConsumerWidget {
   const PermissionsHomeScreen({super.key});
@@ -20,6 +22,8 @@ class PermissionsHomeScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final matrixAsync = ref.watch(permissionMatrixProvider);
+    final rolesAsync = ref.watch(rolesProvider);
+    final roles = rolesAsync.valueOrNull ?? const <RoleRow>[];
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(18),
@@ -27,7 +31,9 @@ class PermissionsHomeScreen extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text('Administration / Folder & Document Access', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 4),
+          const SizedBox(height: 18),
+          const _RolesSection(),
+          const SizedBox(height: 24),
           Text('ROLE × MODULE PERMISSION MATRIX', style: Theme.of(context).textTheme.labelSmall),
           const SizedBox(height: 10),
           matrixAsync.when(
@@ -41,10 +47,142 @@ class PermissionsHomeScreen extends ConsumerWidget {
                 child: Text('$e', style: TextStyle(color: context.tokens.bad)),
               );
             },
-            data: (cells) => _MatrixGrid(cells: cells),
+            data: (cells) => _MatrixGrid(cells: cells, roles: roles),
           ),
           const SizedBox(height: 28),
           _TargetPickerHint(),
+        ],
+      ),
+    );
+  }
+}
+
+/// Roles list with +New/Edit/Delete — the matrix below it has one row per
+/// role here, so creating a role and then granting it module access are two
+/// steps on the same screen. Read-only for anyone without 'users' view
+/// access; create/edit/delete additionally require System Administrator
+/// server-side (see backend/routes/roles.routes.js) — a non-admin viewer
+/// just won't see the action buttons succeed (403 surfaces as a snackbar).
+class _RolesSection extends ConsumerWidget {
+  const _RolesSection();
+
+  Future<void> _create(BuildContext context, WidgetRef ref) async {
+    final result = await showDialog<({String name, String? description, bool mfaRequired})>(
+      context: context,
+      builder: (_) => const CreateRoleDialog(),
+    );
+    if (result == null) return;
+
+    try {
+      await ref.read(rolesApiProvider).create(name: result.name, description: result.description, mfaRequired: result.mfaRequired);
+      ref.invalidate(rolesProvider);
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Role created.')));
+    } on ApiException catch (e) {
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
+  Future<void> _edit(BuildContext context, WidgetRef ref, RoleRow row) async {
+    final result = await showDialog<({String name, String? description, bool mfaRequired})>(
+      context: context,
+      builder: (_) => CreateRoleDialog(initialName: row.name, initialDescription: row.description, initialMfaRequired: row.mfaRequired),
+    );
+    if (result == null) return;
+
+    try {
+      await ref.read(rolesApiProvider).update(row.id, name: result.name, description: result.description, mfaRequired: result.mfaRequired);
+      ref.invalidate(rolesProvider);
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Role updated.')));
+    } on ApiException catch (e) {
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
+  Future<void> _delete(BuildContext context, WidgetRef ref, RoleRow row) async {
+    final confirmed = await ConfirmDialog.show(
+      context,
+      title: 'Delete "${row.name}"?',
+      body: 'Refused if any user or workflow step still uses this role.',
+      okLabel: 'Delete',
+      danger: true,
+    );
+    if (confirmed == null) return;
+
+    try {
+      await ref.read(rolesApiProvider).delete(row.id);
+      ref.invalidate(rolesProvider);
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Role deleted.')));
+    } on ApiException catch (e) {
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final tokens = context.tokens;
+    final textTheme = Theme.of(context).textTheme;
+    final rolesAsync = ref.watch(rolesProvider);
+
+    return Container(
+      decoration: BoxDecoration(border: Border.all(color: tokens.line), color: tokens.surf),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            child: Row(
+              children: [
+                Text('ROLES', style: textTheme.labelSmall),
+                const Spacer(),
+                TextButton(onPressed: () => _create(context, ref), child: const Text('+ New')),
+              ],
+            ),
+          ),
+          rolesAsync.when(
+            loading: () => const Padding(padding: EdgeInsets.all(12), child: LinearProgressIndicator()),
+            error: (e, _) => Padding(
+              padding: const EdgeInsets.all(12),
+              child: Text(e is ApiException ? e.message : '$e', style: TextStyle(color: tokens.bad, fontSize: 12)),
+            ),
+            data: (rows) {
+              if (rows.isEmpty) return const Padding(padding: EdgeInsets.all(12), child: Text('No roles defined.'));
+              return Column(
+                children: [
+                  for (final r in rows)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+                      decoration: BoxDecoration(border: Border(top: BorderSide(color: tokens.line))),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Text(r.name, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                                    if (r.mfaRequired) ...[const SizedBox(width: 6), Text('MFA required', style: TextStyle(fontSize: 11, color: tokens.ink2))],
+                                    if (r.isSystemRole) ...[const SizedBox(width: 6), Text('· built-in', style: TextStyle(fontSize: 11, color: tokens.ink2))],
+                                  ],
+                                ),
+                                if (r.description != null) Text(r.description!, style: TextStyle(fontSize: 11.5, color: tokens.ink2)),
+                              ],
+                            ),
+                          ),
+                          OutlinedButton(onPressed: () => _edit(context, ref, r), child: const Text('Edit')),
+                          const SizedBox(width: 6),
+                          OutlinedButton(
+                            onPressed: r.isSystemRole ? null : () => _delete(context, ref, r),
+                            child: const Text('Delete'),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
         ],
       ),
     );
@@ -68,9 +206,10 @@ class _TargetPickerHint extends StatelessWidget {
 }
 
 class _MatrixGrid extends StatelessWidget {
-  const _MatrixGrid({required this.cells});
+  const _MatrixGrid({required this.cells, required this.roles});
 
   final List<PermissionMatrixCell> cells;
+  final List<RoleRow> roles;
 
   PermissionMatrixCell _cellFor(int roleId, String module) {
     return cells.firstWhere(
@@ -108,7 +247,7 @@ class _MatrixGrid extends StatelessWidget {
                 ),
             ],
           ),
-          for (final role in kKnownRoles)
+          for (final role in roles)
             TableRow(
               children: [
                 Padding(padding: const EdgeInsets.all(8), child: Text(role.name, style: const TextStyle(fontSize: 12.5))),

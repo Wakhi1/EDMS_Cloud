@@ -98,6 +98,10 @@ class Endpoints {
   static const usersMe = '/api/users/me';
   static const usersMePassword = '/api/users/me/password';
 
+  // roles.routes.js
+  static const roles = '/api/roles';
+  static String roleById(String id) => '/api/roles/$id';
+
   // permissions.routes.js
   static String permissionsFor(String targetType, String targetId) => '/api/permissions/$targetType/$targetId';
   static String permissionAclById(String aclId) => '/api/permissions/$aclId';

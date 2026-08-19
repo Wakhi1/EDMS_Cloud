@@ -71,7 +71,18 @@ router.post(
   })
 );
 
-/** PUT /api/workflow/:id — { name?, isActive?, steps? } — replacing steps drops and re-inserts them. */
+/**
+ * PUT /api/workflow/:id — { name?, isActive?, steps? }.
+ *
+ * Replacing steps updates existing rows in place by position (instead of
+ * dropping and re-inserting the whole set) so a step's id survives an edit
+ * — `workflow_approvals.step_id` and `document_workflow_instances.
+ * current_step_id` FK to `workflow_steps.id` with no cascade, so a blind
+ * delete-then-reinsert 500s the moment any step has ever been actioned by a
+ * real approval. Only the steps beyond the new count are actually deleted
+ * (shrinking the list); if one of those still has approval history, the
+ * FK violation is caught and surfaced as a clean 409 instead of a 500.
+ */
 router.put(
   '/:id',
   requireModuleAccess('workflow', true),
@@ -89,6 +100,7 @@ router.put(
     }
 
     const conn = await pool.getConnection();
+    let stepDeleteConflict = false;
     try {
       await conn.beginTransaction();
       await conn.query(
@@ -96,23 +108,55 @@ router.put(
         [name || null, isActive !== undefined ? (isActive ? 1 : 0) : null, req.params.id]
       );
       if (Array.isArray(steps)) {
-        await conn.query('DELETE FROM workflow_steps WHERE workflow_id = ?', [req.params.id]);
+        const [existing] = await conn.query(
+          'SELECT id FROM workflow_steps WHERE workflow_id = ? ORDER BY step_order',
+          [req.params.id]
+        );
         for (let i = 0; i < steps.length; i += 1) {
           const s = steps[i];
-          // eslint-disable-next-line no-await-in-loop
-          await conn.query(
-            `INSERT INTO workflow_steps (workflow_id, step_order, step_name, role_id, sla_days, escalation_role_id, sub_workflow_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [req.params.id, i + 1, s.stepName, s.roleId, s.slaDays || 2, s.escalationRoleId || null, s.subWorkflowId || null]
-          );
+          if (i < existing.length) {
+            // eslint-disable-next-line no-await-in-loop
+            await conn.query(
+              `UPDATE workflow_steps SET step_order = ?, step_name = ?, role_id = ?, sla_days = ?, escalation_role_id = ?, sub_workflow_id = ?
+               WHERE id = ?`,
+              [i + 1, s.stepName, s.roleId, s.slaDays || 2, s.escalationRoleId || null, s.subWorkflowId || null, existing[i].id]
+            );
+          } else {
+            // eslint-disable-next-line no-await-in-loop
+            await conn.query(
+              `INSERT INTO workflow_steps (workflow_id, step_order, step_name, role_id, sla_days, escalation_role_id, sub_workflow_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?)`,
+              [req.params.id, i + 1, s.stepName, s.roleId, s.slaDays || 2, s.escalationRoleId || null, s.subWorkflowId || null]
+            );
+          }
+        }
+        if (existing.length > steps.length) {
+          const surplusIds = existing.slice(steps.length).map((s) => s.id);
+          try {
+            await conn.query('DELETE FROM workflow_steps WHERE id IN (?)', [surplusIds]);
+          } catch (err) {
+            if (err.code === 'ER_ROW_IS_REFERENCED_2' || err.code === 'ER_ROW_IS_REFERENCED') {
+              stepDeleteConflict = true;
+            } else {
+              throw err;
+            }
+          }
         }
       }
-      await conn.commit();
+      if (stepDeleteConflict) {
+        await conn.rollback();
+      } else {
+        await conn.commit();
+      }
     } catch (err) {
       await conn.rollback();
       throw err;
     } finally {
       conn.release();
+    }
+
+    if (stepDeleteConflict) {
+      return fail(res, 'Cannot remove a step that already has approval history — only steps after it in the list can be trimmed', 409);
     }
 
     await logAudit({ userId: req.user.id, action: 'Edit', recordType: 'workflow', recordId: req.params.id, ip: req.ip });

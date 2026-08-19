@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
 
-import '../../../core/auth/known_roles.dart';
 import '../../../core/models/department_row.dart';
+import '../../../core/models/role_row.dart';
 
 /// Pure editor, caller mutates (same shape as CreateIntegrationDialog).
 class CreateUserDialog extends StatefulWidget {
-  const CreateUserDialog({super.key, required this.departments});
+  const CreateUserDialog({super.key, required this.departments, required this.roles});
 
   final List<DepartmentRow> departments;
+  final List<RoleRow> roles;
 
   @override
   State<CreateUserDialog> createState() => _CreateUserDialogState();
@@ -17,7 +18,7 @@ class _CreateUserDialogState extends State<CreateUserDialog> {
   final _fullNameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  int _roleId = kDefaultRoleId;
+  late int? _roleId = widget.roles.firstOrNull?.id;
   int? _departmentId;
 
   @override
@@ -44,12 +45,12 @@ class _CreateUserDialogState extends State<CreateUserDialog> {
               const SizedBox(height: 12),
               TextField(controller: _passwordController, obscureText: true, decoration: const InputDecoration(labelText: 'Temporary password (min. 10 characters)')),
               const SizedBox(height: 12),
-              DropdownButtonFormField<int>(
+              DropdownButtonFormField<int?>(
                 initialValue: _roleId,
                 isExpanded: true,
                 decoration: const InputDecoration(labelText: 'Role'),
-                items: [for (final r in kKnownRoles) DropdownMenuItem(value: r.id, child: Text(r.name))],
-                onChanged: (v) => setState(() => _roleId = v ?? _roleId),
+                items: [for (final r in widget.roles) DropdownMenuItem(value: r.id, child: Text(r.name))],
+                onChanged: (v) => setState(() => _roleId = v),
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<int?>(
@@ -70,12 +71,18 @@ class _CreateUserDialogState extends State<CreateUserDialog> {
         TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
         ElevatedButton(
           onPressed: () {
-            if (_fullNameController.text.trim().isEmpty || _emailController.text.trim().isEmpty || _passwordController.text.length < 10) return;
+            final roleId = _roleId;
+            if (_fullNameController.text.trim().isEmpty ||
+                _emailController.text.trim().isEmpty ||
+                _passwordController.text.length < 10 ||
+                roleId == null) {
+              return;
+            }
             Navigator.of(context).pop((
               fullName: _fullNameController.text.trim(),
               email: _emailController.text.trim(),
               password: _passwordController.text,
-              roleId: _roleId,
+              roleId: roleId,
               departmentId: _departmentId,
             ));
           },

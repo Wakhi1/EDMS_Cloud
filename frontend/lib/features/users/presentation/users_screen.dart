@@ -3,8 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/api_exception.dart';
 import '../../../core/api/api_providers.dart';
-import '../../../core/auth/known_roles.dart';
 import '../../../core/models/group_row.dart';
+import '../../../core/models/role_row.dart';
 import '../../../core/models/user_row.dart';
 import '../../../core/theme/pspf_tokens.dart';
 import '../../../core/widgets/confirm_dialog.dart';
@@ -48,10 +48,11 @@ class _UsersSection extends ConsumerWidget {
 
   Future<void> _createUser(BuildContext context, WidgetRef ref) async {
     final departments = await ref.read(departmentsListProvider.future);
+    final roles = await ref.read(rolesProvider.future);
     if (!context.mounted) return;
     final result = await showDialog<({String fullName, String email, String password, int roleId, int? departmentId})>(
       context: context,
-      builder: (_) => CreateUserDialog(departments: departments),
+      builder: (_) => CreateUserDialog(departments: departments, roles: roles),
     );
     if (result == null) return;
 
@@ -89,7 +90,7 @@ class _UsersSection extends ConsumerWidget {
     }
   }
 
-  Future<void> _changeRole(BuildContext context, WidgetRef ref, UserRow row, KnownRole newRole) async {
+  Future<void> _changeRole(BuildContext context, WidgetRef ref, UserRow row, RoleRow newRole) async {
     final confirmed = await ConfirmDialog.show(
       context,
       title: "Change ${row.fullName}'s role to ${newRole.name}?",
@@ -207,6 +208,7 @@ class _UsersSection extends ConsumerWidget {
     final usersAsync = ref.watch(usersListProvider);
     final filters = ref.watch(usersFiltersProvider);
     final departmentsAsync = ref.watch(departmentsListProvider);
+    final roles = ref.watch(rolesProvider).valueOrNull ?? const <RoleRow>[];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -236,7 +238,7 @@ class _UsersSection extends ConsumerWidget {
                 decoration: const InputDecoration(labelText: 'Role', isDense: true),
                 items: [
                   const DropdownMenuItem(value: null, child: Text('All roles')),
-                  for (final r in kKnownRoles) DropdownMenuItem(value: r.name, child: Text(r.name, overflow: TextOverflow.ellipsis)),
+                  for (final r in roles) DropdownMenuItem(value: r.name, child: Text(r.name, overflow: TextOverflow.ellipsis)),
                 ],
                 onChanged: (v) => ref.read(usersFiltersProvider.notifier).state = filters.copyWith(role: () => v),
               ),
@@ -337,18 +339,19 @@ class _UsersSection extends ConsumerWidget {
                           ),
                           Expanded(
                             flex: 2,
-                            child: DropdownButton<int>(
-                              value: kKnownRoles.firstWhere((r) => r.name == u.roleName).id,
+                            child: DropdownButton<int?>(
+                              value: roles.where((r) => r.name == u.roleName).firstOrNull?.id,
                               isDense: true,
                               isExpanded: true,
                               underline: const SizedBox.shrink(),
+                              hint: Text(u.roleName, style: const TextStyle(fontSize: 12.5)),
                               items: [
-                                for (final r in kKnownRoles)
+                                for (final r in roles)
                                   DropdownMenuItem(value: r.id, child: Text(r.name, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12.5))),
                               ],
                               onChanged: (v) {
-                                final newRole = kKnownRoles.firstWhere((r) => r.id == v);
-                                if (newRole.name != u.roleName) _changeRole(context, ref, u, newRole);
+                                final newRole = roles.where((r) => r.id == v).firstOrNull;
+                                if (newRole != null && newRole.name != u.roleName) _changeRole(context, ref, u, newRole);
                               },
                             ),
                           ),

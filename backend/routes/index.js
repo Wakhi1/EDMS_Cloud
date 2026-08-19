@@ -11,6 +11,7 @@ const router = express.Router();
 router.use('/auth', require('./auth.routes'));
 router.use('/mfa', require('./mfa.routes'));
 router.use('/users', require('./users.routes'));
+router.use('/roles', require('./roles.routes'));
 router.use('/folders', require('./folders.routes'));
 router.use('/documents', require('./documents.routes'));
 router.use('/document-types', require('./document-types.routes'));
