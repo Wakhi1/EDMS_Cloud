@@ -17,6 +17,7 @@ import '../providers/upload_batch_storage_provider.dart';
 import '../providers/upload_queue_provider.dart';
 import 'widgets/create_folder_dialog.dart';
 import 'widgets/storage_location_dialog.dart';
+import 'widgets/upload_file_preview.dart';
 
 class SmartUploadScreen extends ConsumerWidget {
   const SmartUploadScreen({super.key});
@@ -142,6 +143,14 @@ class _UploadRowCard extends ConsumerWidget {
         children: [
           Row(
             children: [
+              UploadFilePreviewThumb(
+                bytes: row.bytes,
+                fileName: row.fileName,
+                mimeType: row.mimeType,
+                extractedText: row.extractedText,
+                extractedTextLoading: row.status == UploadRowStatus.recognizing,
+              ),
+              const SizedBox(width: 10),
               Expanded(
                 child: Text(row.fileName, style: textTheme.titleSmall, overflow: TextOverflow.ellipsis),
               ),

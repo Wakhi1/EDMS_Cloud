@@ -16,15 +16,25 @@ String mimeTypeForExtension(String? ext) {
       return 'image/jpeg';
     case 'png':
       return 'image/png';
+    case 'gif':
+      return 'image/gif';
+    case 'webp':
+      return 'image/webp';
+    case 'bmp':
+      return 'image/bmp';
     case 'tif':
     case 'tiff':
       return 'image/tiff';
     case 'docx':
       return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    case 'doc':
+      return 'application/msword';
     case 'xlsx':
       return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
     case 'xls':
       return 'application/vnd.ms-excel';
+    case 'csv':
+      return 'text/csv';
     case 'txt':
       return 'text/plain';
     default:
