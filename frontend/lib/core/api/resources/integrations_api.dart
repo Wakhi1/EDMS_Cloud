@@ -121,4 +121,48 @@ class IntegrationsApi {
     return _client.unwrap(response, (data) => (data as Map<String, dynamic>)['prefix'] as String);
   }
 
+  /// POST /api/integrations/:id/import — brings files already sitting under
+  /// `prefix` in a storage-type connector into the Repository as real
+  /// documents in `folderId`. System-Administrator-only server-side.
+  /// [grants]: only sent when access should be restricted from the start
+  /// (each entry shaped like GrantAccessDialog's return value); omitted or
+  /// empty means the imported folder stays open to anyone with Repository
+  /// access, same default as any other folder.
+  Future<({int importedCount, int skippedCount})> importFromStorage(
+    String id, {
+    required String prefix,
+    required int folderId,
+    required int documentTypeId,
+    String? classification,
+    int? departmentId,
+    int? retentionClassId,
+    List<({String principalType, int principalId, String permissionLevel})> grants = const [],
+  }) async {
+    final response = await _client.post(
+      Endpoints.integrationImport(id),
+      data: {
+        'prefix': prefix,
+        'folderId': folderId,
+        'documentTypeId': documentTypeId,
+        'classification': ?classification,
+        'departmentId': ?departmentId,
+        'retentionClassId': ?retentionClassId,
+        if (grants.isNotEmpty)
+          'defaultAccess': {
+            'restricted': true,
+            'grants': [
+              for (final g in grants)
+                {'principalType': g.principalType, 'principalId': g.principalId, 'permissionLevel': g.permissionLevel},
+            ],
+          },
+      },
+    );
+    return _client.unwrap(response, (data) {
+      final map = data as Map<String, dynamic>;
+      return (
+        importedCount: (map['imported'] as List).length,
+        skippedCount: (map['skipped'] as List).length,
+      );
+    });
+  }
 }

@@ -25,6 +25,8 @@ const emailService = require('../services/email.service');
 const adService = require('../services/ad.service');
 const smsService = require('../services/sms.service');
 const { CONNECTORS: INTAKE_CONNECTORS, rescheduleConnector, parseConfig } = require('../services/capture/scheduler');
+const { importFromStorage } = require('../services/import.service');
+const { PERMISSION_LEVELS, PRINCIPAL_TYPES } = require('../config/constants');
 
 const router = express.Router();
 router.use(authenticate);
@@ -189,6 +191,68 @@ router.post('/:id/folders', requireModuleAccess('capture', true), asyncHandler(a
   await provider.createFolder(fullPrefix);
   await logAudit({ userId: req.user.id, action: 'Integration', recordType: 'integration', recordId: req.params.id, detail: `Created folder: ${fullPrefix}`, ip: req.ip });
   return ok(res, { prefix: fullPrefix }, 'Folder created', 201);
+}));
+
+/**
+ * POST /api/integrations/:id/import — brings content that already exists
+ * in a storage-type connector (never uploaded through this app) into the
+ * Repository: real documents.folders rows, OCR'd and checksummed, so
+ * Search/filters/document_acl all apply exactly like any uploaded record.
+ * Non-recursive — only files directly under `prefix`; subfolders need a
+ * separate import call. System-Administrator-only (unlike GET /browse and
+ * POST /folders above): this is the action that decides default
+ * classification and default access for a whole batch of records at once,
+ * a governance decision, not a day-to-day upload one.
+ */
+router.post('/:id/import', allowRoles('System Administrator'), asyncHandler(async (req, res) => {
+  const provider = STORAGE_PROVIDERS[req.params.id];
+  if (!provider) return fail(res, `"${req.params.id}" is not a browsable storage connector`, 400);
+
+  const {
+    prefix, folderId, documentTypeId, classification, departmentId, retentionClassId, defaultAccess,
+  } = req.body;
+  if (!folderId) return fail(res, 'folderId is required', 400);
+  if (!documentTypeId) return fail(res, 'documentTypeId is required', 400);
+
+  const [[folder]] = await pool.query('SELECT id FROM folders WHERE id = ?', [folderId]);
+  if (!folder) return fail(res, 'Unknown destination folder', 400);
+
+  const { imported, skipped } = await importFromStorage({
+    providerId: req.params.id,
+    prefix: prefix || '',
+    folderId,
+    documentTypeId,
+    classification,
+    departmentId,
+    retentionClassId,
+    userId: req.user.id,
+    ip: req.ip,
+  });
+
+  if (defaultAccess?.restricted && Array.isArray(defaultAccess.grants) && defaultAccess.grants.length) {
+    for (const grant of defaultAccess.grants) {
+      if (!PRINCIPAL_TYPES.includes(grant.principalType) || !PERMISSION_LEVELS.includes(grant.permissionLevel) || !grant.principalId) {
+        continue; // eslint-disable-line no-continue
+      }
+      // eslint-disable-next-line no-await-in-loop
+      await pool.query(
+        `INSERT INTO document_acl (target_type, target_id, principal_type, principal_id, permission_level, granted_by)
+         VALUES ('folder', ?, ?, ?, ?, ?)`,
+        [folderId, grant.principalType, grant.principalId, grant.permissionLevel, req.user.id]
+      );
+    }
+    await logAudit({
+      userId: req.user.id, action: 'Permission', recordType: 'folder', recordId: folderId,
+      detail: `Default access restricted on import (${defaultAccess.grants.length} grant(s))`, ip: req.ip,
+    });
+  }
+
+  await logAudit({
+    userId: req.user.id, action: 'Integration', recordType: 'integration', recordId: req.params.id,
+    detail: `Imported ${imported.length} file(s) from ${prefix || '(root)'} into folder #${folderId}`, ip: req.ip,
+  });
+
+  return ok(res, { imported, skipped }, `Imported ${imported.length} of ${imported.length + skipped.length} file(s)`, 201);
 }));
 
 module.exports = router;

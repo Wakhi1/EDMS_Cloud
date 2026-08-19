@@ -112,6 +112,7 @@ class Endpoints {
   static String integrationTest(String id) => '/api/integrations/$id/test';
   static String integrationBrowse(String id) => '/api/integrations/$id/browse';
   static String integrationFolders(String id) => '/api/integrations/$id/folders';
+  static String integrationImport(String id) => '/api/integrations/$id/import';
 
   // capture.routes.js
   static const captureBatches = '/api/capture-batches';

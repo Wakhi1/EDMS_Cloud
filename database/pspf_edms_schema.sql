@@ -548,7 +548,8 @@ INSERT INTO `document_types` (`name`, `code`) VALUES
 ('Claim — Ill Health', 'IH'),
 ('Contribution Statement', 'CS'),
 ('Payout Voucher', 'PV'),
-('Member Statement', 'MS');
+('Member Statement', 'MS'),
+('Imported / Unclassified', 'IMP');
 
 INSERT INTO `retention_classes` (`code`, `name`, `retention_years`, `trigger_event`, `disposal_action`) VALUES
 ('RC-CLAIM-7', 'Pension claim records', 7, 'record declared final', 'transfer_to_national_archives'),

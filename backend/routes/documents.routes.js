@@ -211,10 +211,14 @@ router.post('/ocr-preview', requireModuleAccess('capture', true), upload.single(
 
 /**
  * GET /api/documents/:id/content
- * Streams the decrypted current version back to the browser. Nothing
- * unencrypted ever touches disk — ciphertext is fetched from cloud
- * storage, decrypted in memory, checksum-verified, then written to the
- * response.
+ * Streams the current version back to the browser. For app-encrypted
+ * documents (is_encrypted = 1, the normal upload path), ciphertext is
+ * fetched and decrypted in memory, never touching disk unencrypted. For
+ * imported documents (is_encrypted = 0 — content this app read in place
+ * from a storage bucket rather than encrypting itself, see
+ * services/import.service.js) the bytes are already plaintext and are
+ * streamed as-is; document_encryption_keys has no row for these, hence
+ * the LEFT JOIN.
  */
 router.get('/:id/content', requireModuleAccess('viewer'), asyncHandler(async (req, res) => {
   const [rows] = await pool.query(
@@ -224,7 +228,7 @@ router.get('/:id/content', requireModuleAccess('viewer'), asyncHandler(async (re
      FROM documents d
      JOIN document_versions dv ON dv.id = d.current_version_id
      JOIN document_storage_objects dso ON dso.id = dv.storage_object_id
-     JOIN document_encryption_keys dek ON dek.document_version_id = dv.id
+     LEFT JOIN document_encryption_keys dek ON dek.document_version_id = dv.id
      WHERE d.id = ?`,
     [req.params.id]
   );
@@ -239,20 +243,22 @@ router.get('/:id/content', requireModuleAccess('viewer'), asyncHandler(async (re
     return fail(res, 'Confidential records require a stated reason to open (pass ?reason=...)', 400);
   }
 
-  const encryptedFile = await storageService.downloadEncrypted(row);
-  let plaintext = envelopeDecryptFile({
-    encryptedFile,
-    fileIv: row.file_iv,
-    fileAuthTag: row.file_auth_tag,
-    wrappedDek: row.wrapped_dek,
-    dekIv: row.dek_iv,
-    dekAuthTag: row.dek_auth_tag,
-  });
+  const fetchedFile = await storageService.downloadEncrypted(row);
+  let plaintext = row.is_encrypted
+    ? envelopeDecryptFile({
+        encryptedFile: fetchedFile,
+        fileIv: row.file_iv,
+        fileAuthTag: row.file_auth_tag,
+        wrappedDek: row.wrapped_dek,
+        dekIv: row.dek_iv,
+        dekAuthTag: row.dek_auth_tag,
+      })
+    : fetchedFile;
 
   const crypto = require('crypto');
   const actualChecksum = crypto.createHash('sha256').update(plaintext).digest('hex');
   if (actualChecksum !== row.checksum_sha256) {
-    return fail(res, 'Integrity check failed — decrypted content does not match the stored checksum', 500);
+    return fail(res, 'Integrity check failed — content does not match the stored checksum', 500);
   }
 
   if (row.mime_type === 'application/pdf' && await getSettingBool('watermark_downloads', true)) {

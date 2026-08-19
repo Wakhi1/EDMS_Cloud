@@ -10,9 +10,11 @@ import '../../../core/theme/pspf_tokens.dart';
 import '../../../core/widgets/confirm_dialog.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/status_chip.dart';
+import '../../repository/providers/repository_providers.dart';
 import '../providers/integrations_providers.dart';
 import 'create_integration_dialog.dart';
 import 'edit_integration_dialog.dart';
+import 'import_from_storage_dialog.dart';
 import 'storage_browser_dialog.dart';
 
 
@@ -246,6 +248,30 @@ class _IntegrationCardState extends ConsumerState<_IntegrationCard> {
     );
   }
 
+  /// Two-step: pick a source prefix via the existing browse dialog (in
+  /// select mode, so it can also create a folder there first if needed),
+  /// then configure and run the import against it.
+  Future<void> _import() async {
+    final prefix = await showDialog<String>(
+      context: context,
+      builder: (_) => StorageBrowserDialog(integrationId: widget.row.id, integrationName: widget.row.name, selectMode: true),
+    );
+    if (prefix == null || !mounted) return;
+
+    final result = await showDialog<({int importedCount, int skippedCount})>(
+      context: context,
+      builder: (_) => ImportFromStorageDialog(integrationId: widget.row.id, integrationName: widget.row.name, prefix: prefix),
+    );
+    if (result == null || !mounted) return;
+
+    ref.invalidate(repositoryDocumentsProvider);
+    ref.invalidate(foldersProvider);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('Imported ${result.importedCount} file(s)'
+          '${result.skippedCount > 0 ? ' (${result.skippedCount} skipped as duplicates)' : ''}.'),
+    ));
+  }
+
   @override
   Widget build(BuildContext context) {
     final tokens = context.tokens;
@@ -301,6 +327,7 @@ class _IntegrationCardState extends ConsumerState<_IntegrationCard> {
               OutlinedButton(onPressed: _edit, child: const Text('Edit', style: TextStyle(fontSize: 11.5))),
               OutlinedButton(onPressed: _delete, child: const Text('Delete', style: TextStyle(fontSize: 11.5))),
               if (isStorage) OutlinedButton(onPressed: _browse, child: const Text('Browse folders', style: TextStyle(fontSize: 11.5))),
+              if (isStorage) OutlinedButton(onPressed: _import, child: const Text('Import', style: TextStyle(fontSize: 11.5))),
             ],
           ),
         ],
