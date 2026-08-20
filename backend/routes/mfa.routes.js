@@ -74,15 +74,15 @@ async function completeMfaLogin(req, res, userId) {
  * mid-login `/challenge/totp/enroll` (mfa_pending) route below — the only
  * difference between those two flows is where the user id comes from.
  */
-async function enrollTotpFor(userId, email) {
+async function enrollTotpFor(userId, email, companyId) {
   const secret = generateTotpSecret(email);
   const qrDataUrl = await generateTotpQrDataUrl(secret.otpauth_url);
 
   await pool.query(
-    `INSERT INTO user_mfa_methods (user_id, method_type, secret_encrypted, is_primary, is_verified)
-     VALUES (?, 'totp', ?, 1, 0)
+    `INSERT INTO user_mfa_methods (company_id, user_id, method_type, secret_encrypted, is_primary, is_verified)
+     VALUES (?, ?, 'totp', ?, 1, 0)
      ON DUPLICATE KEY UPDATE secret_encrypted = VALUES(secret_encrypted), is_verified = 0`,
-    [userId, Buffer.from(secret.base32)]
+    [companyId, userId, Buffer.from(secret.base32)]
   );
   // NOTE: for production, encrypt secret_encrypted via services/crypto.service
   // (envelopeEncryptFile-style AES-256-GCM) rather than storing base32 plaintext.
@@ -127,7 +127,7 @@ router.get('/status', authenticate, asyncHandler(async (req, res) => {
 
 /** POST /api/mfa/totp/enroll — returns a QR code to scan in an authenticator app. */
 router.post('/totp/enroll', authenticate, asyncHandler(async (req, res) => {
-  const { qrDataUrl, base32Secret } = await enrollTotpFor(req.user.id, req.user.email);
+  const { qrDataUrl, base32Secret } = await enrollTotpFor(req.user.id, req.user.email, req.user.companyId);
   return ok(res, { qrDataUrl, base32Secret }, 'Scan the QR code, then confirm with /api/mfa/totp/confirm');
 }));
 
@@ -144,10 +144,10 @@ router.post('/totp/confirm', authenticate, asyncHandler(async (req, res) => {
 router.post('/backup-codes/generate', authenticate, asyncHandler(async (req, res) => {
   const { plaintextCodes, hashedCodes } = await generateBackupCodes(8);
   await pool.query(
-    `INSERT INTO user_mfa_methods (user_id, method_type, backup_codes_hash_json, is_verified)
-     VALUES (?, 'backup_codes', ?, 1)
+    `INSERT INTO user_mfa_methods (company_id, user_id, method_type, backup_codes_hash_json, is_verified)
+     VALUES (?, ?, 'backup_codes', ?, 1)
      ON DUPLICATE KEY UPDATE backup_codes_hash_json = VALUES(backup_codes_hash_json)`,
-    [req.user.id, JSON.stringify(hashedCodes)]
+    [req.user.companyId, req.user.id, JSON.stringify(hashedCodes)]
   );
   await logAudit({ userId: req.user.id, action: 'MFA', recordType: 'user', recordId: req.user.id, detail: 'Backup codes regenerated', ip: req.ip });
   return ok(res, { codes: plaintextCodes }, 'Store these codes securely — they will not be shown again');
@@ -195,8 +195,8 @@ router.post('/challenge/totp/enroll', requireMfaStage, asyncHandler(async (req, 
     return fail(res, 'An authenticator app is already set up for this account — verify with your existing code instead.', 409);
   }
 
-  const [rows] = await pool.query('SELECT email FROM users WHERE id = ?', [req.mfaUserId]);
-  const { qrDataUrl, base32Secret } = await enrollTotpFor(req.mfaUserId, rows[0].email);
+  const [rows] = await pool.query('SELECT email, company_id FROM users WHERE id = ?', [req.mfaUserId]);
+  const { qrDataUrl, base32Secret } = await enrollTotpFor(req.mfaUserId, rows[0].email, rows[0].company_id);
   return ok(res, { qrDataUrl, base32Secret }, 'Scan the QR code, then confirm to finish signing in');
 }));
 
@@ -216,16 +216,16 @@ router.post('/challenge/totp/confirm', requireMfaStage, asyncHandler(async (req,
 
 /** POST /api/mfa/challenge/sms/send — sends an OTP to the user's registered phone. */
 router.post('/challenge/sms/send', requireMfaStage, asyncHandler(async (req, res) => {
-  const [rows] = await pool.query('SELECT phone_number FROM users WHERE id = ?', [req.mfaUserId]);
+  const [rows] = await pool.query('SELECT phone_number, company_id FROM users WHERE id = ?', [req.mfaUserId]);
   if (!rows[0] || !isValidE164(rows[0].phone_number)) {
     return fail(res, 'No valid phone number on file for SMS MFA', 400);
   }
 
   const code = generateNumericCode(6);
   await pool.query(
-    `INSERT INTO otp_codes (user_id, channel, purpose, code_hash, expires_at)
-     VALUES (?, 'sms', 'login_mfa', ?, DATE_ADD(NOW(), INTERVAL 5 MINUTE))`,
-    [req.mfaUserId, hashCode(code)]
+    `INSERT INTO otp_codes (company_id, user_id, channel, purpose, code_hash, expires_at)
+     VALUES (?, ?, 'sms', 'login_mfa', ?, DATE_ADD(NOW(), INTERVAL 5 MINUTE))`,
+    [rows[0].company_id, req.mfaUserId, hashCode(code)]
   );
   try {
     await sendMfaOtpSms(rows[0].phone_number, code);
@@ -237,12 +237,12 @@ router.post('/challenge/sms/send', requireMfaStage, asyncHandler(async (req, res
 
 /** POST /api/mfa/challenge/email/send */
 router.post('/challenge/email/send', requireMfaStage, asyncHandler(async (req, res) => {
-  const [rows] = await pool.query('SELECT email FROM users WHERE id = ?', [req.mfaUserId]);
+  const [rows] = await pool.query('SELECT email, company_id FROM users WHERE id = ?', [req.mfaUserId]);
   const code = generateNumericCode(6);
   await pool.query(
-    `INSERT INTO otp_codes (user_id, channel, purpose, code_hash, expires_at)
-     VALUES (?, 'email', 'login_mfa', ?, DATE_ADD(NOW(), INTERVAL 5 MINUTE))`,
-    [req.mfaUserId, hashCode(code)]
+    `INSERT INTO otp_codes (company_id, user_id, channel, purpose, code_hash, expires_at)
+     VALUES (?, ?, 'email', 'login_mfa', ?, DATE_ADD(NOW(), INTERVAL 5 MINUTE))`,
+    [rows[0].company_id, req.mfaUserId, hashCode(code)]
   );
   await sendMfaOtpEmail(rows[0].email, code);
   return ok(res, null, 'Code sent by email');

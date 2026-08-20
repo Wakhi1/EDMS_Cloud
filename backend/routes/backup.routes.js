@@ -31,7 +31,7 @@ router.get('/', asyncHandler(async (req, res) => {
 
 /** POST /api/backup/run — trigger a backup now. Runs synchronously; a full DB dump for this app's demo dataset is small. */
 router.post('/run', asyncHandler(async (req, res) => {
-  const backupId = await runBackup({ createdBy: req.user.id, ip: req.ip });
+  const backupId = await runBackup({ createdBy: req.user.id, companyId: req.user.companyId, ip: req.ip });
   return ok(res, { id: backupId }, 'Backup completed', 201);
 }));
 

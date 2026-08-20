@@ -11,10 +11,14 @@ const logger = require('../config/logger');
 async function createNotification({ userId, type, title, body = null, relatedRecordType = null, relatedRecordId = null }) {
   if (!userId) return; // e.g. no approver resolved for a role — nothing to notify
   try {
+    // Derived from the recipient rather than threaded through every one of
+    // this function's many callers across the app.
+    const [[user]] = await pool.query('SELECT company_id FROM users WHERE id = ?', [userId]);
+    if (!user) return;
     await pool.query(
-      `INSERT INTO notifications (user_id, type, title, body, related_record_type, related_record_id)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [userId, type, title, body, relatedRecordType, relatedRecordId]
+      `INSERT INTO notifications (company_id, user_id, type, title, body, related_record_type, related_record_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [user.company_id, userId, type, title, body, relatedRecordType, relatedRecordId]
     );
   } catch (err) {
     logger.error('Failed to write notification', { error: err.message, userId, type });

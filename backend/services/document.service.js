@@ -90,6 +90,14 @@ async function registerDocument({
   // { text: null, confidence: null } on any extraction failure.
   const ocrResult = await ocrService.extractText(buffer, mimeType, originalName);
 
+  // Derived from the acting user rather than threaded through every caller
+  // (documents.routes.js, capture/batch.service.js, import.service.js) —
+  // userId is always present and already the source of truth for
+  // owner_id/created_by below.
+  const [[actingUser]] = await pool.query('SELECT company_id FROM users WHERE id = ?', [userId]);
+  if (!actingUser) throw new Error(`registerDocument: userId ${userId} does not resolve to a user`);
+  const companyId = actingUser.company_id;
+
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
@@ -108,26 +116,26 @@ async function registerDocument({
 
     const [storageRow] = await conn.query(
       `INSERT INTO document_storage_objects
-         (provider, bucket_or_container, object_key, region, content_type, size_bytes, is_encrypted, checksum_sha256)
-       VALUES (?, ?, ?, ?, ?, ?, 1, ?)`,
-      [uploadResult.provider, uploadResult.bucket, uploadResult.objectKey, uploadResult.region,
+         (company_id, provider, bucket_or_container, object_key, region, content_type, size_bytes, is_encrypted, checksum_sha256)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+      [companyId, uploadResult.provider, uploadResult.bucket, uploadResult.objectKey, uploadResult.region,
        mimeType, buffer.length, enc.checksumSha256]
     );
 
     const [doc] = await conn.query(
       `INSERT INTO documents
-         (record_no, title, document_type_id, folder_id, department_id, member_number, member_name,
+         (company_id, record_no, title, document_type_id, folder_id, department_id, member_number, member_name,
           classification, retention_class_id, owner_id, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [recordNo, title, documentTypeId, folderId, departmentId || null, memberNumber || null, memberName || null,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [companyId, recordNo, title, documentTypeId, folderId, departmentId || null, memberNumber || null, memberName || null,
        classification || 'internal', retentionClassId || null, userId, userId]
     );
 
     const [version] = await conn.query(
       `INSERT INTO document_versions
-         (document_id, version_no, file_name, mime_type, size_bytes, storage_object_id, ocr_text, is_current, created_by)
-       VALUES (?, 1, ?, ?, ?, ?, ?, 1, ?)`,
-      [doc.insertId, originalName, mimeType, buffer.length, storageRow.insertId, ocrResult.text, userId]
+         (company_id, document_id, version_no, file_name, mime_type, size_bytes, storage_object_id, ocr_text, is_current, created_by)
+       VALUES (?, ?, 1, ?, ?, ?, ?, ?, 1, ?)`,
+      [companyId, doc.insertId, originalName, mimeType, buffer.length, storageRow.insertId, ocrResult.text, userId]
     );
 
     const [kek] = await conn.query('SELECT id FROM key_encryption_keys WHERE is_active = 1 LIMIT 1');
@@ -135,9 +143,9 @@ async function registerDocument({
 
     await conn.query(
       `INSERT INTO document_encryption_keys
-         (document_version_id, key_encryption_key_id, algorithm, wrapped_dek, dek_iv, dek_auth_tag, file_iv, file_auth_tag)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [version.insertId, kek[0].id, 'aes-256-gcm', enc.wrappedDek, enc.dekIv, enc.dekAuthTag, enc.fileIv, enc.fileAuthTag]
+         (company_id, document_version_id, key_encryption_key_id, algorithm, wrapped_dek, dek_iv, dek_auth_tag, file_iv, file_auth_tag)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [companyId, version.insertId, kek[0].id, 'aes-256-gcm', enc.wrappedDek, enc.dekIv, enc.dekAuthTag, enc.fileIv, enc.fileAuthTag]
     );
 
     await conn.query('UPDATE documents SET current_version_id = ? WHERE id = ?', [version.insertId, doc.insertId]);
@@ -147,8 +155,8 @@ async function registerDocument({
       .filter((f) => f.label && f.value);
     if (cleanCustomFields.length) {
       await conn.query(
-        `INSERT INTO document_custom_fields (document_id, field_label, field_value) VALUES ?`,
-        [cleanCustomFields.map((f) => [doc.insertId, f.label, f.value])]
+        `INSERT INTO document_custom_fields (company_id, document_id, field_label, field_value) VALUES ?`,
+        [cleanCustomFields.map((f) => [companyId, doc.insertId, f.label, f.value])]
       );
     }
 

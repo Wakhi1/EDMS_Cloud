@@ -133,9 +133,9 @@ router.get('/', requireModuleAccess('capture'), asyncHandler(async (req, res) =>
 router.post('/', requireModuleAccess('capture', true), asyncHandler(async (req, res) => {
   const { batchNo, source, pages, documents, successRate } = req.body;
   const [result] = await pool.query(
-    `INSERT INTO capture_batches (batch_no, source, status, pages, documents, success_rate, created_by, started_at, completed_at)
-     VALUES (?, ?, 'completed', ?, ?, ?, ?, NOW(), NOW())`,
-    [batchNo, source, pages || 0, documents || 0, successRate || 0, req.user.id]
+    `INSERT INTO capture_batches (company_id, batch_no, source, status, pages, documents, success_rate, created_by, started_at, completed_at)
+     VALUES (?, ?, ?, 'completed', ?, ?, ?, ?, NOW(), NOW())`,
+    [req.user.companyId, batchNo, source, pages || 0, documents || 0, successRate || 0, req.user.id]
   );
   await logAudit({ userId: req.user.id, action: 'Capture', recordType: 'capture_batch', recordId: result.insertId, detail: `${source}: ${documents} records (manual log)`, ip: req.ip });
   return ok(res, { id: result.insertId }, 'Batch recorded', 201);

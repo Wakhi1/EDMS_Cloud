@@ -107,9 +107,9 @@ router.post(
     const { principalType, principalId, permissionLevel } = req.body;
 
     const [result] = await pool.query(
-      `INSERT INTO document_acl (target_type, target_id, principal_type, principal_id, permission_level, granted_by)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [targetType, targetId, principalType, principalId, permissionLevel, req.user.id]
+      `INSERT INTO document_acl (company_id, target_type, target_id, principal_type, principal_id, permission_level, granted_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [req.user.companyId, targetType, targetId, principalType, principalId, permissionLevel, req.user.id]
     );
 
     await logAudit({

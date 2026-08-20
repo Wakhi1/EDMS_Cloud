@@ -55,6 +55,10 @@ async function importFromStorage({
   const [[docType]] = await pool.query('SELECT code FROM document_types WHERE id = ?', [documentTypeId]);
   if (!docType) throw new Error('Unknown document type');
 
+  const [[actingUser]] = await pool.query('SELECT company_id FROM users WHERE id = ?', [userId]);
+  if (!actingUser) throw new Error(`importFromStorage: userId ${userId} does not resolve to a user`);
+  const companyId = actingUser.company_id;
+
   const { files } = await provider.list(prefix);
   const imported = [];
   const skipped = [];
@@ -89,23 +93,23 @@ async function importFromStorage({
       // itself is a safe, always-correct label for this informational column.
       const [storageRow] = await conn.query(
         `INSERT INTO document_storage_objects
-           (provider, bucket_or_container, object_key, region, content_type, size_bytes, is_encrypted, checksum_sha256)
-         VALUES (?, ?, ?, ?, ?, ?, 0, ?)`,
-        [providerId, providerId, objectKey, null, mimeType, buffer.length, contentHash]
+           (company_id, provider, bucket_or_container, object_key, region, content_type, size_bytes, is_encrypted, checksum_sha256)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+        [companyId, providerId, providerId, objectKey, null, mimeType, buffer.length, contentHash]
       );
 
       const [doc] = await conn.query(
         `INSERT INTO documents
-           (record_no, title, document_type_id, folder_id, department_id, classification, retention_class_id, owner_id, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [recordNo, fileName, documentTypeId, folderId, departmentId || null, classification || 'internal', retentionClassId || null, userId, userId]
+           (company_id, record_no, title, document_type_id, folder_id, department_id, classification, retention_class_id, owner_id, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [companyId, recordNo, fileName, documentTypeId, folderId, departmentId || null, classification || 'internal', retentionClassId || null, userId, userId]
       );
 
       const [version] = await conn.query(
         `INSERT INTO document_versions
-           (document_id, version_no, file_name, mime_type, size_bytes, storage_object_id, ocr_text, is_current, created_by)
-         VALUES (?, 1, ?, ?, ?, ?, ?, 1, ?)`,
-        [doc.insertId, fileName, mimeType, buffer.length, storageRow.insertId, ocrResult.text, userId]
+           (company_id, document_id, version_no, file_name, mime_type, size_bytes, storage_object_id, ocr_text, is_current, created_by)
+         VALUES (?, ?, 1, ?, ?, ?, ?, ?, 1, ?)`,
+        [companyId, doc.insertId, fileName, mimeType, buffer.length, storageRow.insertId, ocrResult.text, userId]
       );
 
       await conn.query('UPDATE documents SET current_version_id = ? WHERE id = ?', [version.insertId, doc.insertId]);

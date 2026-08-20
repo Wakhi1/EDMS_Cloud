@@ -60,9 +60,9 @@ router.post(
     if (existing.length) return fail(res, 'A retention class with this code already exists', 409);
 
     const [result] = await pool.query(
-      `INSERT INTO retention_classes (code, name, retention_years, trigger_event, disposal_action)
-       VALUES (?, ?, ?, ?, ?)`,
-      [code, name, retentionYears, triggerEvent || 'record declared final', disposalAction || 'review']
+      `INSERT INTO retention_classes (company_id, code, name, retention_years, trigger_event, disposal_action)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [req.user.companyId, code, name, retentionYears, triggerEvent || 'record declared final', disposalAction || 'review']
     );
     await logAudit({ userId: req.user.id, action: 'Create', recordType: 'retention_class', recordId: result.insertId, detail: name, ip: req.ip });
     return ok(res, { id: result.insertId }, 'Retention schedule created', 201);

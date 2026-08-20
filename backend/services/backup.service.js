@@ -74,7 +74,7 @@ function runFromFile(cmd, args, inFilePath) {
  * provider under `system-backups/`, records a `backups` row, and notifies
  * ICT. Returns the backups row id.
  */
-async function runBackup({ createdBy, ip }) {
+async function runBackup({ createdBy, companyId = null, ip }) {
   await fsp.mkdir(TMP_DIR, { recursive: true });
   const dbName = process.env.DB_NAME || 'pspf_edms';
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -82,8 +82,8 @@ async function runBackup({ createdBy, ip }) {
   const fileKey = `system-backups/${dbName}-${stamp}.sql.enc`;
 
   const [insertResult] = await pool.query(
-    `INSERT INTO backups (file_key, storage_provider, status, created_by) VALUES (?, 'pending', 'running', ?)`,
-    [fileKey, createdBy || null]
+    `INSERT INTO backups (company_id, file_key, storage_provider, status, created_by) VALUES (?, ?, 'pending', 'running', ?)`,
+    [companyId, fileKey, createdBy || null]
   );
   const backupId = insertResult.insertId;
 

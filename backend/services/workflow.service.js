@@ -24,7 +24,7 @@ const { sendApprovalAlertEmail } = require('./email.service');
  * pre-existing limitation of this app (a role with zero active users
  * strands the document with nothing actionable), not introduced here.
  */
-async function assignStep({ conn, instanceId, step, documentId, ip }) {
+async function assignStep({ conn, instanceId, step, documentId, companyId, ip }) {
   if (step.sub_workflow_id) {
     await startWorkflowInstance({
       conn, workflowId: step.sub_workflow_id, documentId, userId: null, ip, parentInstanceId: instanceId,
@@ -36,8 +36,8 @@ async function assignStep({ conn, instanceId, step, documentId, ip }) {
   if (!approver) return;
 
   await conn.query(
-    `INSERT INTO workflow_approvals (instance_id, step_id, approver_id) VALUES (?, ?, ?)`,
-    [instanceId, step.id, approver.id]
+    `INSERT INTO workflow_approvals (company_id, instance_id, step_id, approver_id) VALUES (?, ?, ?, ?)`,
+    [companyId, instanceId, step.id, approver.id]
   );
   const [[doc]] = await conn.query('SELECT record_no, title FROM documents WHERE id = ?', [documentId]);
   sendApprovalAlertEmail(approver.email, doc.record_no, doc.title).catch(() => {});
@@ -73,12 +73,15 @@ async function startWorkflowInstance({ conn: existingConn, workflowId, documentI
     );
     if (!firstStep) throw new Error('Workflow has no steps configured');
 
+    const [[doc]] = await conn.query('SELECT company_id FROM documents WHERE id = ?', [documentId]);
+    const companyId = doc ? doc.company_id : null;
+
     const [instance] = await conn.query(
-      `INSERT INTO document_workflow_instances (document_id, workflow_id, current_step_id, parent_instance_id) VALUES (?, ?, ?, ?)`,
-      [documentId, workflowId, firstStep.id, parentInstanceId]
+      `INSERT INTO document_workflow_instances (company_id, document_id, workflow_id, current_step_id, parent_instance_id) VALUES (?, ?, ?, ?, ?)`,
+      [companyId, documentId, workflowId, firstStep.id, parentInstanceId]
     );
 
-    await assignStep({ conn, instanceId: instance.insertId, step: firstStep, documentId, ip });
+    await assignStep({ conn, instanceId: instance.insertId, step: firstStep, documentId, companyId, ip });
     await conn.query('UPDATE documents SET status = "pending_approval" WHERE id = ?', [documentId]);
     await logAudit({ userId, action: 'Edit', recordType: 'document', recordId: documentId, detail: `Workflow "${workflowId}" started`, ip });
 
@@ -173,8 +176,9 @@ async function advanceInstance({ conn, instanceId, stepId, workflowId, documentI
   );
 
   if (nextStep) {
+    const [[doc]] = await conn.query('SELECT company_id FROM documents WHERE id = ?', [documentId]);
     await conn.query('UPDATE document_workflow_instances SET current_step_id = ? WHERE id = ?', [nextStep.id, instanceId]);
-    await assignStep({ conn, instanceId, step: nextStep, documentId, ip });
+    await assignStep({ conn, instanceId, step: nextStep, documentId, companyId: doc ? doc.company_id : null, ip });
     return;
   }
 

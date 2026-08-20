@@ -779,9 +779,14 @@ CREATE TABLE `user_preferences` (
 -- 10. BACKUP & DISASTER RECOVERY
 -- ---------------------------------------------------------------------
 
+-- company_id is nullable: a backup dumps the WHOLE database (every
+-- company's data in one archive, see services/backup.service.js), and the
+-- automatic nightly scheduler that triggers most of them has no
+-- authenticated-user/company context at all — unlike every other table
+-- here, this one is a genuinely cross-tenant, platform-level operation.
 CREATE TABLE `backups` (
   `id`               INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  `company_id`       INT UNSIGNED NOT NULL,
+  `company_id`       INT UNSIGNED NULL,
   `file_key`         VARCHAR(255) NOT NULL,      -- storage key/path of the encrypted archive
   `size_bytes`       BIGINT UNSIGNED NULL,
   `storage_provider` VARCHAR(30) NOT NULL,
@@ -798,7 +803,7 @@ CREATE TABLE `backups` (
   `created_by`       INT UNSIGNED NULL,
   `created_at`       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `completed_at`     DATETIME NULL,
-  CONSTRAINT `fk_backup_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
+  CONSTRAINT `fk_backup_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`) ON DELETE SET NULL,
   CONSTRAINT `fk_backup_creator` FOREIGN KEY (`created_by`) REFERENCES `users`(`id`)
 ) ENGINE=InnoDB;
 

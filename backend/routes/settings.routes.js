@@ -42,11 +42,11 @@ router.put(
 
     const { themeMode, density } = req.body;
     await pool.query(
-      `INSERT INTO user_preferences (user_id, theme_mode, density) VALUES (?, COALESCE(?, 'system'), COALESCE(?, 'comfortable'))
+      `INSERT INTO user_preferences (user_id, company_id, theme_mode, density) VALUES (?, ?, COALESCE(?, 'system'), COALESCE(?, 'comfortable'))
        ON DUPLICATE KEY UPDATE
          theme_mode = COALESCE(?, theme_mode),
          density = COALESCE(?, density)`,
-      [req.user.id, themeMode || null, density || null, themeMode || null, density || null]
+      [req.user.id, req.user.companyId, themeMode || null, density || null, themeMode || null, density || null]
     );
     return ok(res, null, 'Preferences updated');
   })

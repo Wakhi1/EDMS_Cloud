@@ -37,7 +37,7 @@ router.post(
     const [existing] = await pool.query('SELECT id FROM document_types WHERE name = ? OR code = ?', [name, code]);
     if (existing.length) return fail(res, 'A document type with this name or code already exists', 409);
 
-    const [result] = await pool.query('INSERT INTO document_types (name, code) VALUES (?, ?)', [name, code.toUpperCase()]);
+    const [result] = await pool.query('INSERT INTO document_types (company_id, name, code) VALUES (?, ?, ?)', [req.user.companyId, name, code.toUpperCase()]);
     await logAudit({ userId: req.user.id, action: 'Create', recordType: 'document_type', recordId: result.insertId, detail: name, ip: req.ip });
     return ok(res, { id: result.insertId }, 'Document type created', 201);
   })

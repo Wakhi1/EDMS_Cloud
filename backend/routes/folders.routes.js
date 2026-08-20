@@ -54,9 +54,9 @@ router.post(
     }
 
     const [result] = await pool.query(
-      `INSERT INTO folders (parent_id, name, path, department_id, retention_class_id, created_by)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [parentId || null, name, path, departmentId || null, retentionClassId || null, req.user.id]
+      `INSERT INTO folders (company_id, parent_id, name, path, department_id, retention_class_id, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [req.user.companyId, parentId || null, name, path, departmentId || null, retentionClassId || null, req.user.id]
     );
 
     await logAudit({ userId: req.user.id, action: 'Create', recordType: 'folder', recordId: result.insertId, detail: path, ip: req.ip });

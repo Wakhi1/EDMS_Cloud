@@ -47,16 +47,16 @@ router.post(
     try {
       await conn.beginTransaction();
       const [wf] = await conn.query(
-        `INSERT INTO workflows (name, trigger_doc_type_id, trigger_folder_id, created_by) VALUES (?, ?, ?, ?)`,
-        [name, triggerDocTypeId || null, triggerFolderId || null, req.user.id]
+        `INSERT INTO workflows (company_id, name, trigger_doc_type_id, trigger_folder_id, created_by) VALUES (?, ?, ?, ?, ?)`,
+        [req.user.companyId, name, triggerDocTypeId || null, triggerFolderId || null, req.user.id]
       );
       for (let i = 0; i < steps.length; i += 1) {
         const s = steps[i];
         // eslint-disable-next-line no-await-in-loop
         await conn.query(
-          `INSERT INTO workflow_steps (workflow_id, step_order, step_name, role_id, sla_days, escalation_role_id, sub_workflow_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [wf.insertId, i + 1, s.stepName, s.roleId, s.slaDays || 2, s.escalationRoleId || null, s.subWorkflowId || null]
+          `INSERT INTO workflow_steps (company_id, workflow_id, step_order, step_name, role_id, sla_days, escalation_role_id, sub_workflow_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [req.user.companyId, wf.insertId, i + 1, s.stepName, s.roleId, s.slaDays || 2, s.escalationRoleId || null, s.subWorkflowId || null]
         );
       }
       await conn.commit();
@@ -124,9 +124,9 @@ router.put(
           } else {
             // eslint-disable-next-line no-await-in-loop
             await conn.query(
-              `INSERT INTO workflow_steps (workflow_id, step_order, step_name, role_id, sla_days, escalation_role_id, sub_workflow_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?)`,
-              [req.params.id, i + 1, s.stepName, s.roleId, s.slaDays || 2, s.escalationRoleId || null, s.subWorkflowId || null]
+              `INSERT INTO workflow_steps (company_id, workflow_id, step_order, step_name, role_id, sla_days, escalation_role_id, sub_workflow_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+              [req.user.companyId, req.params.id, i + 1, s.stepName, s.roleId, s.slaDays || 2, s.escalationRoleId || null, s.subWorkflowId || null]
             );
           }
         }

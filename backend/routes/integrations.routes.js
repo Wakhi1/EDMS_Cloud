@@ -72,9 +72,9 @@ router.put('/storage-location', allowRoles('System Administrator'), asyncHandler
   if (!row) return fail(res, 'Integration not found', 404);
 
   await pool.query(
-    `INSERT INTO system_settings (setting_key, setting_value) VALUES ('active_storage_provider', ?)
+    `INSERT INTO system_settings (company_id, setting_key, setting_value) VALUES (?, 'active_storage_provider', ?)
      ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)`,
-    [provider]
+    [req.user.companyId, provider]
   );
   await logAudit({ userId: req.user.id, action: 'Integration', recordType: 'integration', recordId: provider, detail: 'Set as active storage provider', ip: req.ip });
   return ok(res, { provider }, 'Storage location updated');
@@ -95,8 +95,8 @@ router.post('/', allowRoles('System Administrator'), asyncHandler(async (req, re
   if (existing) return fail(res, `Integration "${id}" already exists`, 409);
 
   await pool.query(
-    'INSERT INTO integrations (id, name, description, endpoint, status) VALUES (?, ?, ?, ?, ?)',
-    [id, name, description || null, endpoint || null, status || 'disconnected']
+    'INSERT INTO integrations (company_id, id, name, description, endpoint, status) VALUES (?, ?, ?, ?, ?, ?)',
+    [req.user.companyId, id, name, description || null, endpoint || null, status || 'disconnected']
   );
   await logAudit({ userId: req.user.id, action: 'Integration', recordType: 'integration', recordId: id, detail: 'Created', ip: req.ip });
   return ok(res, { id }, 'Integration created', 201);
@@ -236,9 +236,9 @@ router.post('/:id/import', allowRoles('System Administrator'), asyncHandler(asyn
       }
       // eslint-disable-next-line no-await-in-loop
       await pool.query(
-        `INSERT INTO document_acl (target_type, target_id, principal_type, principal_id, permission_level, granted_by)
-         VALUES ('folder', ?, ?, ?, ?, ?)`,
-        [folderId, grant.principalType, grant.principalId, grant.permissionLevel, req.user.id]
+        `INSERT INTO document_acl (company_id, target_type, target_id, principal_type, principal_id, permission_level, granted_by)
+         VALUES (?, 'folder', ?, ?, ?, ?, ?)`,
+        [req.user.companyId, folderId, grant.principalType, grant.principalId, grant.permissionLevel, req.user.id]
       );
     }
     await logAudit({

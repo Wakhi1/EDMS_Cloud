@@ -83,9 +83,9 @@ router.post(
     if (existing.length) return fail(res, 'You already have a pending request for this record', 409);
 
     const [result] = await pool.query(
-      `INSERT INTO access_requests (target_type, target_id, requested_level, reason, requester_id)
-       VALUES (?, ?, ?, ?, ?)`,
-      [targetType, targetId, requestedLevel, reason || null, req.user.id]
+      `INSERT INTO access_requests (company_id, target_type, target_id, requested_level, reason, requester_id)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [req.user.companyId, targetType, targetId, requestedLevel, reason || null, req.user.id]
     );
 
     const label = await labelFor(targetType, targetId);
@@ -115,9 +115,9 @@ router.post(
     try {
       await conn.beginTransaction();
       await conn.query(
-        `INSERT INTO document_acl (target_type, target_id, principal_type, principal_id, permission_level, granted_by)
-         VALUES (?, ?, 'user', ?, ?, ?)`,
-        [reqRow.target_type, reqRow.target_id, reqRow.requester_id, reqRow.requested_level, req.user.id]
+        `INSERT INTO document_acl (company_id, target_type, target_id, principal_type, principal_id, permission_level, granted_by)
+         VALUES (?, ?, ?, 'user', ?, ?, ?)`,
+        [reqRow.company_id, reqRow.target_type, reqRow.target_id, reqRow.requester_id, reqRow.requested_level, req.user.id]
       );
       await conn.query(
         `UPDATE access_requests SET status = 'approved', decided_by = ?, decided_at = NOW(), decision_note = ? WHERE id = ?`,

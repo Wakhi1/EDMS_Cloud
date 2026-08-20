@@ -247,7 +247,12 @@ class _WorkflowTileState extends ConsumerState<_WorkflowTile> {
 
 class _StepDraft {
   String stepName = '';
-  int roleId = 1; // Records Officer — a system role, always id 1 and never deletable.
+  // No hardcoded default: role ids are per-company now (multi-tenant —
+  // "Records Officer" is id 1 only for whichever company was created
+  // first), so a fixed id can silently point at nothing, or at a
+  // different company's role, for anyone else. Left unset until the user
+  // actually picks one; validated in _WorkflowFormState._submit().
+  int? roleId;
   int slaDays = 2;
   int? escalationRoleId;
   int? subWorkflowId;
@@ -301,11 +306,15 @@ class _WorkflowFormState extends ConsumerState<_WorkflowForm> {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Add at least one named step.')));
       return;
     }
+    if (steps.any((s) => s.roleId == null)) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pick an assigned role for every step.')));
+      return;
+    }
     final stepTuples = [
       for (final s in steps)
         (
           stepName: s.stepName.trim(),
-          roleId: s.roleId,
+          roleId: s.roleId!,
           slaDays: s.slaDays,
           escalationRoleId: s.escalationRoleId,
           subWorkflowId: s.subWorkflowId,
@@ -521,15 +530,16 @@ class _StepEditor extends StatelessWidget {
                 ),
                 SizedBox(
                   width: 200,
-                  child: DropdownButtonFormField<int>(
+                  child: DropdownButtonFormField<int?>(
                     initialValue: step.roleId,
                     isExpanded: true,
+                    hint: const Text('Select a role', overflow: TextOverflow.ellipsis),
                     decoration: const InputDecoration(labelText: 'Assigned role', isDense: true),
                     items: [
                       for (final r in roles) DropdownMenuItem(value: r.id, child: Text(r.name, overflow: TextOverflow.ellipsis)),
                     ],
                     onChanged: (v) {
-                      if (v != null) step.roleId = v;
+                      step.roleId = v;
                       onChanged();
                     },
                   ),

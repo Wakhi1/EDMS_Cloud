@@ -22,11 +22,19 @@ function generateRecordNo(typeCode) {
 
 async function createBatch({ source, createdBy }) {
   const batchNo = `BATCH-${Date.now()}`;
+  // createdBy is always a real user id by the time this is called (a
+  // signed-in user for manual capture, or SYSTEM_INTAKE_USER_ID for
+  // automated intake — see runBatch below) — derive the batch's company
+  // from them rather than threading req.user.companyId through every
+  // caller, since the automated scheduler path has no request at all.
+  const [[user]] = await pool.query('SELECT company_id FROM users WHERE id = ?', [createdBy]);
+  const companyId = user ? user.company_id : null;
+
   const [result] = await pool.query(
-    `INSERT INTO capture_batches (batch_no, source, status, created_by, started_at) VALUES (?, ?, 'running', ?, NOW())`,
-    [batchNo, source, createdBy || null]
+    `INSERT INTO capture_batches (company_id, batch_no, source, status, created_by, started_at) VALUES (?, ?, ?, 'running', ?, NOW())`,
+    [companyId, batchNo, source, createdBy || null]
   );
-  return { id: result.insertId, batchNo };
+  return { id: result.insertId, batchNo, companyId };
 }
 
 /**
@@ -40,7 +48,7 @@ async function createBatch({ source, createdBy }) {
  * Never throws — always resolves, recording success/failure as a
  * capture_batch_items row either way.
  */
-async function processFile(batchId, { buffer, fileName, mimeType, defaultFolderId, createdBy, ip }) {
+async function processFile(batchId, { buffer, fileName, mimeType, defaultFolderId, createdBy, companyId, ip }) {
   try {
     // Peek at extracted text via a throwaway OCR pass is wasteful (registerDocument
     // already runs it) — classify from the file name as a cheap first guess instead;
@@ -74,8 +82,8 @@ async function processFile(batchId, { buffer, fileName, mimeType, defaultFolderI
     }
 
     await pool.query(
-      `INSERT INTO capture_batch_items (batch_id, source_file_name, status, document_id) VALUES (?, ?, 'succeeded', ?)`,
-      [batchId, fileName, result.id]
+      `INSERT INTO capture_batch_items (company_id, batch_id, source_file_name, status, document_id) VALUES (?, ?, ?, 'succeeded', ?)`,
+      [companyId, batchId, fileName, result.id]
     );
 
     // Auto-route into a matching workflow, if one's configured — never let
@@ -88,15 +96,15 @@ async function processFile(batchId, { buffer, fileName, mimeType, defaultFolderI
     if (err instanceof DuplicateContentError) {
       logger.info('Batch item is a duplicate', { batchId, fileName, existing: err.existing });
       await pool.query(
-        `INSERT INTO capture_batch_items (batch_id, source_file_name, status, document_id, error_message) VALUES (?, ?, 'duplicate', ?, ?)`,
-        [batchId, fileName, err.existing.id, `Duplicate of ${err.existing.recordNo} (${err.existing.title})`.slice(0, 500)]
+        `INSERT INTO capture_batch_items (company_id, batch_id, source_file_name, status, document_id, error_message) VALUES (?, ?, ?, 'duplicate', ?, ?)`,
+        [companyId, batchId, fileName, err.existing.id, `Duplicate of ${err.existing.recordNo} (${err.existing.title})`.slice(0, 500)]
       );
       return { ok: false, duplicate: true, error: err.message };
     }
     logger.warn('Batch item failed', { batchId, fileName, error: err.message });
     await pool.query(
-      `INSERT INTO capture_batch_items (batch_id, source_file_name, status, error_message) VALUES (?, ?, 'failed', ?)`,
-      [batchId, fileName, err.message.slice(0, 500)]
+      `INSERT INTO capture_batch_items (company_id, batch_id, source_file_name, status, error_message) VALUES (?, ?, ?, 'failed', ?)`,
+      [companyId, batchId, fileName, err.message.slice(0, 500)]
     );
     return { ok: false, error: err.message };
   }
@@ -135,7 +143,7 @@ async function runBatch({ source, files, defaultFolderId, createdBy, ip }) {
   const batch = await createBatch({ source, createdBy: effectiveCreatedBy });
   for (const file of files) {
     // eslint-disable-next-line no-await-in-loop
-    await processFile(batch.id, { ...file, defaultFolderId: effectiveFolderId, createdBy: effectiveCreatedBy, ip });
+    await processFile(batch.id, { ...file, defaultFolderId: effectiveFolderId, createdBy: effectiveCreatedBy, companyId: batch.companyId, ip });
   }
   const summary = await completeBatch(batch.id);
   await logAudit({

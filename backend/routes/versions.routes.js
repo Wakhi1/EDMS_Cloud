@@ -60,9 +60,9 @@ router.post('/document/:documentId', requireModuleAccess('versions', true), uplo
 
     const [storageRow] = await conn.query(
       `INSERT INTO document_storage_objects
-         (provider, bucket_or_container, object_key, region, content_type, size_bytes, is_encrypted, checksum_sha256)
-       VALUES (?, ?, ?, ?, ?, ?, 1, ?)`,
-      [uploadResult.provider, uploadResult.bucket, uploadResult.objectKey, uploadResult.region,
+         (company_id, provider, bucket_or_container, object_key, region, content_type, size_bytes, is_encrypted, checksum_sha256)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+      [req.user.companyId, uploadResult.provider, uploadResult.bucket, uploadResult.objectKey, uploadResult.region,
        req.file.mimetype, req.file.size, enc.checksumSha256]
     );
 
@@ -70,17 +70,17 @@ router.post('/document/:documentId', requireModuleAccess('versions', true), uplo
 
     const [version] = await conn.query(
       `INSERT INTO document_versions
-         (document_id, version_no, file_name, mime_type, size_bytes, storage_object_id, ocr_text, is_current, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)`,
-      [documentId, nextVersion, req.file.originalname, req.file.mimetype, req.file.size, storageRow.insertId, ocrResult.text, req.user.id]
+         (company_id, document_id, version_no, file_name, mime_type, size_bytes, storage_object_id, ocr_text, is_current, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+      [req.user.companyId, documentId, nextVersion, req.file.originalname, req.file.mimetype, req.file.size, storageRow.insertId, ocrResult.text, req.user.id]
     );
 
     const [kek] = await conn.query('SELECT id FROM key_encryption_keys WHERE is_active = 1 LIMIT 1');
     await conn.query(
       `INSERT INTO document_encryption_keys
-         (document_version_id, key_encryption_key_id, algorithm, wrapped_dek, dek_iv, dek_auth_tag, file_iv, file_auth_tag)
-       VALUES (?, ?, 'aes-256-gcm', ?, ?, ?, ?, ?)`,
-      [version.insertId, kek[0].id, enc.wrappedDek, enc.dekIv, enc.dekAuthTag, enc.fileIv, enc.fileAuthTag]
+         (company_id, document_version_id, key_encryption_key_id, algorithm, wrapped_dek, dek_iv, dek_auth_tag, file_iv, file_auth_tag)
+       VALUES (?, ?, ?, 'aes-256-gcm', ?, ?, ?, ?, ?)`,
+      [req.user.companyId, version.insertId, kek[0].id, enc.wrappedDek, enc.dekIv, enc.dekAuthTag, enc.fileIv, enc.fileAuthTag]
     );
 
     await conn.query('UPDATE documents SET current_version_id = ? WHERE id = ?', [version.insertId, documentId]);

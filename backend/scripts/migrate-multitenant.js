@@ -221,7 +221,9 @@ const TENANT_TABLES = [
   { table: 'capture_batch_items' },
   { table: 'system_settings' }, // PK stays `setting_key` this pass — same reasoning as integrations
   { table: 'user_preferences' },
-  { table: 'backups' },
+  // Nullable: a backup dumps the whole DB (every company at once) and the
+  // automatic scheduler that triggers most of them has no company context.
+  { table: 'backups', nullable: true },
 ];
 
 async function createNewTablesIfMissing() {
