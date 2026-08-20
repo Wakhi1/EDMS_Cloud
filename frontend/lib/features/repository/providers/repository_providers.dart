@@ -32,9 +32,21 @@ class RepositoryFilters {
 
 final repositoryFiltersProvider = StateProvider<RepositoryFilters>((ref) => const RepositoryFilters());
 
+/// Recycle bin is a separate on/off switch from [RepositoryFilters.status]
+/// rather than reusing that field directly — archived records should never
+/// silently show up just because a status filter happens to get set to
+/// "archived" some other way, and turning the bin off should restore
+/// whatever status filter (if any) was already selected.
+final repositoryRecycleBinProvider = StateProvider<bool>((ref) => false);
+
 final repositoryDocumentsProvider = FutureProvider.autoDispose<List<DocumentRecord>>((ref) {
   final filters = ref.watch(repositoryFiltersProvider);
-  return ref.watch(documentsApiProvider).search(q: filters.q, folderId: filters.folderId, status: filters.status);
+  final recycleBin = ref.watch(repositoryRecycleBinProvider);
+  return ref.watch(documentsApiProvider).search(
+        q: filters.q,
+        folderId: filters.folderId,
+        status: recycleBin ? 'archived' : filters.status,
+      );
 });
 
 final selectedDocumentProvider = StateProvider<DocumentRecord?>((ref) => null);
@@ -42,3 +54,7 @@ final selectedDocumentProvider = StateProvider<DocumentRecord?>((ref) => null);
 enum RepositoryViewMode { list, grid }
 
 final repositoryViewModeProvider = StateProvider<RepositoryViewMode>((ref) => RepositoryViewMode.list);
+
+/// Manual override for the properties panel, independent of the width
+/// breakpoint that decides whether it's offered at all.
+final repositoryDetailsCollapsedProvider = StateProvider<bool>((ref) => false);

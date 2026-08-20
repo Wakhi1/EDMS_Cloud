@@ -21,14 +21,14 @@ router.use(authenticate);
 /** GET /api/users?role=&departmentId=&status=active|locked */
 router.get('/', requireModuleAccess('users'), asyncHandler(async (req, res) => {
   const { role, departmentId, status } = req.query;
-  const clauses = [];
-  const params = [];
+  const clauses = ['u.company_id = ?'];
+  const params = [req.user.companyId];
   if (role) { clauses.push('r.name = ?'); params.push(role); }
   if (departmentId) { clauses.push('u.department_id = ?'); params.push(departmentId); }
   if (status === 'active') clauses.push('u.is_active = 1 AND u.is_locked = 0');
   if (status === 'locked') clauses.push('u.is_locked = 1');
   if (status === 'inactive') clauses.push('u.is_active = 0');
-  const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+  const where = `WHERE ${clauses.join(' AND ')}`;
 
   const [rows] = await pool.query(
     `SELECT u.id, u.full_name, u.email, u.phone_number, u.is_active, u.is_locked, u.mfa_enabled,
@@ -62,22 +62,22 @@ router.post(
     if (!errors.isEmpty()) return fail(res, 'Validation failed', 422, errors.array());
 
     const { fullName, email, password, roleId, departmentId, phoneNumber } = req.body;
-    const [[role]] = await pool.query('SELECT name FROM roles WHERE id = ?', [roleId]);
+    const [[role]] = await pool.query('SELECT name FROM roles WHERE id = ? AND company_id = ?', [roleId, req.user.companyId]);
     if (!role) return fail(res, 'Unknown role', 400);
     if (role.name === 'System Administrator' && req.user.role !== 'System Administrator') {
       return fail(res, 'Only a System Administrator can create another System Administrator account', 403);
     }
 
-    const [existing] = await pool.query('SELECT id FROM users WHERE email = ?', [email]);
+    const [existing] = await pool.query('SELECT id FROM users WHERE company_id = ? AND email = ?', [req.user.companyId, email]);
     if (existing.length) return fail(res, 'An account with this email already exists', 409);
 
     const passwordHash = await bcrypt.hash(password, 12);
     const [result] = await pool.query(
-      `INSERT INTO users (full_name, email, phone_number, password_hash, role_id, department_id, password_changed_at)
-       VALUES (?, ?, ?, ?, ?, ?, NOW())`,
-      [fullName, email, phoneNumber || null, passwordHash, roleId, departmentId || null]
+      `INSERT INTO users (company_id, full_name, email, phone_number, password_hash, role_id, department_id, password_changed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [req.user.companyId, fullName, email, phoneNumber || null, passwordHash, roleId, departmentId || null]
     );
-    await logAudit({ userId: req.user.id, action: 'Create', recordType: 'user', recordId: result.insertId, detail: `${email} (${role.name})`, ip: req.ip });
+    await logAudit({ userId: req.user.id, companyId: req.user.companyId, action: 'Create', recordType: 'user', recordId: result.insertId, detail: `${email} (${role.name})`, ip: req.ip });
     return ok(res, { id: result.insertId }, 'Account created', 201);
   })
 );
@@ -87,8 +87,8 @@ router.delete('/:id', requireModuleAccess('users', true), asyncHandler(async (re
   if (Number(req.params.id) === req.user.id) return fail(res, 'You cannot deactivate your own account', 400);
 
   const [[target]] = await pool.query(
-    `SELECT u.id, u.email, r.name AS role_name FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = ?`,
-    [req.params.id]
+    `SELECT u.id, u.email, r.name AS role_name FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = ? AND u.company_id = ?`,
+    [req.params.id, req.user.companyId]
   );
   if (!target) return fail(res, 'User not found', 404);
   if (target.role_name === 'System Administrator' && req.user.role !== 'System Administrator') {
@@ -96,7 +96,7 @@ router.delete('/:id', requireModuleAccess('users', true), asyncHandler(async (re
   }
 
   await pool.query('UPDATE users SET is_active = 0 WHERE id = ?', [req.params.id]);
-  await logAudit({ userId: req.user.id, action: 'Delete', recordType: 'user', recordId: req.params.id, detail: `Deactivated ${target.email}`, ip: req.ip });
+  await logAudit({ userId: req.user.id, companyId: req.user.companyId, action: 'Delete', recordType: 'user', recordId: req.params.id, detail: `Deactivated ${target.email}`, ip: req.ip });
   return ok(res, null, 'Account deactivated');
 }));
 
@@ -109,14 +109,17 @@ router.put(
     const errors = validationResult(req);
     if (!errors.isEmpty()) return fail(res, 'Validation failed', 422, errors.array());
 
-    const [[targetRole]] = await pool.query('SELECT name FROM roles WHERE id = ?', [req.body.roleId]);
+    const [[target]] = await pool.query('SELECT id FROM users WHERE id = ? AND company_id = ?', [req.params.id, req.user.companyId]);
+    if (!target) return fail(res, 'User not found', 404);
+
+    const [[targetRole]] = await pool.query('SELECT name FROM roles WHERE id = ? AND company_id = ?', [req.body.roleId, req.user.companyId]);
     if (!targetRole) return fail(res, 'Unknown role', 400);
     if (targetRole.name === 'System Administrator' && req.user.role !== 'System Administrator') {
       return fail(res, 'Only a System Administrator can grant the System Administrator role', 403);
     }
 
     await pool.query('UPDATE users SET role_id = ? WHERE id = ?', [req.body.roleId, req.params.id]);
-    await logAudit({ userId: req.user.id, action: 'Edit', recordType: 'user', recordId: req.params.id, detail: `Role changed to ${req.body.roleId}`, ip: req.ip });
+    await logAudit({ userId: req.user.id, companyId: req.user.companyId, action: 'Edit', recordType: 'user', recordId: req.params.id, detail: `Role changed to ${req.body.roleId}`, ip: req.ip });
     const [[role]] = await pool.query('SELECT name FROM roles WHERE id = ?', [req.body.roleId]);
     await createNotification({
       userId: req.params.id,
@@ -132,8 +135,9 @@ router.put(
 
 /** PUT /api/users/:id/lock — { locked: true|false } */
 router.put('/:id/lock', requireModuleAccess('users', true), asyncHandler(async (req, res) => {
-  await pool.query('UPDATE users SET is_locked = ? WHERE id = ?', [req.body.locked ? 1 : 0, req.params.id]);
-  await logAudit({ userId: req.user.id, action: 'Edit', recordType: 'user', recordId: req.params.id, detail: req.body.locked ? 'Locked' : 'Unlocked', ip: req.ip });
+  const [result] = await pool.query('UPDATE users SET is_locked = ? WHERE id = ? AND company_id = ?', [req.body.locked ? 1 : 0, req.params.id, req.user.companyId]);
+  if (!result.affectedRows) return fail(res, 'User not found', 404);
+  await logAudit({ userId: req.user.id, companyId: req.user.companyId, action: 'Edit', recordType: 'user', recordId: req.params.id, detail: req.body.locked ? 'Locked' : 'Unlocked', ip: req.ip });
   await createNotification({
     userId: req.params.id,
     type: req.body.locked ? 'account_locked' : 'account_unlocked',
@@ -149,12 +153,13 @@ router.put('/:id/lock', requireModuleAccess('users', true), asyncHandler(async (
 router.put('/:id/department', requireModuleAccess('users', true), asyncHandler(async (req, res) => {
   const { departmentId } = req.body;
   if (departmentId !== null && departmentId !== undefined) {
-    const [[dept]] = await pool.query('SELECT id FROM departments WHERE id = ?', [departmentId]);
+    const [[dept]] = await pool.query('SELECT id FROM departments WHERE id = ? AND company_id = ?', [departmentId, req.user.companyId]);
     if (!dept) return fail(res, 'Unknown department', 400);
   }
 
-  await pool.query('UPDATE users SET department_id = ? WHERE id = ?', [departmentId ?? null, req.params.id]);
-  await logAudit({ userId: req.user.id, action: 'Edit', recordType: 'user', recordId: req.params.id, detail: `Department changed to ${departmentId ?? 'Unassigned'}`, ip: req.ip });
+  const [result] = await pool.query('UPDATE users SET department_id = ? WHERE id = ? AND company_id = ?', [departmentId ?? null, req.params.id, req.user.companyId]);
+  if (!result.affectedRows) return fail(res, 'User not found', 404);
+  await logAudit({ userId: req.user.id, companyId: req.user.companyId, action: 'Edit', recordType: 'user', recordId: req.params.id, detail: `Department changed to ${departmentId ?? 'Unassigned'}`, ip: req.ip });
   await createNotification({
     userId: req.params.id,
     type: 'department_changed',
@@ -183,9 +188,10 @@ router.put(
     if (!errors.isEmpty()) return fail(res, 'Validation failed', 422, errors.array());
 
     const passwordHash = await bcrypt.hash(req.body.newPassword, 12);
-    await pool.query('UPDATE users SET password_hash = ?, password_changed_at = NOW(), failed_login_attempts = 0 WHERE id = ?', [passwordHash, req.params.id]);
+    const [result] = await pool.query('UPDATE users SET password_hash = ?, password_changed_at = NOW(), failed_login_attempts = 0 WHERE id = ? AND company_id = ?', [passwordHash, req.params.id, req.user.companyId]);
+    if (!result.affectedRows) return fail(res, 'User not found', 404);
     await pool.query('UPDATE user_sessions SET revoked_at = NOW() WHERE user_id = ? AND revoked_at IS NULL', [req.params.id]);
-    await logAudit({ userId: req.user.id, action: 'Edit', recordType: 'user', recordId: req.params.id, detail: 'Password reset by administrator', ip: req.ip });
+    await logAudit({ userId: req.user.id, companyId: req.user.companyId, action: 'Edit', recordType: 'user', recordId: req.params.id, detail: 'Password reset by administrator', ip: req.ip });
     await createNotification({
       userId: req.params.id,
       type: 'password_reset_by_admin',
@@ -206,8 +212,9 @@ router.put(
  * role-mandated requirement).
  */
 router.put('/:id/mfa', requireModuleAccess('users', true), asyncHandler(async (req, res) => {
-  await pool.query('UPDATE users SET mfa_enabled = ? WHERE id = ?', [req.body.enabled ? 1 : 0, req.params.id]);
-  await logAudit({ userId: req.user.id, action: 'Edit', recordType: 'user', recordId: req.params.id, detail: `MFA ${req.body.enabled ? 'enabled' : 'disabled'} by administrator`, ip: req.ip });
+  const [result] = await pool.query('UPDATE users SET mfa_enabled = ? WHERE id = ? AND company_id = ?', [req.body.enabled ? 1 : 0, req.params.id, req.user.companyId]);
+  if (!result.affectedRows) return fail(res, 'User not found', 404);
+  await logAudit({ userId: req.user.id, companyId: req.user.companyId, action: 'Edit', recordType: 'user', recordId: req.params.id, detail: `MFA ${req.body.enabled ? 'enabled' : 'disabled'} by administrator`, ip: req.ip });
   await createNotification({
     userId: req.params.id,
     type: 'mfa_updated',
@@ -226,8 +233,11 @@ router.put('/:id/mfa', requireModuleAccess('users', true), asyncHandler(async (r
  * role's own mandatory-MFA status — a role that requires MFA still will.
  */
 router.post('/:id/mfa/reset', requireModuleAccess('users', true), asyncHandler(async (req, res) => {
+  const [[target]] = await pool.query('SELECT id FROM users WHERE id = ? AND company_id = ?', [req.params.id, req.user.companyId]);
+  if (!target) return fail(res, 'User not found', 404);
+
   const [result] = await pool.query('DELETE FROM user_mfa_methods WHERE user_id = ?', [req.params.id]);
-  await logAudit({ userId: req.user.id, action: 'Edit', recordType: 'user', recordId: req.params.id, detail: `MFA enrollment reset by administrator (${result.affectedRows} method(s) removed)`, ip: req.ip });
+  await logAudit({ userId: req.user.id, companyId: req.user.companyId, action: 'Edit', recordType: 'user', recordId: req.params.id, detail: `MFA enrollment reset by administrator (${result.affectedRows} method(s) removed)`, ip: req.ip });
   await createNotification({
     userId: req.params.id,
     type: 'mfa_reset',
@@ -241,9 +251,10 @@ router.post('/:id/mfa/reset', requireModuleAccess('users', true), asyncHandler(a
 
 /** GET /api/users/groups */
 router.get('/groups/all', allowRoles('System Administrator', 'Records Manager'), asyncHandler(async (req, res) => {
-  const [groups] = await pool.query('SELECT * FROM groups ORDER BY name');
+  const [groups] = await pool.query('SELECT * FROM groups WHERE company_id = ? ORDER BY name', [req.user.companyId]);
   const [members] = await pool.query(
-    `SELECT gm.group_id, u.id, u.full_name FROM group_members gm JOIN users u ON u.id = gm.user_id`
+    `SELECT gm.group_id, u.id, u.full_name FROM group_members gm JOIN users u ON u.id = gm.user_id WHERE gm.company_id = ?`,
+    [req.user.companyId]
   );
   const withMembers = groups.map((g) => ({ ...g, members: members.filter((m) => m.group_id === g.id) }));
   return ok(res, withMembers);
@@ -251,8 +262,13 @@ router.get('/groups/all', allowRoles('System Administrator', 'Records Manager'),
 
 /** POST /api/users/groups/:groupId/members — { userId } */
 router.post('/groups/:groupId/members', allowRoles('System Administrator', 'Records Manager'), asyncHandler(async (req, res) => {
-  await pool.query('INSERT IGNORE INTO group_members (group_id, user_id) VALUES (?, ?)', [req.params.groupId, req.body.userId]);
-  await logAudit({ userId: req.user.id, action: 'Edit', recordType: 'group', recordId: req.params.groupId, detail: `Added user ${req.body.userId}`, ip: req.ip });
+  const [[group]] = await pool.query('SELECT id FROM groups WHERE id = ? AND company_id = ?', [req.params.groupId, req.user.companyId]);
+  if (!group) return fail(res, 'Group not found', 404);
+  const [[targetUser]] = await pool.query('SELECT id FROM users WHERE id = ? AND company_id = ?', [req.body.userId, req.user.companyId]);
+  if (!targetUser) return fail(res, 'User not found', 404);
+
+  await pool.query('INSERT IGNORE INTO group_members (company_id, group_id, user_id) VALUES (?, ?, ?)', [req.user.companyId, req.params.groupId, req.body.userId]);
+  await logAudit({ userId: req.user.id, companyId: req.user.companyId, action: 'Edit', recordType: 'group', recordId: req.params.groupId, detail: `Added user ${req.body.userId}`, ip: req.ip });
   return ok(res, null, 'Member added');
 }));
 

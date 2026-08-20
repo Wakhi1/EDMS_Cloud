@@ -27,7 +27,8 @@ router.use(authenticate);
  */
 router.get('/matrix/all', allowRoles('System Administrator'), asyncHandler(async (req, res) => {
   const [rows] = await pool.query(
-    `SELECT rmp.*, r.name AS role_name FROM role_module_permissions rmp JOIN roles r ON r.id = rmp.role_id ORDER BY r.name, rmp.module`
+    `SELECT rmp.*, r.name AS role_name FROM role_module_permissions rmp JOIN roles r ON r.id = rmp.role_id WHERE rmp.company_id = ? ORDER BY r.name, rmp.module`,
+    [req.user.companyId]
   );
   return ok(res, rows);
 }));
@@ -42,13 +43,16 @@ router.put(
     if (!errors.isEmpty()) return fail(res, 'Validation failed', 422, errors.array());
 
     const { roleId, module, canView, canEdit } = req.body;
+    const [[role]] = await pool.query('SELECT id FROM roles WHERE id = ? AND company_id = ?', [roleId, req.user.companyId]);
+    if (!role) return fail(res, 'Unknown role', 400);
+
     await pool.query(
-      `INSERT INTO role_module_permissions (role_id, module, can_view, can_edit)
-       VALUES (?, ?, ?, ?)
+      `INSERT INTO role_module_permissions (company_id, role_id, module, can_view, can_edit)
+       VALUES (?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE can_view = VALUES(can_view), can_edit = VALUES(can_edit)`,
-      [roleId, module, canView ? 1 : 0, canEdit ? 1 : 0]
+      [req.user.companyId, roleId, module, canView ? 1 : 0, canEdit ? 1 : 0]
     );
-    await logAudit({ userId: req.user.id, action: 'Permission', recordType: 'role_module', recordId: `${roleId}:${module}`, ip: req.ip });
+    await logAudit({ userId: req.user.id, companyId: req.user.companyId, action: 'Permission', recordType: 'role_module', recordId: `${roleId}:${module}`, ip: req.ip });
     return ok(res, null, 'Permission matrix updated');
   })
 );

@@ -23,16 +23,16 @@ function computeHash(prevHash, payload) {
     .digest('hex');
 }
 
-async function logAudit({ userId = null, action, recordType = null, recordId = null, detail = null, ip = null, userAgent = null }) {
+async function logAudit({ userId = null, companyId = null, action, recordType = null, recordId = null, detail = null, ip = null, userAgent = null }) {
   try {
     const prevHash = await getLastHash();
     const payload = { userId, action, recordType, recordId, detail, ip, userAgent, ts: Date.now() };
     const entryHash = computeHash(prevHash, payload);
 
     await pool.query(
-      `INSERT INTO audit_log (user_id, action, record_type, record_id, detail, ip_address, user_agent, prev_hash, entry_hash)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [userId, action, recordType, recordId, detail, ip, userAgent, prevHash, entryHash]
+      `INSERT INTO audit_log (company_id, user_id, action, record_type, record_id, detail, ip_address, user_agent, prev_hash, entry_hash)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [companyId, userId, action, recordType, recordId, detail, ip, userAgent, prevHash, entryHash]
     );
   } catch (err) {
     // Auditing must never crash the request that triggered it, but the

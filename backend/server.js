@@ -23,8 +23,27 @@ const apiRoutes = require("./routes");
 const { startScheduler } = require("./services/capture/scheduler");
 const { startScheduler: startBackupScheduler } = require("./services/backup/scheduler");
 const { startScheduler: startWorkflowScheduler } = require("./services/workflow/scheduler");
+const { startScheduler: startLicenseScheduler } = require("./services/license/scheduler");
 
 const app = express();
+
+// Express auto-computes an ETag from the response body by default, with no
+// Cache-Control sent alongside it — the browser's HTTP cache is then free to
+// serve (or conditionally-revalidate and still reuse) a prior response for
+// the same URL regardless of which user/session made the request. Every
+// endpoint here returns per-user, RBAC/ACL-filtered data from the same small
+// set of URLs (GET /api/documents with no query params, etc.), so that's a
+// real bug, not just an inefficiency — confirmed live: sign in as one role,
+// view Repository, sign out, sign in as a different role, and the old
+// response (or an empty one from the gap in between) keeps showing until a
+// request with different query params forces a cache miss. Disable etag
+// globally and mark every /api response uncacheable so the browser always
+// re-fetches.
+app.set("etag", false);
+app.use("/api", (req, res, next) => {
+  res.set("Cache-Control", "no-store");
+  next();
+});
 
 app.use(
   helmet({
@@ -62,6 +81,14 @@ const authLimiter = rateLimit({
 });
 app.use("/api/auth", authLimiter);
 
+const platformAdminLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use("/api/platform-admin", platformAdminLimiter);
+
 app.get("/health", (req, res) =>
   res.json({
     status: "ok",
@@ -90,6 +117,7 @@ const PORT = process.env.PORT || 4000;
     await startScheduler();
     startBackupScheduler();
     startWorkflowScheduler();
+    startLicenseScheduler();
   } catch (err) {
     logger.error("Failed to start server — check DB configuration", {
       error: err.message,

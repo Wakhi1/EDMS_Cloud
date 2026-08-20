@@ -35,7 +35,7 @@ class ResponsiveScaffold extends ConsumerWidget {
     final tokens = context.tokens;
 
     return Scaffold(
-      appBar: _TopAppBar(showHamburger: !isDesktop, showSearch: isDesktop),
+      appBar: _TopAppBar(showHamburger: !isDesktop, showSearch: isDesktop, currentPath: currentPath),
       drawer: isDesktop ? null : Drawer(child: _NavDrawerContent(currentPath: currentPath)),
       endDrawer: const NotificationsPanel(),
       body: Row(
@@ -57,11 +57,31 @@ class ResponsiveScaffold extends ConsumerWidget {
   }
 }
 
+/// Every literal path a nav item (sidebar/rail/bottom-bar) links to — the
+/// screens a user always reaches directly from navigation, never by
+/// drilling into something else. Any OTHER matched route (viewer/:id,
+/// versions/:id, permissions/:type/:id, ...) is a "detail" screen reached
+/// by drilling in, and gets a back button in the app bar since it has no
+/// other way out besides the browser's own back button (these routes are
+/// entered via context.go(), which replaces rather than pushes, so
+/// go_router's own canPop() is never true here regardless of how the user
+/// arrived).
+final _kTopLevelPaths = kNavGroups.expand((g) => g.items).map((i) => i.path).toSet();
+
+String? _backTargetFor(String matchedLocation) {
+  if (_kTopLevelPaths.contains(matchedLocation)) return null;
+  if (matchedLocation.startsWith('/viewer/')) return RoutePaths.repository;
+  if (matchedLocation.startsWith('/versions/')) return RoutePaths.versions;
+  if (matchedLocation.startsWith('/permissions/')) return RoutePaths.permissions;
+  return null;
+}
+
 class _TopAppBar extends ConsumerWidget implements PreferredSizeWidget {
-  const _TopAppBar({required this.showHamburger, required this.showSearch});
+  const _TopAppBar({required this.showHamburger, required this.showSearch, required this.currentPath});
 
   final bool showHamburger;
   final bool showSearch;
+  final String currentPath;
 
   @override
   Size get preferredSize => const Size.fromHeight(kToolbarHeight);
@@ -72,14 +92,21 @@ class _TopAppBar extends ConsumerWidget implements PreferredSizeWidget {
     final themeMode = ref.watch(themeModeProvider);
     final searchController = TextEditingController();
     final unreadCount = ref.watch(notificationsListProvider).valueOrNull?.where((n) => !n.isRead).length ?? 0;
+    final backTarget = _backTargetFor(currentPath);
 
     return AppBar(
-      leading: showHamburger
-          ? Builder(builder: (context) => IconButton(
-                icon: const Icon(Icons.menu),
-                onPressed: () => Scaffold.of(context).openDrawer(),
-              ))
-          : null,
+      leading: backTarget != null
+          ? IconButton(
+              icon: const Icon(Icons.arrow_back),
+              tooltip: 'Back',
+              onPressed: () => context.go(backTarget),
+            )
+          : showHamburger
+              ? Builder(builder: (context) => IconButton(
+                    icon: const Icon(Icons.menu),
+                    onPressed: () => Scaffold.of(context).openDrawer(),
+                  ))
+              : null,
       automaticallyImplyLeading: false,
       title: Row(
         children: [

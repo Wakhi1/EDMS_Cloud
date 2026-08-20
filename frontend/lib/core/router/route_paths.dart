@@ -29,7 +29,14 @@ class RoutePaths {
   static const settings = '/settings';
   static const backup = '/backup';
 
+  // Platform admin (DocSecore staff) — a fully separate route tree/auth
+  // domain from everything above, see core/platform_admin/.
+  static const platformAdminLogin = '/platform-admin/login';
+  static const platformAdminCompanies = '/platform-admin';
+  static const platformAdminCompanyDetail = '/platform-admin/companies/:id';
+
   static String viewerFor(String documentId) => '/viewer/$documentId';
   static String versionsFor(String documentId) => '/versions/$documentId';
   static String permissionsFor(String targetType, String targetId) => '/permissions/$targetType/$targetId';
+  static String platformAdminCompanyFor(String id) => '/platform-admin/companies/$id';
 }

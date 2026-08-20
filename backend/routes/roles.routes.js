@@ -24,7 +24,7 @@ router.use(authenticate);
 
 /** GET /api/roles */
 router.get('/', requireModuleAccess('users'), asyncHandler(async (req, res) => {
-  const [rows] = await pool.query('SELECT id, name, description, mfa_required, is_system_role FROM roles ORDER BY name');
+  const [rows] = await pool.query('SELECT id, name, description, mfa_required, is_system_role FROM roles WHERE company_id = ? ORDER BY name', [req.user.companyId]);
   return ok(res, rows);
 }));
 
@@ -38,14 +38,14 @@ router.post(
     if (!errors.isEmpty()) return fail(res, 'Validation failed', 422, errors.array());
 
     const { name, description, mfaRequired } = req.body;
-    const [existing] = await pool.query('SELECT id FROM roles WHERE name = ?', [name]);
+    const [existing] = await pool.query('SELECT id FROM roles WHERE company_id = ? AND name = ?', [req.user.companyId, name]);
     if (existing.length) return fail(res, 'A role with this name already exists', 409);
 
     const [result] = await pool.query(
-      'INSERT INTO roles (name, description, mfa_required, is_system_role) VALUES (?, ?, ?, 0)',
-      [name, description || null, mfaRequired ? 1 : 0]
+      'INSERT INTO roles (company_id, name, description, mfa_required, is_system_role) VALUES (?, ?, ?, ?, 0)',
+      [req.user.companyId, name, description || null, mfaRequired ? 1 : 0]
     );
-    await logAudit({ userId: req.user.id, action: 'Create', recordType: 'role', recordId: result.insertId, detail: name, ip: req.ip });
+    await logAudit({ userId: req.user.id, companyId: req.user.companyId, action: 'Create', recordType: 'role', recordId: result.insertId, detail: name, ip: req.ip });
     return ok(res, { id: result.insertId }, 'Role created', 201);
   })
 );
@@ -59,7 +59,7 @@ router.put(
     const errors = validationResult(req);
     if (!errors.isEmpty()) return fail(res, 'Validation failed', 422, errors.array());
 
-    const [[role]] = await pool.query('SELECT id FROM roles WHERE id = ?', [req.params.id]);
+    const [[role]] = await pool.query('SELECT id FROM roles WHERE id = ? AND company_id = ?', [req.params.id, req.user.companyId]);
     if (!role) return fail(res, 'Role not found', 404);
 
     const { name, description, mfaRequired } = req.body;
@@ -71,14 +71,14 @@ router.put(
        WHERE id = ?`,
       [name || null, description !== undefined ? description : null, mfaRequired !== undefined ? (mfaRequired ? 1 : 0) : null, req.params.id]
     );
-    await logAudit({ userId: req.user.id, action: 'Edit', recordType: 'role', recordId: req.params.id, ip: req.ip });
+    await logAudit({ userId: req.user.id, companyId: req.user.companyId, action: 'Edit', recordType: 'role', recordId: req.params.id, ip: req.ip });
     return ok(res, null, 'Role updated');
   })
 );
 
 /** DELETE /api/roles/:id — refused for built-in system roles, or roles still referenced by a user or workflow step. */
 router.delete('/:id', allowRoles('System Administrator'), asyncHandler(async (req, res) => {
-  const [[role]] = await pool.query('SELECT id, name, is_system_role FROM roles WHERE id = ?', [req.params.id]);
+  const [[role]] = await pool.query('SELECT id, name, is_system_role FROM roles WHERE id = ? AND company_id = ?', [req.params.id, req.user.companyId]);
   if (!role) return fail(res, 'Role not found', 404);
   if (role.is_system_role) return fail(res, 'This is a built-in system role and cannot be deleted', 409);
 
@@ -92,7 +92,7 @@ router.delete('/:id', allowRoles('System Administrator'), asyncHandler(async (re
   if (stepCount > 0) return fail(res, 'Cannot delete a role still referenced by a workflow step', 409);
 
   await pool.query('DELETE FROM roles WHERE id = ?', [req.params.id]);
-  await logAudit({ userId: req.user.id, action: 'Delete', recordType: 'role', recordId: req.params.id, detail: role.name, ip: req.ip });
+  await logAudit({ userId: req.user.id, companyId: req.user.companyId, action: 'Delete', recordType: 'role', recordId: req.params.id, detail: role.name, ip: req.ip });
   return ok(res, null, 'Role deleted');
 }));
 

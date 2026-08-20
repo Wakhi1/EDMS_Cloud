@@ -7,6 +7,7 @@ import '../../../core/models/backup_row.dart';
 import '../../../core/theme/pspf_tokens.dart';
 import '../../../core/widgets/confirm_dialog.dart';
 import '../../../core/widgets/empty_state.dart';
+import '../../../core/widgets/result_dialog.dart';
 import '../../../core/widgets/status_chip.dart';
 import '../providers/backup_providers.dart';
 
@@ -134,9 +135,9 @@ class _BackupRowTile extends ConsumerWidget {
     try {
       await ref.read(backupApiProvider).restore(row.id, phrase);
       ref.invalidate(backupsListProvider);
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Restore completed.')));
+      if (context.mounted) await ResultDialog.showSuccess(context, 'Restore completed.');
     } on ApiException catch (e) {
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      if (context.mounted) await ResultDialog.showError(context, e.message);
     }
   }
 

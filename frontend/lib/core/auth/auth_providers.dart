@@ -1,6 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import '../../features/audit/providers/audit_providers.dart';
+import '../../features/repository/providers/repository_providers.dart';
+import '../../features/reports/providers/reports_providers.dart';
 import '../api/api_exception.dart';
 import '../api/api_providers.dart';
 import 'auth_repository.dart';
@@ -12,6 +15,24 @@ import 'secure_token_store.dart';
 import 'session_events.dart';
 
 part 'auth_providers.g.dart';
+
+/// These are plain (non-autoDispose) StateProviders, so they live for the
+/// whole app process — switching users on the same tab (sign out, sign back
+/// in as someone else) does NOT reset them on its own. Left alone, the next
+/// user silently inherits whatever folder/filter/selection the previous one
+/// left behind (confirmed live: Repository showing only one folder's
+/// documents for a brand new session, with no visible reason why "All
+/// records" wasn't showing everything). Only the providers that actually
+/// scope *which data loads* are reset here — pure display preferences
+/// (view mode, panel collapsed) are left alone since carrying those across
+/// a sign-in on the same browser is harmless.
+void _resetPerUserUiState(Ref ref) {
+  ref.invalidate(repositoryFiltersProvider);
+  ref.invalidate(repositoryRecycleBinProvider);
+  ref.invalidate(selectedDocumentProvider);
+  ref.invalidate(auditFiltersProvider);
+  ref.invalidate(reportsFiltersProvider);
+}
 
 final authRepositoryProvider = Provider<AuthRepository>((ref) {
   return AuthRepository(
@@ -42,6 +63,7 @@ class AuthController extends _$AuthController {
 
   void forceSignOut() {
     state = const AsyncValue.data(LoginState.enteringCredentials());
+    _resetPerUserUiState(ref);
   }
 
   Future<void> login({required String email, required String password, bool viaAd = false}) async {
@@ -235,6 +257,7 @@ class AuthController extends _$AuthController {
     final repo = ref.read(authRepositoryProvider);
     await repo.logout();
     state = const AsyncValue.data(LoginState.enteringCredentials());
+    _resetPerUserUiState(ref);
   }
 }
 

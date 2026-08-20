@@ -8,8 +8,14 @@ class DepartmentsApi {
 
   final ApiClient _client;
 
-  Future<List<DepartmentRow>> list() async {
-    final response = await _client.get(Endpoints.departments);
+  /// [silent403]: pass true where the department list is a nice-to-have for
+  /// an otherwise-unrelated screen (e.g. an optional field in a dialog) —
+  /// a role without the 'departments' module (most roles: it's Records
+  /// Manager/System Administrator only) would otherwise get yanked to
+  /// /access-denied by the global 403 handler over a field they don't
+  /// even need to touch.
+  Future<List<DepartmentRow>> list({bool silent403 = false}) async {
+    final response = await _client.get(Endpoints.departments, silent403: silent403);
     return _client.unwrapList(response, DepartmentRow.fromJson);
   }
 

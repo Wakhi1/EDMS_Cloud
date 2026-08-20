@@ -2,6 +2,14 @@
 -- PSPF EDMS — Electronic Document & Records Management System
 -- Database schema (MySQL 5.7+/8, InnoDB, utf8mb4) — XAMPP/phpMyAdmin ready
 -- Import via phpMyAdmin > Import, or:  mysql -u root -p < pspf_edms_schema.sql
+--
+-- Multi-tenant: every tenant-owned table below carries a `company_id`
+-- (see section 0). This file is pure structure + a bootstrap 'PSPF'
+-- company row so the existing seed data below has somewhere to attach —
+-- it does NOT seed a platform_admins login (never hardcode credentials in
+-- source control). Run `node backend/scripts/migrate-multitenant.js`
+-- after importing this file to create your own platform-admin login and
+-- (on an existing pre-multi-tenant DB) backfill company_id on real data.
 -- =====================================================================
 
 SET NAMES utf8mb4;
@@ -12,31 +20,174 @@ CREATE DATABASE IF NOT EXISTS `pspf_edms`
 USE `pspf_edms`;
 
 -- ---------------------------------------------------------------------
--- 1. ORGANISATION / IDENTITY
+-- 0. PLATFORM / LICENSING (DocSecure staff only — structurally separate
+--    identity space from every tenant-owned table below. A tenant user's
+--    session can never authenticate here: platform-admin tokens are
+--    signed with their own secret pair, see backend/.env.example.)
+-- ---------------------------------------------------------------------
+
+CREATE TABLE `platform_admins` (
+  `id`                    INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `full_name`             VARCHAR(150) NOT NULL,
+  `email`                 VARCHAR(190) NOT NULL UNIQUE,
+  `password_hash`         VARCHAR(255) NOT NULL,
+  `is_owner`               TINYINT(1) NOT NULL DEFAULT 0,  -- only owner-level accounts can create/deactivate other platform_admins
+  `is_active`              TINYINT(1) NOT NULL DEFAULT 1,
+  `is_locked`              TINYINT(1) NOT NULL DEFAULT 0,
+  `failed_login_attempts` SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+  `last_login_at`          DATETIME NULL,
+  `last_login_ip`          VARCHAR(45) NULL,
+  `created_at`             DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`             DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+CREATE TABLE `platform_admin_sessions` (
+  `id`                 CHAR(36) PRIMARY KEY,     -- UUID, same convention as user_sessions.id
+  `platform_admin_id`  INT UNSIGNED NOT NULL,
+  `refresh_token_hash` CHAR(64) NOT NULL,
+  `user_agent`         VARCHAR(255) NULL,
+  `ip_address`         VARCHAR(45) NULL,
+  `expires_at`         DATETIME NOT NULL,
+  `revoked_at`         DATETIME NULL,
+  `created_at`         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_pasession_admin` FOREIGN KEY (`platform_admin_id`) REFERENCES `platform_admins`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- One row per licensed client company (tenant). `created_by` is nullable
+-- so this table can be seeded (see bootstrap INSERT below) before any
+-- platform_admins row exists, without a circular FK dependency.
+CREATE TABLE `companies` (
+  `id`                     INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `company_code`           VARCHAR(20) NOT NULL UNIQUE,   -- short slug e.g. 'PSPF' — entered at login to disambiguate which tenant a user belongs to
+  `name`                   VARCHAR(190) NOT NULL,
+  `registration_no`        VARCHAR(80) NULL,
+  `tax_id`                 VARCHAR(80) NULL,
+  `contact_name`           VARCHAR(150) NULL,
+  `contact_email`          VARCHAR(190) NULL,
+  `contact_phone`          VARCHAR(30) NULL,
+  `logo_provider`          VARCHAR(30) NULL,              -- matches document_storage_objects.provider enum values
+  `logo_object_key`        VARCHAR(500) NULL,
+  `logo_content_type`      VARCHAR(120) NULL,
+  `favicon_provider`       VARCHAR(30) NULL,
+  `favicon_object_key`     VARCHAR(500) NULL,
+  `favicon_content_type`   VARCHAR(120) NULL,
+  `theme_primary_color`    CHAR(7) NULL,                  -- '#RRGGBB'
+  `theme_secondary_color`  CHAR(7) NULL,
+  `theme_accent_color`     CHAR(7) NULL,
+  `custom_domain`          VARCHAR(190) NULL UNIQUE,
+  `enabled_modules_json`   JSON NULL,                     -- array of module keys this company is entitled to (see config/constants.js)
+  `storage_quota_bytes`    BIGINT UNSIGNED NULL,           -- NULL = no explicit cap
+  `max_users`              INT UNSIGNED NULL,
+  `status`                 ENUM('active','suspended','deleted') NOT NULL DEFAULT 'active',
+  `last_login_at`          DATETIME NULL,                  -- most recent successful login by any user of this company
+  `created_by`             INT UNSIGNED NULL,
+  `created_at`              DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`              DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_company_creator` FOREIGN KEY (`created_by`) REFERENCES `platform_admins`(`id`) ON DELETE SET NULL
+) ENGINE=InnoDB;
+
+-- One row per issued license (a company can have many over its lifetime —
+-- renewals/upgrades supersede the previous active one rather than
+-- overwriting it, so validation history stays meaningful).
+CREATE TABLE `licenses` (
+  `id`                    INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `license_key`           CHAR(36) NOT NULL UNIQUE,       -- UUID, embedded as the signed JWT's `jti`
+  `company_id`            INT UNSIGNED NOT NULL,
+  `license_type`          ENUM('trial','standard','enterprise') NOT NULL DEFAULT 'trial',
+  `status`                ENUM('active','suspended','expired','revoked') NOT NULL DEFAULT 'active',
+  `issued_at`              DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `expires_at`             DATETIME NOT NULL,
+  `max_users`              INT UNSIGNED NULL,              -- snapshot at issuance
+  `storage_quota_bytes`    BIGINT UNSIGNED NULL,
+  `enabled_modules_json`   JSON NULL,                      -- snapshot at issuance
+  `signed_token`           TEXT NOT NULL,                  -- the persisted RS256 JWT artifact itself — re-verifiable without re-signing
+  `issued_by`               INT UNSIGNED NOT NULL,
+  `revoked_at`              DATETIME NULL,
+  `revoked_by`              INT UNSIGNED NULL,
+  `revoke_reason`           VARCHAR(255) NULL,
+  `created_at`              DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_license_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
+  CONSTRAINT `fk_license_issuer`  FOREIGN KEY (`issued_by`) REFERENCES `platform_admins`(`id`),
+  CONSTRAINT `fk_license_revoker` FOREIGN KEY (`revoked_by`) REFERENCES `platform_admins`(`id`) ON DELETE SET NULL,
+  INDEX `ix_license_company` (`company_id`),
+  INDEX `ix_license_status` (`status`)
+) ENGINE=InnoDB;
+
+CREATE TABLE `license_validation_log` (
+  `id`             BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `license_id`     INT UNSIGNED NULL,     -- NULL if the token didn't even resolve to a known row
+  `company_id`     INT UNSIGNED NULL,
+  `result`         ENUM('valid','expired','signature_invalid','suspended','revoked','not_found','malformed') NOT NULL,
+  `source`         ENUM('login','scheduled_check','manual_admin_check') NOT NULL DEFAULT 'login',
+  `detail`         VARCHAR(500) NULL,
+  `checked_at`     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_lvl_license` FOREIGN KEY (`license_id`) REFERENCES `licenses`(`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_lvl_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`) ON DELETE SET NULL,
+  INDEX `ix_lvl_company` (`company_id`),
+  INDEX `ix_lvl_checked` (`checked_at`)
+) ENGINE=InnoDB;
+
+CREATE TABLE `company_branding_history` (
+  `id`            BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `company_id`    INT UNSIGNED NOT NULL,
+  `changed_field` ENUM('logo','favicon','theme_primary_color','theme_secondary_color','theme_accent_color','custom_domain') NOT NULL,
+  `old_value`     VARCHAR(500) NULL,
+  `new_value`     VARCHAR(500) NULL,
+  `changed_by`    INT UNSIGNED NOT NULL,   -- FK platform_admins.id — no company self-service branding UI yet
+  `changed_at`    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_cbh_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_cbh_admin`   FOREIGN KEY (`changed_by`) REFERENCES `platform_admins`(`id`),
+  INDEX `ix_cbh_company` (`company_id`)
+) ENGINE=InnoDB;
+
+CREATE TABLE `platform_admin_audit_log` (
+  `id`                 BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `platform_admin_id`  INT UNSIGNED NULL,
+  `action`             VARCHAR(60) NOT NULL,   -- 'company.create','company.status','license.issue','license.revoke','branding.update','admin_user.create', ...
+  `company_id`         INT UNSIGNED NULL,
+  `detail`             VARCHAR(500) NULL,
+  `ip_address`         VARCHAR(45) NULL,
+  `created_at`         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_paal_admin`   FOREIGN KEY (`platform_admin_id`) REFERENCES `platform_admins`(`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_paal_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`) ON DELETE SET NULL,
+  INDEX `ix_paal_company` (`company_id`),
+  INDEX `ix_paal_created` (`created_at`)
+) ENGINE=InnoDB;
+
+-- ---------------------------------------------------------------------
+-- 1. ORGANISATION / IDENTITY (tenant-owned — every row belongs to
+--    exactly one company)
 -- ---------------------------------------------------------------------
 
 CREATE TABLE `departments` (
   `id`          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  `name`        VARCHAR(120) NOT NULL UNIQUE,
+  `company_id`  INT UNSIGNED NOT NULL,
+  `name`        VARCHAR(120) NOT NULL,
   `description` VARCHAR(255) NULL,
   `is_active`   TINYINT(1) NOT NULL DEFAULT 1,
-  `created_at`  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  `created_at`  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_department_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
+  UNIQUE KEY `uq_department_company_name` (`company_id`, `name`)
 ) ENGINE=InnoDB;
 
 CREATE TABLE `roles` (
   `id`               INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  `name`             VARCHAR(80) NOT NULL UNIQUE,   -- e.g. Records Officer, Approving Manager, Finance Officer, Records Manager, System Administrator, Internal Auditor
+  `company_id`       INT UNSIGNED NOT NULL,
+  `name`             VARCHAR(80) NOT NULL,   -- e.g. Records Officer, Approving Manager, Finance Officer, Records Manager, System Administrator, Internal Auditor
   `description`      VARCHAR(255) NULL,
   `mfa_required`     TINYINT(1) NOT NULL DEFAULT 0,  -- roles touching member money / PII must use 2FA
   `is_system_role`   TINYINT(1) NOT NULL DEFAULT 0,
-  `created_at`       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  `created_at`       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_role_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
+  UNIQUE KEY `uq_role_company_name` (`company_id`, `name`)
 ) ENGINE=InnoDB;
 
 CREATE TABLE `users` (
   `id`                    INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  `staff_number`          VARCHAR(40) NULL UNIQUE,
+  `company_id`            INT UNSIGNED NOT NULL,
+  `staff_number`          VARCHAR(40) NULL,
   `full_name`             VARCHAR(150) NOT NULL,
-  `email`                 VARCHAR(190) NOT NULL UNIQUE,
+  `email`                 VARCHAR(190) NOT NULL,
   `phone_number`          VARCHAR(30) NULL,          -- E.164, used for SMS MFA
   `password_hash`         VARCHAR(255) NULL,         -- NULL when account is social-login only
   `role_id`               INT UNSIGNED NOT NULL,
@@ -51,26 +202,38 @@ CREATE TABLE `users` (
   `password_changed_at`    DATETIME NULL,
   `created_at`             DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at`             DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_users_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   CONSTRAINT `fk_users_role` FOREIGN KEY (`role_id`) REFERENCES `roles`(`id`),
-  CONSTRAINT `fk_users_department` FOREIGN KEY (`department_id`) REFERENCES `departments`(`id`)
+  CONSTRAINT `fk_users_department` FOREIGN KEY (`department_id`) REFERENCES `departments`(`id`),
+  UNIQUE KEY `uq_users_company_staff_number` (`company_id`, `staff_number`),
+  UNIQUE KEY `uq_users_company_email` (`company_id`, `email`)
 ) ENGINE=InnoDB;
 
 -- Social / federated identities: Google, Microsoft (Azure AD), Active Directory (Kerberos/LDAP)
+-- NOTE: federated login (auth.routes.js /google /microsoft /ad) is still
+-- functionally single-tenant this pass — it needs per-company IdP config,
+-- which lives in `integrations` (out of scope this pass, see that table's
+-- comment below). The JIT-linking-by-email fallback stays scoped to "the
+-- one company this deployment currently serves" until integrations is
+-- migrated too.
 CREATE TABLE `user_social_identities` (
   `id`                INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `company_id`        INT UNSIGNED NOT NULL,
   `user_id`           INT UNSIGNED NOT NULL,
   `provider`          ENUM('google','microsoft','active_directory') NOT NULL,
   `provider_user_id`  VARCHAR(190) NOT NULL,   -- sub / oid / sAMAccountName
   `provider_email`    VARCHAR(190) NULL,
   `raw_profile_json`  JSON NULL,
   `linked_at`         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE KEY `uq_provider_identity` (`provider`, `provider_user_id`),
+  UNIQUE KEY `uq_provider_identity` (`company_id`, `provider`, `provider_user_id`),
+  CONSTRAINT `fk_social_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   CONSTRAINT `fk_social_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
 -- MFA enrolments: TOTP authenticator app, SMS, FIDO2/WebAuthn security key, backup codes
 CREATE TABLE `user_mfa_methods` (
   `id`                 INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `company_id`         INT UNSIGNED NOT NULL,
   `user_id`            INT UNSIGNED NOT NULL,
   `method_type`        ENUM('totp','sms','webauthn','backup_codes') NOT NULL,
   `secret_encrypted`   VARBINARY(512) NULL,   -- TOTP secret, encrypted at rest (AES-256-GCM via crypto.service)
@@ -86,12 +249,14 @@ CREATE TABLE `user_mfa_methods` (
   -- KEY UPDATE` on enrol/re-enrol and backup-code regeneration to actually
   -- replace the existing row instead of silently inserting a duplicate.
   UNIQUE KEY `uq_user_method` (`user_id`, `method_type`),
+  CONSTRAINT `fk_mfa_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   CONSTRAINT `fk_mfa_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
 -- Short-lived SMS / email OTP codes (login MFA challenge, not enrolment)
 CREATE TABLE `otp_codes` (
   `id`          BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `company_id`  INT UNSIGNED NOT NULL,
   `user_id`     INT UNSIGNED NOT NULL,
   `channel`     ENUM('sms','email') NOT NULL,
   `purpose`     ENUM('login_mfa','password_reset','email_verify') NOT NULL,
@@ -100,11 +265,13 @@ CREATE TABLE `otp_codes` (
   `consumed_at` DATETIME NULL,
   `attempts`    TINYINT UNSIGNED NOT NULL DEFAULT 0,
   `created_at`  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_otp_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   CONSTRAINT `fk_otp_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
 CREATE TABLE `user_sessions` (
   `id`                CHAR(36) PRIMARY KEY,     -- UUID (refresh token id / jti)
+  `company_id`        INT UNSIGNED NOT NULL,
   `user_id`           INT UNSIGNED NOT NULL,
   `refresh_token_hash` CHAR(64) NOT NULL,
   `user_agent`        VARCHAR(255) NULL,
@@ -113,20 +280,27 @@ CREATE TABLE `user_sessions` (
   `expires_at`        DATETIME NOT NULL,
   `revoked_at`        DATETIME NULL,
   `created_at`        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT `fk_session_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
+  CONSTRAINT `fk_session_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
+  CONSTRAINT `fk_session_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,
+  INDEX `ix_session_company` (`company_id`)
 ) ENGINE=InnoDB;
 
 CREATE TABLE `groups` (
   `id`          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  `name`        VARCHAR(120) NOT NULL UNIQUE,
+  `company_id`  INT UNSIGNED NOT NULL,
+  `name`        VARCHAR(120) NOT NULL,
   `description` VARCHAR(255) NULL,
-  `created_at`  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  `created_at`  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_group_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
+  UNIQUE KEY `uq_group_company_name` (`company_id`, `name`)
 ) ENGINE=InnoDB;
 
 CREATE TABLE `group_members` (
+  `company_id` INT UNSIGNED NOT NULL,
   `group_id` INT UNSIGNED NOT NULL,
   `user_id`  INT UNSIGNED NOT NULL,
   PRIMARY KEY (`group_id`, `user_id`),
+  CONSTRAINT `fk_gm_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   CONSTRAINT `fk_gm_group` FOREIGN KEY (`group_id`) REFERENCES `groups`(`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_gm_user`  FOREIGN KEY (`user_id`)  REFERENCES `users`(`id`)  ON DELETE CASCADE
 ) ENGINE=InnoDB;
@@ -136,20 +310,27 @@ CREATE TABLE `group_members` (
 -- ---------------------------------------------------------------------
 
 CREATE TABLE `document_types` (
-  `id`     INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  `name`   VARCHAR(120) NOT NULL UNIQUE,   -- e.g. Claim — Retirement, Contribution Statement, Payout Voucher
-  `code`   VARCHAR(20) NOT NULL UNIQUE     -- e.g. PC (Pension Claim)
+  `id`         INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `company_id` INT UNSIGNED NOT NULL,
+  `name`       VARCHAR(120) NOT NULL,   -- e.g. Claim — Retirement, Contribution Statement, Payout Voucher
+  `code`       VARCHAR(20) NOT NULL,    -- e.g. PC (Pension Claim)
+  CONSTRAINT `fk_doctype_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
+  UNIQUE KEY `uq_doctype_company_name` (`company_id`, `name`),
+  UNIQUE KEY `uq_doctype_company_code` (`company_id`, `code`)
 ) ENGINE=InnoDB;
 
 CREATE TABLE `retention_classes` (
   `id`               INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  `code`             VARCHAR(20) NOT NULL UNIQUE,
+  `company_id`       INT UNSIGNED NOT NULL,
+  `code`             VARCHAR(20) NOT NULL,
   `name`             VARCHAR(150) NOT NULL,
   `retention_years`  SMALLINT UNSIGNED NOT NULL,
   `trigger_event`    VARCHAR(100) NOT NULL DEFAULT 'record declared final', -- clock start
   `disposal_action`  ENUM('destroy','archive','transfer_to_national_archives','review') NOT NULL DEFAULT 'review',
   `requires_records_manager_approval` TINYINT(1) NOT NULL DEFAULT 1,
-  `created_at`       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  `created_at`       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_retention_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
+  UNIQUE KEY `uq_retention_company_code` (`company_id`, `code`)
 ) ENGINE=InnoDB;
 
 -- ---------------------------------------------------------------------
@@ -158,6 +339,7 @@ CREATE TABLE `retention_classes` (
 
 CREATE TABLE `folders` (
   `id`                 INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `company_id`         INT UNSIGNED NOT NULL,
   `parent_id`          INT UNSIGNED NULL,     -- self reference => hierarchy e.g. Pension Claims / 2026 / Retirement
   `name`               VARCHAR(150) NOT NULL,
   `path`               VARCHAR(500) NOT NULL, -- materialised path for fast lookups
@@ -165,16 +347,18 @@ CREATE TABLE `folders` (
   `retention_class_id` INT UNSIGNED NULL,
   `created_by`         INT UNSIGNED NULL,
   `created_at`         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_folder_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   CONSTRAINT `fk_folder_parent` FOREIGN KEY (`parent_id`) REFERENCES `folders`(`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_folder_dept`   FOREIGN KEY (`department_id`) REFERENCES `departments`(`id`),
   CONSTRAINT `fk_folder_retention` FOREIGN KEY (`retention_class_id`) REFERENCES `retention_classes`(`id`),
   CONSTRAINT `fk_folder_creator` FOREIGN KEY (`created_by`) REFERENCES `users`(`id`),
-  UNIQUE KEY `uq_folder_path` (`path`)
+  UNIQUE KEY `uq_folder_path` (`company_id`, `path`)
 ) ENGINE=InnoDB;
 
 CREATE TABLE `documents` (
   `id`                 INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  `record_no`          VARCHAR(40) NOT NULL UNIQUE,  -- e.g. PC-2026-0433
+  `company_id`         INT UNSIGNED NOT NULL,
+  `record_no`          VARCHAR(40) NOT NULL,  -- e.g. PC-2026-0433
   `title`              VARCHAR(255) NOT NULL,
   `document_type_id`   INT UNSIGNED NOT NULL,
   `folder_id`          INT UNSIGNED NOT NULL,
@@ -191,12 +375,14 @@ CREATE TABLE `documents` (
   `created_by`          INT UNSIGNED NOT NULL,
   `created_at`          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at`          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_doc_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   CONSTRAINT `fk_doc_type`   FOREIGN KEY (`document_type_id`) REFERENCES `document_types`(`id`),
   CONSTRAINT `fk_doc_folder` FOREIGN KEY (`folder_id`) REFERENCES `folders`(`id`),
   CONSTRAINT `fk_doc_dept`   FOREIGN KEY (`department_id`) REFERENCES `departments`(`id`),
   CONSTRAINT `fk_doc_retention` FOREIGN KEY (`retention_class_id`) REFERENCES `retention_classes`(`id`),
   CONSTRAINT `fk_doc_owner`  FOREIGN KEY (`owner_id`) REFERENCES `users`(`id`),
   CONSTRAINT `fk_doc_creator` FOREIGN KEY (`created_by`) REFERENCES `users`(`id`),
+  UNIQUE KEY `uq_doc_company_record_no` (`company_id`, `record_no`),
   INDEX `ix_doc_member` (`member_number`),
   INDEX `ix_doc_status` (`status`),
   FULLTEXT KEY `ftx_doc_title` (`title`)
@@ -206,10 +392,12 @@ CREATE TABLE `documents` (
 -- "custom indexing"), searchable alongside title/OCR text.
 CREATE TABLE `document_custom_fields` (
   `id`          BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `company_id`  INT UNSIGNED NOT NULL,
   `document_id` INT UNSIGNED NOT NULL,
   `field_label` VARCHAR(100) NOT NULL,
   `field_value` VARCHAR(500) NOT NULL,
   `created_at`  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_custom_field_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   CONSTRAINT `fk_custom_field_document` FOREIGN KEY (`document_id`) REFERENCES `documents`(`id`) ON DELETE CASCADE,
   INDEX `ix_custom_field_document` (`document_id`),
   FULLTEXT KEY `ftx_custom_field_value` (`field_value`)
@@ -218,6 +406,7 @@ CREATE TABLE `document_custom_fields` (
 -- Where the encrypted binary lives in the chosen cloud provider
 CREATE TABLE `document_storage_objects` (
   `id`               BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `company_id`       INT UNSIGNED NOT NULL,
   `provider`         ENUM('aws_s3','azure_blob','gcp_storage','local') NOT NULL,
   `bucket_or_container` VARCHAR(190) NOT NULL,
   `object_key`       VARCHAR(500) NOT NULL,          -- e.g. documents/2026/PC-2026-0433/v1/<uuid>.enc
@@ -227,23 +416,29 @@ CREATE TABLE `document_storage_objects` (
   `is_encrypted`     TINYINT(1) NOT NULL DEFAULT 1,   -- encrypted at rest (envelope encryption before upload)
   `checksum_sha256`  CHAR(64) NOT NULL,               -- of the *plaintext* file, for integrity verification after decrypt
   `uploaded_at`       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_storage_object_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   UNIQUE KEY `uq_storage_object` (`provider`, `bucket_or_container`, `object_key`(255))
 ) ENGINE=InnoDB;
 
 -- Master key metadata (rotation tracking). The actual KEK material lives in
--- env / a secrets manager / cloud KMS — never in this table.
+-- env / a secrets manager / cloud KMS — never in this table. company_id
+-- lets each tenant eventually rotate its own KEK independently, so a key
+-- compromise for one company doesn't expose another's data.
 CREATE TABLE `key_encryption_keys` (
   `id`              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `company_id`      INT UNSIGNED NOT NULL,
   `kek_version`     VARCHAR(40) NOT NULL UNIQUE,     -- e.g. kek-2026-08
   `provider`        ENUM('env','aws_kms','azure_key_vault','gcp_kms') NOT NULL DEFAULT 'env',
   `kms_key_reference` VARCHAR(255) NULL,             -- ARN / Key Vault URI / KMS resource name
   `is_active`       TINYINT(1) NOT NULL DEFAULT 1,
   `created_at`      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `rotated_at`      DATETIME NULL
+  `rotated_at`      DATETIME NULL,
+  CONSTRAINT `fk_kek_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`)
 ) ENGINE=InnoDB;
 
 CREATE TABLE `document_versions` (
   `id`                INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `company_id`        INT UNSIGNED NOT NULL,
   `document_id`       INT UNSIGNED NOT NULL,
   `version_no`        INT UNSIGNED NOT NULL,        -- 1, 2, 3 ...
   `file_name`         VARCHAR(255) NOT NULL,
@@ -254,6 +449,7 @@ CREATE TABLE `document_versions` (
   `is_current`        TINYINT(1) NOT NULL DEFAULT 1,
   `created_by`        INT UNSIGNED NOT NULL,
   `created_at`        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_ver_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   CONSTRAINT `fk_ver_document` FOREIGN KEY (`document_id`) REFERENCES `documents`(`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_ver_storage`  FOREIGN KEY (`storage_object_id`) REFERENCES `document_storage_objects`(`id`),
   CONSTRAINT `fk_ver_creator`  FOREIGN KEY (`created_by`) REFERENCES `users`(`id`),
@@ -271,6 +467,7 @@ ALTER TABLE `documents`
 -- cloud storage into a readable format for the viewer.
 CREATE TABLE `document_encryption_keys` (
   `id`                  BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `company_id`          INT UNSIGNED NOT NULL,
   `document_version_id` INT UNSIGNED NOT NULL UNIQUE,
   `key_encryption_key_id` INT UNSIGNED NOT NULL,
   `algorithm`           VARCHAR(40) NOT NULL DEFAULT 'aes-256-gcm',
@@ -280,6 +477,7 @@ CREATE TABLE `document_encryption_keys` (
   `file_iv`             VARBINARY(32) NOT NULL,    -- IV used to encrypt the file itself with the DEK
   `file_auth_tag`       VARBINARY(32) NOT NULL,
   `created_at`          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_dek_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   CONSTRAINT `fk_dek_version` FOREIGN KEY (`document_version_id`) REFERENCES `document_versions`(`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_dek_kek`     FOREIGN KEY (`key_encryption_key_id`) REFERENCES `key_encryption_keys`(`id`)
 ) ENGINE=InnoDB;
@@ -288,8 +486,13 @@ CREATE TABLE `document_encryption_keys` (
 -- 4. ACCESS CONTROL (folder & document level, inheritable)
 -- ---------------------------------------------------------------------
 
+-- target_type/target_id is polymorphic (no FK possible), so company_id
+-- can't be inherited via JOIN — it's set explicitly by application code
+-- from the acting user's own company at creation time (always known,
+-- never nullable, unlike audit_log below).
 CREATE TABLE `document_acl` (
   `id`              BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `company_id`      INT UNSIGNED NOT NULL,
   `target_type`     ENUM('folder','document') NOT NULL,
   `target_id`       INT UNSIGNED NOT NULL,          -- folders.id or documents.id
   `principal_type`  ENUM('user','group') NOT NULL,
@@ -297,18 +500,50 @@ CREATE TABLE `document_acl` (
   `permission_level` ENUM('view','comment','edit','approve','full_control') NOT NULL,
   `granted_by`      INT UNSIGNED NOT NULL,
   `granted_at`      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_acl_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   CONSTRAINT `fk_acl_grantor` FOREIGN KEY (`granted_by`) REFERENCES `users`(`id`),
   INDEX `ix_acl_target` (`target_type`, `target_id`),
   INDEX `ix_acl_principal` (`principal_type`, `principal_id`)
 ) ENGINE=InnoDB;
 
+-- A user without access to a folder/document asks for it here instead of
+-- needing someone to notice and grant it unprompted; whoever can already
+-- grant/revoke document_acl on the target (requireModuleAccess('permissions',
+-- true) — see permissions.routes.js) can also approve/deny the request.
+-- Approval creates the matching document_acl row; nothing here replaces it.
+CREATE TABLE `access_requests` (
+  `id`              BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `company_id`      INT UNSIGNED NOT NULL,
+  `target_type`     ENUM('folder','document') NOT NULL,
+  `target_id`       INT UNSIGNED NOT NULL,
+  `requested_level` ENUM('view','comment','edit','approve','full_control') NOT NULL DEFAULT 'view',
+  `reason`          VARCHAR(500) NULL,
+  `requester_id`    INT UNSIGNED NOT NULL,
+  `status`          ENUM('pending','approved','denied') NOT NULL DEFAULT 'pending',
+  `decided_by`      INT UNSIGNED NULL,
+  `decided_at`      DATETIME NULL,
+  `decision_note`   VARCHAR(500) NULL,
+  `created_at`      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_accreq_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
+  CONSTRAINT `fk_accreq_requester` FOREIGN KEY (`requester_id`) REFERENCES `users`(`id`),
+  CONSTRAINT `fk_accreq_decider` FOREIGN KEY (`decided_by`) REFERENCES `users`(`id`),
+  INDEX `ix_accreq_target` (`target_type`, `target_id`),
+  INDEX `ix_accreq_status` (`status`)
+) ENGINE=InnoDB;
+
 -- role x module permission matrix (e.g. can Finance Officer open "Governance/Audit"?)
+-- company_id is redundant with role_id's own scope (every role belongs to
+-- one company) but kept explicit anyway, matching every other table here,
+-- so the eventual query migration can filter this table the same
+-- mechanical way as everything else.
 CREATE TABLE `role_module_permissions` (
+  `company_id` INT UNSIGNED NOT NULL,
   `role_id`   INT UNSIGNED NOT NULL,
-  `module`    VARCHAR(60) NOT NULL,   -- dashboard, repository, capture, search, versions, viewer, permissions, security, users, workflow, integrations, reports, audit, retention, approvals
+  `module`    VARCHAR(60) NOT NULL,   -- dashboard, repository, capture, search, versions, viewer, permissions, security, users, departments, settings, backup, workflow, integrations, reports, audit, retention, approvals
   `can_view`  TINYINT(1) NOT NULL DEFAULT 0,
   `can_edit`  TINYINT(1) NOT NULL DEFAULT 0,
   PRIMARY KEY (`role_id`, `module`),
+  CONSTRAINT `fk_rmp_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   CONSTRAINT `fk_rmp_role` FOREIGN KEY (`role_id`) REFERENCES `roles`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
@@ -318,12 +553,14 @@ CREATE TABLE `role_module_permissions` (
 
 CREATE TABLE `workflows` (
   `id`                 INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `company_id`         INT UNSIGNED NOT NULL,
   `name`               VARCHAR(150) NOT NULL,
   `trigger_doc_type_id` INT UNSIGNED NULL,
   `trigger_folder_id`  INT UNSIGNED NULL,
   `is_active`          TINYINT(1) NOT NULL DEFAULT 1,
   `created_by`         INT UNSIGNED NOT NULL,
   `created_at`         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_wf_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   CONSTRAINT `fk_wf_doctype` FOREIGN KEY (`trigger_doc_type_id`) REFERENCES `document_types`(`id`),
   CONSTRAINT `fk_wf_folder`  FOREIGN KEY (`trigger_folder_id`) REFERENCES `folders`(`id`),
   CONSTRAINT `fk_wf_creator` FOREIGN KEY (`created_by`) REFERENCES `users`(`id`)
@@ -331,6 +568,7 @@ CREATE TABLE `workflows` (
 
 CREATE TABLE `workflow_steps` (
   `id`          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `company_id`  INT UNSIGNED NOT NULL,
   `workflow_id` INT UNSIGNED NOT NULL,
   `step_order`  SMALLINT UNSIGNED NOT NULL,
   `step_name`   VARCHAR(150) NOT NULL,
@@ -345,6 +583,7 @@ CREATE TABLE `workflow_steps` (
   -- child instance to reach a terminal state. `role_id` is still required
   -- by the column above but is ignored for a step configured this way.
   `sub_workflow_id`    INT UNSIGNED NULL,
+  CONSTRAINT `fk_wfs_company`    FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   CONSTRAINT `fk_wfs_workflow`   FOREIGN KEY (`workflow_id`) REFERENCES `workflows`(`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_wfs_role`       FOREIGN KEY (`role_id`) REFERENCES `roles`(`id`),
   CONSTRAINT `fk_wfs_esc_role`   FOREIGN KEY (`escalation_role_id`) REFERENCES `roles`(`id`),
@@ -354,6 +593,7 @@ CREATE TABLE `workflow_steps` (
 
 CREATE TABLE `document_workflow_instances` (
   `id`             BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `company_id`     INT UNSIGNED NOT NULL,
   `document_id`    INT UNSIGNED NOT NULL,
   `workflow_id`    INT UNSIGNED NOT NULL,
   `current_step_id` INT UNSIGNED NULL,
@@ -367,6 +607,7 @@ CREATE TABLE `document_workflow_instances` (
   `parent_instance_id` BIGINT UNSIGNED NULL,
   `started_at`     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `completed_at`   DATETIME NULL,
+  CONSTRAINT `fk_dwi_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   CONSTRAINT `fk_dwi_document` FOREIGN KEY (`document_id`) REFERENCES `documents`(`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_dwi_workflow` FOREIGN KEY (`workflow_id`) REFERENCES `workflows`(`id`),
   CONSTRAINT `fk_dwi_step`     FOREIGN KEY (`current_step_id`) REFERENCES `workflow_steps`(`id`),
@@ -375,6 +616,7 @@ CREATE TABLE `document_workflow_instances` (
 
 CREATE TABLE `workflow_approvals` (
   `id`             BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `company_id`     INT UNSIGNED NOT NULL,
   `instance_id`    BIGINT UNSIGNED NOT NULL,
   `step_id`        INT UNSIGNED NOT NULL,
   `approver_id`    INT UNSIGNED NOT NULL,
@@ -386,6 +628,7 @@ CREATE TABLE `workflow_approvals` (
   -- sla_days, so it's only ever escalated once.
   `escalated_at`   DATETIME NULL,
   `created_at`     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_appr_company`  FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   CONSTRAINT `fk_appr_instance` FOREIGN KEY (`instance_id`) REFERENCES `document_workflow_instances`(`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_appr_step`     FOREIGN KEY (`step_id`) REFERENCES `workflow_steps`(`id`),
   CONSTRAINT `fk_appr_user`     FOREIGN KEY (`approver_id`) REFERENCES `users`(`id`)
@@ -395,8 +638,15 @@ CREATE TABLE `workflow_approvals` (
 -- 6. AUDIT TRAIL (append-only, hash-chained for tamper evidence)
 -- ---------------------------------------------------------------------
 
+-- company_id is nullable here (unlike every other tenant table): a failed
+-- login attempt against an unrecognised email/companyCode combination has
+-- no resolvable company, and this row must still be written for the
+-- security trail. services/audit.service.js#logAudit exposes companyId as
+-- an optional param (default null) — non-breaking for its ~40 existing
+-- call sites that don't pass it yet.
 CREATE TABLE `audit_log` (
   `id`            BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `company_id`    INT UNSIGNED NULL,
   `user_id`       INT UNSIGNED NULL,
   `action`        ENUM('View','Edit','Approve','Capture','Download','Permission','Login','Login failed',
                         'Integration','Declare record','Disposal','Create','Delete','MFA','Logout',
@@ -409,7 +659,9 @@ CREATE TABLE `audit_log` (
   `prev_hash`     CHAR(64) NULL,
   `entry_hash`    CHAR(64) NOT NULL,    -- sha256(prev_hash + canonical(this row)) — verifies chain integrity
   `created_at`    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_audit_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`) ON DELETE SET NULL,
   CONSTRAINT `fk_audit_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE SET NULL,
+  INDEX `ix_audit_company` (`company_id`),
   INDEX `ix_audit_created` (`created_at`),
   INDEX `ix_audit_record` (`record_type`, `record_id`)
 ) ENGINE=InnoDB;
@@ -420,6 +672,7 @@ CREATE TABLE `audit_log` (
 
 CREATE TABLE `notifications` (
   `id`             BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `company_id`     INT UNSIGNED NOT NULL,
   `user_id`        INT UNSIGNED NOT NULL,
   `type`           VARCHAR(60) NOT NULL,   -- approval_pending, workflow_sla_breach, document_shared ...
   `title`          VARCHAR(190) NOT NULL,
@@ -428,6 +681,7 @@ CREATE TABLE `notifications` (
   `related_record_id`   VARCHAR(60) NULL,
   `is_read`        TINYINT(1) NOT NULL DEFAULT 0,
   `created_at`      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_notif_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   CONSTRAINT `fk_notif_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
@@ -435,8 +689,16 @@ CREATE TABLE `notifications` (
 -- 8. INTEGRATIONS & CAPTURE
 -- ---------------------------------------------------------------------
 
+-- NOTE: integrations.routes.js / ad.service.js stay unmigrated this pass
+-- (out of scope — see plan). `id` deliberately keeps its existing bare
+-- business-key PRIMARY KEY (not redesigned to a composite) so those
+-- routes' existing `WHERE id = ?` queries keep working unmodified; with
+-- only one company today, that's equivalent to (company_id, id) in
+-- practice. A second company wanting its own AD/SMTP/S3 config needs this
+-- table's PK properly redesigned + its routes migrated as a follow-up.
 CREATE TABLE `integrations` (
   `id`            VARCHAR(30) PRIMARY KEY,     -- 'ad', 'hris', 'smtp', 'aws_s3', 'azure_blob', 'gcp_storage', 'sms'
+  `company_id`    INT UNSIGNED NOT NULL,
   `name`          VARCHAR(150) NOT NULL,
   `description`   VARCHAR(255) NULL,
   `endpoint`      VARCHAR(255) NULL,
@@ -444,12 +706,15 @@ CREATE TABLE `integrations` (
   `config_json`   JSON NULL,                   -- non-secret config only; secrets stay in env/.env
   `last_sync_at`  DATETIME NULL,
   `stats_json`    JSON NULL,
-  `updated_at`    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  `updated_at`    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_integration_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
+  INDEX `ix_integration_company` (`company_id`)
 ) ENGINE=InnoDB;
 
 CREATE TABLE `capture_batches` (
   `id`             INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  `batch_no`       VARCHAR(40) NOT NULL UNIQUE,
+  `company_id`     INT UNSIGNED NOT NULL,
+  `batch_no`       VARCHAR(40) NOT NULL,
   `source`         ENUM('network_scanner','watched_folder','email_intake','device_upload','manual_upload','ftp') NOT NULL,
   `status`         ENUM('running','completed','completed_with_errors','failed') NOT NULL DEFAULT 'completed',
   `pages`          INT UNSIGNED NOT NULL DEFAULT 0,
@@ -459,7 +724,9 @@ CREATE TABLE `capture_batches` (
   `completed_at`   DATETIME NULL,
   `created_by`     INT UNSIGNED NULL,
   `created_at`     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT `fk_batch_creator` FOREIGN KEY (`created_by`) REFERENCES `users`(`id`)
+  CONSTRAINT `fk_batch_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
+  CONSTRAINT `fk_batch_creator` FOREIGN KEY (`created_by`) REFERENCES `users`(`id`),
+  UNIQUE KEY `uq_batch_company_no` (`company_id`, `batch_no`)
 ) ENGINE=InnoDB;
 
 -- Per-file outcome within a batch — links a batch to the real documents it
@@ -467,12 +734,14 @@ CREATE TABLE `capture_batches` (
 -- `documents` itself.
 CREATE TABLE `capture_batch_items` (
   `id`                BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `company_id`        INT UNSIGNED NOT NULL,
   `batch_id`          INT UNSIGNED NOT NULL,
   `source_file_name`  VARCHAR(255) NOT NULL,
   `status`            ENUM('succeeded','failed','duplicate') NOT NULL,
   `document_id`       INT UNSIGNED NULL,
   `error_message`     VARCHAR(500) NULL,
   `created_at`        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_batch_item_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   CONSTRAINT `fk_batch_item_batch` FOREIGN KEY (`batch_id`) REFERENCES `capture_batches`(`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_batch_item_document` FOREIGN KEY (`document_id`) REFERENCES `documents`(`id`) ON DELETE SET NULL,
   INDEX `ix_batch_item_batch` (`batch_id`)
@@ -482,20 +751,27 @@ CREATE TABLE `capture_batch_items` (
 -- 9. SYSTEM SETTINGS
 -- ---------------------------------------------------------------------
 
+-- NOTE: settings.routes.js stays unmigrated this pass, same reasoning and
+-- same "PK left alone" treatment as `integrations` above.
 CREATE TABLE `system_settings` (
   `setting_key`   VARCHAR(80) PRIMARY KEY,
+  `company_id`    INT UNSIGNED NOT NULL,
   `setting_value` VARCHAR(500) NULL,
   `description`   VARCHAR(255) NULL,
-  `updated_at`    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  `updated_at`    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_setting_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
+  INDEX `ix_setting_company` (`company_id`)
 ) ENGINE=InnoDB;
 
 -- Per-user appearance/UX preferences — deliberately separate from
 -- system_settings (which is global), so theme etc. is per-person.
 CREATE TABLE `user_preferences` (
   `user_id`      INT UNSIGNED PRIMARY KEY,
+  `company_id`   INT UNSIGNED NOT NULL,
   `theme_mode`   ENUM('system','light','dark') NOT NULL DEFAULT 'system',
   `density`      ENUM('comfortable','compact') NOT NULL DEFAULT 'comfortable',
   `updated_at`   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_prefs_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   CONSTRAINT `fk_prefs_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
@@ -505,6 +781,7 @@ CREATE TABLE `user_preferences` (
 
 CREATE TABLE `backups` (
   `id`               INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `company_id`       INT UNSIGNED NOT NULL,
   `file_key`         VARCHAR(255) NOT NULL,      -- storage key/path of the encrypted archive
   `size_bytes`       BIGINT UNSIGNED NULL,
   `storage_provider` VARCHAR(30) NOT NULL,
@@ -521,6 +798,7 @@ CREATE TABLE `backups` (
   `created_by`       INT UNSIGNED NULL,
   `created_at`       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `completed_at`     DATETIME NULL,
+  CONSTRAINT `fk_backup_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   CONSTRAINT `fk_backup_creator` FOREIGN KEY (`created_by`) REFERENCES `users`(`id`)
 ) ENGINE=InnoDB;
 
@@ -528,79 +806,86 @@ CREATE TABLE `backups` (
 -- SEED DATA
 -- =====================================================================
 
-INSERT INTO `departments` (`name`, `description`) VALUES
-('Benefits', 'Pension claims and benefit processing'),
-('Finance', 'Contributions, payouts and treasury'),
-('Records Management', 'Registry, retention and disposal'),
-('ICT', 'Systems and integrations'),
-('Human Resources', 'Staff administration');
+-- Bootstrap tenant for a fresh install. `created_by` is NULL (no
+-- platform_admins row is seeded here — see the file header comment);
+-- a real deployment renames/edits this row via the platform-admin API
+-- once an admin logs in.
+INSERT INTO `companies` (`id`, `company_code`, `name`, `status`) VALUES
+(1, 'PSPF', 'Public Service Pensions Fund', 'active');
 
-INSERT INTO `roles` (`name`, `description`, `mfa_required`, `is_system_role`) VALUES
-('Records Officer', 'Captures and indexes records', 0, 0),
-('Approving Manager', 'Approves claims and workflow steps', 1, 0),
-('Finance Officer', 'Handles payouts and contributions', 1, 0),
-('Records Manager', 'Owns retention schedules and ACL exceptions', 1, 1),
-('System Administrator', 'Full system configuration access', 1, 1),
-('Internal Auditor', 'Read-only access to audit trail and reports', 1, 0);
+INSERT INTO `departments` (`company_id`, `name`, `description`) VALUES
+(1, 'Benefits', 'Pension claims and benefit processing'),
+(1, 'Finance', 'Contributions, payouts and treasury'),
+(1, 'Records Management', 'Registry, retention and disposal'),
+(1, 'ICT', 'Systems and integrations'),
+(1, 'Human Resources', 'Staff administration');
 
-INSERT INTO `document_types` (`name`, `code`) VALUES
-('Claim — Retirement', 'PC'),
-('Claim — Ill Health', 'IH'),
-('Contribution Statement', 'CS'),
-('Payout Voucher', 'PV'),
-('Member Statement', 'MS'),
-('Imported / Unclassified', 'IMP');
+INSERT INTO `roles` (`company_id`, `name`, `description`, `mfa_required`, `is_system_role`) VALUES
+(1, 'Records Officer', 'Captures and indexes records', 0, 0),
+(1, 'Approving Manager', 'Approves claims and workflow steps', 1, 0),
+(1, 'Finance Officer', 'Handles payouts and contributions', 1, 0),
+(1, 'Records Manager', 'Owns retention schedules and ACL exceptions', 1, 1),
+(1, 'System Administrator', 'Full system configuration access', 1, 1),
+(1, 'Internal Auditor', 'Read-only access to audit trail and reports', 1, 0);
 
-INSERT INTO `retention_classes` (`code`, `name`, `retention_years`, `trigger_event`, `disposal_action`) VALUES
-('RC-CLAIM-7', 'Pension claim records', 7, 'record declared final', 'transfer_to_national_archives'),
-('RC-CONTRIB-10', 'Contribution records', 10, 'record declared final', 'archive'),
-('RC-PAYOUT-7', 'Payout records', 7, 'record declared final', 'archive'),
-('RC-GOV-PERM', 'Governance / permanent records', 99, 'record declared final', 'review');
+INSERT INTO `document_types` (`company_id`, `name`, `code`) VALUES
+(1, 'Claim — Retirement', 'PC'),
+(1, 'Claim — Ill Health', 'IH'),
+(1, 'Contribution Statement', 'CS'),
+(1, 'Payout Voucher', 'PV'),
+(1, 'Member Statement', 'MS'),
+(1, 'Imported / Unclassified', 'IMP');
 
-INSERT INTO `integrations` (`id`, `name`, `description`, `endpoint`, `status`) VALUES
-('hris', 'HRIS — Government Payroll', 'Member service records & exits', 'sftp://payroll.gov.sz/exports', 'connected'),
-('smtp', 'E-mail & notifications', 'Approval alerts, statement delivery', 'smtp.pspf.co.sz:587', 'connected'),
-('aws_s3', 'AWS S3', 'Primary encrypted document store', NULL, 'disconnected'),
-('azure_blob', 'Azure Blob Storage', 'Secondary / DR document store', NULL, 'disconnected'),
-('gcp_storage', 'Google Cloud Storage', 'Alternate document store', NULL, 'disconnected'),
-('local', 'Local disk (dev)', 'Filesystem fallback for local/XAMPP development', NULL, 'connected');
+INSERT INTO `retention_classes` (`company_id`, `code`, `name`, `retention_years`, `trigger_event`, `disposal_action`) VALUES
+(1, 'RC-CLAIM-7', 'Pension claim records', 7, 'record declared final', 'transfer_to_national_archives'),
+(1, 'RC-CONTRIB-10', 'Contribution records', 10, 'record declared final', 'archive'),
+(1, 'RC-PAYOUT-7', 'Payout records', 7, 'record declared final', 'archive'),
+(1, 'RC-GOV-PERM', 'Governance / permanent records', 99, 'record declared final', 'review');
+
+INSERT INTO `integrations` (`id`, `company_id`, `name`, `description`, `endpoint`, `status`) VALUES
+('hris', 1, 'HRIS — Government Payroll', 'Member service records & exits', 'sftp://payroll.gov.sz/exports', 'connected'),
+('smtp', 1, 'E-mail & notifications', 'Approval alerts, statement delivery', 'smtp.pspf.co.sz:587', 'connected'),
+('aws_s3', 1, 'AWS S3', 'Primary encrypted document store', NULL, 'disconnected'),
+('azure_blob', 1, 'Azure Blob Storage', 'Secondary / DR document store', NULL, 'disconnected'),
+('gcp_storage', 1, 'Google Cloud Storage', 'Alternate document store', NULL, 'disconnected'),
+('local', 1, 'Local disk (dev)', 'Filesystem fallback for local/XAMPP development', NULL, 'connected');
 
 -- Active Directory: config_json holds real (non-secret) LDAP connection
 -- settings read by services/ad.service.js; the service-account bind
 -- password lives in .env as AD_BIND_PASSWORD, never in this table (same
 -- convention as FTP_INTAKE_PASSWORD/IMAP_INTAKE_PASSWORD below).
-INSERT INTO `integrations` (`id`, `name`, `description`, `endpoint`, `status`, `config_json`) VALUES
-('ad', 'Active Directory', 'Single sign-on & group membership', 'ldaps://dc01.pspf.local:636', 'disconnected',
+INSERT INTO `integrations` (`id`, `company_id`, `name`, `description`, `endpoint`, `status`, `config_json`) VALUES
+('ad', 1, 'Active Directory', 'Single sign-on & group membership', 'ldaps://dc01.pspf.local:636', 'disconnected',
  '{"url": "ldaps://dc01.pspf.local:636", "bindDN": "", "searchBase": "dc=pspf,dc=local", "searchFilter": "(&(objectClass=user)(mail={{email}}))", "tlsRejectUnauthorized": true, "enabled": false}');
 
 -- SMS (Vonage): config_json holds only the non-secret sender id; the API
 -- key/secret live in .env as VONAGE_API_KEY/VONAGE_API_SECRET, never in
 -- this table (same convention as AD_BIND_PASSWORD above).
-INSERT INTO `integrations` (`id`, `name`, `description`, `endpoint`, `status`, `config_json`) VALUES
-('sms', 'SMS Gateway (Vonage)', 'MFA one-time codes and alert delivery', 'rest.nexmo.com', 'disconnected',
+INSERT INTO `integrations` (`id`, `company_id`, `name`, `description`, `endpoint`, `status`, `config_json`) VALUES
+('sms', 1, 'SMS Gateway (Vonage)', 'MFA one-time codes and alert delivery', 'rest.nexmo.com', 'disconnected',
  '{"provider": "vonage", "from": "PSPFEDMS", "enabled": true}');
 
 -- Automated Capture & Scan intake connectors. `config_json` holds
 -- non-secret settings (poll target/interval/enabled); real credentials
 -- (FTP/IMAP passwords) live in .env as FTP_INTAKE_PASSWORD /
 -- IMAP_INTAKE_PASSWORD, never in this table. ids match capture_batches.source.
-INSERT INTO `integrations` (`id`, `name`, `description`, `endpoint`, `status`, `config_json`) VALUES
-('watched_folder', 'Watched Folder', 'Auto-captures files dropped into a local intake directory - also the landing point for a network scanner''s "scan to folder" feature', NULL, 'disconnected', '{"path": "", "pollIntervalSeconds": 20, "enabled": true}'),
-('ftp', 'FTP Intake', 'Polls a remote FTP/SFTP directory for new documents', NULL, 'disconnected', '{"host": "", "port": 21, "user": "", "path": "/", "pollIntervalMinutes": 15, "enabled": false}'),
-('email_intake', 'Email Intake', 'Polls a mailbox for new messages with attachments - also the landing point for a network scanner''s "scan to email" feature', NULL, 'disconnected', '{"host": "", "port": 993, "user": "", "mailbox": "INBOX", "pollIntervalMinutes": 10, "enabled": false}');
+INSERT INTO `integrations` (`id`, `company_id`, `name`, `description`, `endpoint`, `status`, `config_json`) VALUES
+('watched_folder', 1, 'Watched Folder', 'Auto-captures files dropped into a local intake directory - also the landing point for a network scanner''s "scan to folder" feature', NULL, 'disconnected', '{"path": "", "pollIntervalSeconds": 20, "enabled": true}'),
+('ftp', 1, 'FTP Intake', 'Polls a remote FTP/SFTP directory for new documents', NULL, 'disconnected', '{"host": "", "port": 21, "user": "", "path": "/", "pollIntervalMinutes": 15, "enabled": false}'),
+('email_intake', 1, 'Email Intake', 'Polls a mailbox for new messages with attachments - also the landing point for a network scanner''s "scan to email" feature', NULL, 'disconnected', '{"host": "", "port": 993, "user": "", "mailbox": "INBOX", "pollIntervalMinutes": 10, "enabled": false}');
 
-INSERT INTO `key_encryption_keys` (`kek_version`, `provider`, `is_active`) VALUES
-('kek-local-dev-1', 'env', 1);
+INSERT INTO `key_encryption_keys` (`company_id`, `kek_version`, `provider`, `is_active`) VALUES
+(1, 'kek-local-dev-1', 'env', 1);
 
-INSERT INTO `system_settings` (`setting_key`, `setting_value`, `description`) VALUES
-('watermark_downloads', 'true', 'Watermark every download with user and timestamp'),
-('redact_bank_numbers', 'true', 'Mask bank account numbers for non-Finance roles'),
-('bulk_export_limit', '500', 'Block bulk export above this many records without override'),
-('confidential_reason_required', 'true', 'Confidential records require a stated reason to open'),
-('active_storage_provider', 'aws_s3', 'Default cloud storage provider for new uploads'),
-('backup_schedule_enabled', 'false', 'Run an automatic nightly database backup'),
-('backup_schedule_hour', '2', 'Hour of day (0-23, server local time) the automatic nightly backup runs'),
-('storage_capacity_bytes', '107374182400', 'Total provisioned storage capacity in bytes, shown on the Dashboard (default 100 GB)');
+INSERT INTO `system_settings` (`setting_key`, `company_id`, `setting_value`, `description`) VALUES
+('watermark_downloads', 1, 'true', 'Watermark every download with user and timestamp'),
+('redact_bank_numbers', 1, 'true', 'Mask bank account numbers for non-Finance roles'),
+('bulk_export_limit', 1, '500', 'Block bulk export above this many records without override'),
+('confidential_reason_required', 1, 'true', 'Confidential records require a stated reason to open'),
+('active_storage_provider', 1, 'aws_s3', 'Default cloud storage provider for new uploads'),
+('backup_schedule_enabled', 1, 'false', 'Run an automatic nightly database backup'),
+('backup_schedule_hour', 1, '2', 'Hour of day (0-23, server local time) the automatic nightly backup runs'),
+('storage_capacity_bytes', 1, '107374182400', 'Total provisioned storage capacity in bytes, shown on the Dashboard (default 100 GB)');
 
 -- Role x module permission matrix. `module` = dashboard, repository, capture,
 -- search, versions, viewer, permissions, security, users, departments,
@@ -608,54 +893,54 @@ INSERT INTO `system_settings` (`setting_key`, `setting_value`, `description`) VA
 -- `backup` is listed here for visibility in the Permissions Matrix UI only —
 -- the backup/restore routes themselves stay hard-gated to System
 -- Administrator regardless of this table, given the blast radius.
-INSERT INTO `role_module_permissions` (`role_id`, `module`, `can_view`, `can_edit`) VALUES
-((SELECT id FROM roles WHERE name = 'Records Officer'), 'approvals', 1, 1),
-((SELECT id FROM roles WHERE name = 'Records Officer'), 'capture', 1, 1),
-((SELECT id FROM roles WHERE name = 'Records Officer'), 'repository', 1, 1),
-((SELECT id FROM roles WHERE name = 'Records Officer'), 'versions', 1, 1),
-((SELECT id FROM roles WHERE name = 'Records Officer'), 'viewer', 1, 1),
+INSERT INTO `role_module_permissions` (`company_id`, `role_id`, `module`, `can_view`, `can_edit`) VALUES
+(1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'Records Officer'), 'approvals', 1, 1),
+(1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'Records Officer'), 'capture', 1, 1),
+(1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'Records Officer'), 'repository', 1, 1),
+(1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'Records Officer'), 'versions', 1, 1),
+(1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'Records Officer'), 'viewer', 1, 1),
 
-((SELECT id FROM roles WHERE name = 'Approving Manager'), 'approvals', 1, 1),
-((SELECT id FROM roles WHERE name = 'Approving Manager'), 'reports', 1, 0),
-((SELECT id FROM roles WHERE name = 'Approving Manager'), 'repository', 1, 0),
-((SELECT id FROM roles WHERE name = 'Approving Manager'), 'viewer', 1, 0),
+(1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'Approving Manager'), 'approvals', 1, 1),
+(1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'Approving Manager'), 'reports', 1, 0),
+(1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'Approving Manager'), 'repository', 1, 0),
+(1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'Approving Manager'), 'viewer', 1, 0),
 
-((SELECT id FROM roles WHERE name = 'Finance Officer'), 'approvals', 1, 1),
-((SELECT id FROM roles WHERE name = 'Finance Officer'), 'reports', 1, 0),
-((SELECT id FROM roles WHERE name = 'Finance Officer'), 'repository', 1, 0),
-((SELECT id FROM roles WHERE name = 'Finance Officer'), 'viewer', 1, 0),
+(1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'Finance Officer'), 'approvals', 1, 1),
+(1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'Finance Officer'), 'reports', 1, 0),
+(1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'Finance Officer'), 'repository', 1, 0),
+(1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'Finance Officer'), 'viewer', 1, 0),
 
-((SELECT id FROM roles WHERE name = 'Records Manager'), 'audit', 1, 0),
-((SELECT id FROM roles WHERE name = 'Records Manager'), 'permissions', 1, 1),
-((SELECT id FROM roles WHERE name = 'Records Manager'), 'reports', 1, 0),
-((SELECT id FROM roles WHERE name = 'Records Manager'), 'repository', 1, 1),
-((SELECT id FROM roles WHERE name = 'Records Manager'), 'retention', 1, 1),
-((SELECT id FROM roles WHERE name = 'Records Manager'), 'versions', 1, 1),
-((SELECT id FROM roles WHERE name = 'Records Manager'), 'viewer', 1, 1),
-((SELECT id FROM roles WHERE name = 'Records Manager'), 'workflow', 1, 1),
-((SELECT id FROM roles WHERE name = 'Records Manager'), 'users', 1, 0),
-((SELECT id FROM roles WHERE name = 'Records Manager'), 'departments', 1, 0),
-((SELECT id FROM roles WHERE name = 'Records Manager'), 'settings', 1, 0),
+(1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'Records Manager'), 'audit', 1, 0),
+(1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'Records Manager'), 'permissions', 1, 1),
+(1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'Records Manager'), 'reports', 1, 0),
+(1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'Records Manager'), 'repository', 1, 1),
+(1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'Records Manager'), 'retention', 1, 1),
+(1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'Records Manager'), 'versions', 1, 1),
+(1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'Records Manager'), 'viewer', 1, 1),
+(1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'Records Manager'), 'workflow', 1, 1),
+(1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'Records Manager'), 'users', 1, 0),
+(1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'Records Manager'), 'departments', 1, 0),
+(1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'Records Manager'), 'settings', 1, 0),
 
-((SELECT id FROM roles WHERE name = 'Internal Auditor'), 'audit', 1, 0),
-((SELECT id FROM roles WHERE name = 'Internal Auditor'), 'reports', 1, 0),
-((SELECT id FROM roles WHERE name = 'Internal Auditor'), 'repository', 1, 0),
-((SELECT id FROM roles WHERE name = 'Internal Auditor'), 'viewer', 1, 0),
+(1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'Internal Auditor'), 'audit', 1, 0),
+(1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'Internal Auditor'), 'reports', 1, 0),
+(1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'Internal Auditor'), 'repository', 1, 0),
+(1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'Internal Auditor'), 'viewer', 1, 0),
 
-((SELECT id FROM roles WHERE name = 'System Administrator'), 'approvals', 1, 1),
-((SELECT id FROM roles WHERE name = 'System Administrator'), 'audit', 1, 1),
-((SELECT id FROM roles WHERE name = 'System Administrator'), 'capture', 1, 1),
-((SELECT id FROM roles WHERE name = 'System Administrator'), 'integrations', 1, 1),
-((SELECT id FROM roles WHERE name = 'System Administrator'), 'permissions', 1, 1),
-((SELECT id FROM roles WHERE name = 'System Administrator'), 'reports', 1, 1),
-((SELECT id FROM roles WHERE name = 'System Administrator'), 'repository', 1, 1),
-((SELECT id FROM roles WHERE name = 'System Administrator'), 'retention', 1, 1),
-((SELECT id FROM roles WHERE name = 'System Administrator'), 'versions', 1, 1),
-((SELECT id FROM roles WHERE name = 'System Administrator'), 'viewer', 1, 1),
-((SELECT id FROM roles WHERE name = 'System Administrator'), 'workflow', 1, 1),
-((SELECT id FROM roles WHERE name = 'System Administrator'), 'users', 1, 1),
-((SELECT id FROM roles WHERE name = 'System Administrator'), 'departments', 1, 1),
-((SELECT id FROM roles WHERE name = 'System Administrator'), 'settings', 1, 1),
-((SELECT id FROM roles WHERE name = 'System Administrator'), 'backup', 1, 1);
+(1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'System Administrator'), 'approvals', 1, 1),
+(1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'System Administrator'), 'audit', 1, 1),
+(1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'System Administrator'), 'capture', 1, 1),
+(1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'System Administrator'), 'integrations', 1, 1),
+(1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'System Administrator'), 'permissions', 1, 1),
+(1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'System Administrator'), 'reports', 1, 1),
+(1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'System Administrator'), 'repository', 1, 1),
+(1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'System Administrator'), 'retention', 1, 1),
+(1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'System Administrator'), 'versions', 1, 1),
+(1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'System Administrator'), 'viewer', 1, 1),
+(1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'System Administrator'), 'workflow', 1, 1),
+(1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'System Administrator'), 'users', 1, 1),
+(1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'System Administrator'), 'departments', 1, 1),
+(1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'System Administrator'), 'settings', 1, 1),
+(1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'System Administrator'), 'backup', 1, 1);
 
 SET FOREIGN_KEY_CHECKS = 1;

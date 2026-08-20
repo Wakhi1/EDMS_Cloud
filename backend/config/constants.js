@@ -18,4 +18,10 @@ module.exports = {
     'Create', 'Delete', 'MFA', 'Logout',
   ],
   STORAGE_PROVIDERS: ['aws_s3', 'azure_blob', 'gcp_storage', 'local'],
+  LICENSE_TYPES: ['trial', 'standard', 'enterprise'],
+  LICENSE_STATUSES: ['active', 'suspended', 'expired', 'revoked'],
+  LICENSE_VALIDATION_RESULTS: [
+    'valid', 'expired', 'signature_invalid', 'suspended', 'revoked',
+    'not_found', 'malformed',
+  ],
 };

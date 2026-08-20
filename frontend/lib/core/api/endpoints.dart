@@ -45,6 +45,7 @@ class Endpoints {
   static String documentContent(String id) => '/api/documents/$id/content';
   static String documentOcrText(String id) => '/api/documents/$id/ocr-text';
   static String documentDeclareFinal(String id) => '/api/documents/$id/declare-final';
+  static String documentRestore(String id) => '/api/documents/$id/restore';
 
   // document-types.routes.js
   static const documentTypes = '/api/document-types';
@@ -102,6 +103,12 @@ class Endpoints {
   static const roles = '/api/roles';
   static String roleById(String id) => '/api/roles/$id';
 
+  // access-requests.routes.js
+  static const accessRequests = '/api/access-requests';
+  static const accessRequestsMine = '/api/access-requests/mine';
+  static String accessRequestApprove(String id) => '/api/access-requests/$id/approve';
+  static String accessRequestDeny(String id) => '/api/access-requests/$id/deny';
+
   // permissions.routes.js
   static String permissionsFor(String targetType, String targetId) => '/api/permissions/$targetType/$targetId';
   static String permissionAclById(String aclId) => '/api/permissions/$aclId';
@@ -139,4 +146,23 @@ class Endpoints {
   static const backups = '/api/backup';
   static const backupRun = '/api/backup/run';
   static String backupRestore(String id) => '/api/backup/$id/restore';
+
+  // platform-admin/*.routes.js — DocSecore staff, a fully separate identity
+  // space from every endpoint above (see backend/middleware/platformAuth.middleware.js).
+  static const platformAdminLogin = '/api/platform-admin/auth/login';
+  static const platformAdminRefresh = '/api/platform-admin/auth/refresh';
+  static const platformAdminLogout = '/api/platform-admin/auth/logout';
+  static const platformAdminMe = '/api/platform-admin/auth/me';
+  static const platformAdminCompanies = '/api/platform-admin/companies';
+  static String platformAdminCompanyById(String id) => '/api/platform-admin/companies/$id';
+  static String platformAdminCompanyStatus(String id) => '/api/platform-admin/companies/$id/status';
+  static String platformAdminCompanyAdminUser(String id) => '/api/platform-admin/companies/$id/admin-user';
+  static String platformAdminCompanyBrandingTheme(String id) => '/api/platform-admin/companies/$id/branding/theme';
+  static String platformAdminCompanyBrandingHistory(String id) => '/api/platform-admin/companies/$id/branding/history';
+  static String platformAdminCompanyAudit(String id) => '/api/platform-admin/companies/$id/audit';
+  static const platformAdminLicenses = '/api/platform-admin/licenses';
+  static String platformAdminLicenseById(String id) => '/api/platform-admin/licenses/$id';
+  static String platformAdminLicenseRevoke(String id) => '/api/platform-admin/licenses/$id/revoke';
+  static String platformAdminLicenseValidate(String id) => '/api/platform-admin/licenses/$id/validate';
+  static String platformAdminLicenseValidationHistory(String id) => '/api/platform-admin/licenses/$id/validation-history';
 }

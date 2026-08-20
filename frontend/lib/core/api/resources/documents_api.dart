@@ -139,4 +139,51 @@ class DocumentsApi {
     final response = await _client.post(Endpoints.documentDeclareFinal('$id'));
     _client.unwrap(response, (_) => null);
   }
+
+  /// PUT /api/documents/:id — edits metadata only (title/type/folder/
+  /// department/member fields/classification/retention class); never
+  /// touches file content or versions. Also how Repository's drag-and-drop
+  /// move between folders works — just a folderId-only call.
+  Future<void> update(
+    int id, {
+    String? title,
+    int? documentTypeId,
+    int? folderId,
+    int? departmentId,
+    String? memberNumber,
+    String? memberName,
+    String? classification,
+    int? retentionClassId,
+  }) async {
+    final response = await _client.put(
+      Endpoints.documentById('$id'),
+      data: {
+        'title': ?title,
+        'documentTypeId': ?documentTypeId,
+        'folderId': ?folderId,
+        'departmentId': ?departmentId,
+        'memberNumber': ?memberNumber,
+        'memberName': ?memberName,
+        'classification': ?classification,
+        'retentionClassId': ?retentionClassId,
+      },
+    );
+    _client.unwrap(response, (_) => null);
+  }
+
+  /// DELETE /api/documents/:id — soft-delete: archives the record (never a
+  /// hard delete — this app never destroys a registered record outright,
+  /// only via the separate, deliberate Retention & Disposal flow). Archived
+  /// records are Repository's recycle bin; see [restore].
+  Future<void> delete(int id) async {
+    final response = await _client.delete(Endpoints.documentById('$id'));
+    _client.unwrap(response, (_) => null);
+  }
+
+  /// POST /api/documents/:id/restore — takes a record out of the recycle
+  /// bin (status back to 'draft'). Refused if it isn't currently archived.
+  Future<void> restore(int id) async {
+    final response = await _client.post(Endpoints.documentRestore('$id'));
+    _client.unwrap(response, (_) => null);
+  }
 }

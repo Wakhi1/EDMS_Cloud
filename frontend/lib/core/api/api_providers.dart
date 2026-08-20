@@ -5,6 +5,7 @@ import '../auth/module_access_events.dart';
 import '../auth/secure_token_store.dart';
 import '../auth/session_events.dart';
 import 'api_client.dart';
+import 'resources/access_requests_api.dart';
 import 'resources/approvals_api.dart';
 import 'resources/audit_api.dart';
 import 'resources/auth_api.dart';
@@ -74,6 +75,7 @@ final retentionApiProvider = Provider<RetentionApi>((ref) => RetentionApi(ref.wa
 final usersApiProvider = Provider<UsersApi>((ref) => UsersApi(ref.watch(apiClientProvider)));
 final rolesApiProvider = Provider<RolesApi>((ref) => RolesApi(ref.watch(apiClientProvider)));
 final permissionsApiProvider = Provider<PermissionsApi>((ref) => PermissionsApi(ref.watch(apiClientProvider)));
+final accessRequestsApiProvider = Provider<AccessRequestsApi>((ref) => AccessRequestsApi(ref.watch(apiClientProvider)));
 final integrationsApiProvider = Provider<IntegrationsApi>((ref) => IntegrationsApi(ref.watch(apiClientProvider)));
 final captureBatchesApiProvider = Provider<CaptureBatchesApi>((ref) => CaptureBatchesApi(ref.watch(apiClientProvider)));
 final departmentsApiProvider = Provider<DepartmentsApi>((ref) => DepartmentsApi(ref.watch(apiClientProvider)));

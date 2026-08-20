@@ -17,6 +17,7 @@ router.use('/documents', require('./documents.routes'));
 router.use('/document-types', require('./document-types.routes'));
 router.use('/versions', require('./versions.routes'));
 router.use('/permissions', require('./permissions.routes'));
+router.use('/access-requests', require('./access-requests.routes'));
 router.use('/approvals', require('./approvals.routes'));
 router.use('/workflow', require('./workflow.routes'));
 router.use('/audit', require('./audit.routes'));
@@ -28,5 +29,6 @@ router.use('/capture-batches', require('./capture.routes'));
 router.use('/departments', require('./departments.routes'));
 router.use('/settings', require('./settings.routes'));
 router.use('/backup', require('./backup.routes'));
+router.use('/platform-admin', require('./platform-admin'));
 
 module.exports = router;

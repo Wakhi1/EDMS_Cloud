@@ -7,15 +7,39 @@ import '../../../core/models/acl_entry_row.dart';
 import '../../../core/theme/pspf_tokens.dart';
 import '../../../core/widgets/confirm_dialog.dart';
 import '../../../core/widgets/empty_state.dart';
+import '../../../core/widgets/result_dialog.dart';
 import '../../document_viewer/providers/viewer_providers.dart';
+import '../../repository/providers/repository_providers.dart';
 import '../providers/permissions_providers.dart';
 import 'grant_access_dialog.dart';
+import 'request_access_dialog.dart';
 
 class PermissionsTargetScreen extends ConsumerWidget {
   const PermissionsTargetScreen({super.key, required this.targetType, required this.targetId});
 
   final String targetType;
   final String targetId;
+
+  Future<void> _requestAccess(BuildContext context, WidgetRef ref, {required int id}) async {
+    final result = await showDialog<({String requestedLevel, String? reason})>(
+      context: context,
+      builder: (_) => const RequestAccessDialog(),
+    );
+    if (result == null) return;
+    try {
+      await ref.read(accessRequestsApiProvider).create(
+            targetType: targetType,
+            targetId: id,
+            requestedLevel: result.requestedLevel,
+            reason: result.reason,
+          );
+      if (context.mounted) {
+        await ResultDialog.showSuccess(context, 'Access request submitted.');
+      }
+    } on ApiException catch (e) {
+      if (context.mounted) await ResultDialog.showError(context, e.message);
+    }
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -30,7 +54,9 @@ class PermissionsTargetScreen extends ConsumerWidget {
     final tokens = context.tokens;
     final aclAsync = ref.watch(aclProvider((targetType, targetId)));
     final docAsync = targetType == 'document' ? ref.watch(documentDetailProvider(id)) : null;
-    final title = docAsync?.valueOrNull?.title ?? '${targetType[0].toUpperCase()}${targetType.substring(1)} #$targetId';
+    final foldersAsync = targetType == 'folder' ? ref.watch(foldersProvider) : null;
+    final folderName = foldersAsync?.valueOrNull?.where((f) => f.id == id).firstOrNull?.path;
+    final title = docAsync?.valueOrNull?.title ?? folderName ?? '${targetType[0].toUpperCase()}${targetType.substring(1)} #$targetId';
 
     return Padding(
       padding: const EdgeInsets.all(18),
@@ -43,10 +69,31 @@ class PermissionsTargetScreen extends ConsumerWidget {
           Expanded(
             child: aclAsync.when(
               loading: () => const Center(child: CircularProgressIndicator()),
-              error: (error, _) => ErrorState(
-                message: error is ApiException ? error.message : '$error',
-                onRetry: () => ref.invalidate(aclProvider((targetType, targetId))),
-              ),
+              error: (error, _) {
+                if (error is ApiException && error.isForbidden) {
+                  // Someone without 'permissions' module access can't see the
+                  // ACL — but self-service requesting is the whole point of
+                  // this flow, so give them just the request button instead
+                  // of bouncing to /access-denied (see aclProvider's silent403).
+                  return Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text("You don't have access to view this record's permissions.", style: TextStyle(color: tokens.ink2)),
+                        const SizedBox(height: 12),
+                        ElevatedButton(
+                          onPressed: () => _requestAccess(context, ref, id: id),
+                          child: const Text('Request access'),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+                return ErrorState(
+                  message: error is ApiException ? error.message : '$error',
+                  onRetry: () => ref.invalidate(aclProvider((targetType, targetId))),
+                );
+              },
               data: (acl) => SingleChildScrollView(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -55,6 +102,11 @@ class PermissionsTargetScreen extends ConsumerWidget {
                       children: [
                         Text('OWN ACCESS', style: Theme.of(context).textTheme.labelSmall),
                         const Spacer(),
+                        OutlinedButton(
+                          onPressed: () => _requestAccess(context, ref, id: id),
+                          child: const Text('Request access'),
+                        ),
+                        const SizedBox(width: 8),
                         ElevatedButton(
                           onPressed: () async {
                             final result = await showDialog<({String principalType, int principalId, String permissionLevel})>(
@@ -72,10 +124,10 @@ class PermissionsTargetScreen extends ConsumerWidget {
                                   );
                               ref.invalidate(aclProvider((targetType, targetId)));
                               if (context.mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Access granted.')));
+                                await ResultDialog.showSuccess(context, 'Access granted.');
                               }
                             } on ApiException catch (e) {
-                              if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+                              if (context.mounted) await ResultDialog.showError(context, e.message);
                             }
                           },
                           child: const Text('Grant access'),
@@ -128,10 +180,10 @@ class _AclRow extends ConsumerWidget {
       await ref.read(permissionsApiProvider).revoke(entry.id);
       ref.invalidate(aclProvider((targetType, targetId)));
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Access revoked.')));
+        await ResultDialog.showSuccess(context, 'Access revoked.');
       }
     } on ApiException catch (e) {
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      if (context.mounted) await ResultDialog.showError(context, e.message);
     }
   }
 

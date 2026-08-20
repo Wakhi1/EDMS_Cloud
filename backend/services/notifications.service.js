@@ -58,4 +58,25 @@ async function notifyRole(roleName, { type, title, body = null, relatedRecordTyp
   }
 }
 
-module.exports = { createNotification, notifyDepartment, notifyRole };
+/**
+ * Notify every active user whose role has edit access to a named module
+ * (e.g. 'permissions' for access-request approvers) — mirrors notifyRole,
+ * but resolves the role set dynamically from role_module_permissions
+ * instead of a single hardcoded role name, since which roles can edit a
+ * given module is admin-configurable via the Permission Matrix.
+ */
+async function notifyModuleEditors(moduleName, { type, title, body = null, relatedRecordType = null, relatedRecordId = null }) {
+  try {
+    const [users] = await pool.query(
+      `SELECT DISTINCT u.id FROM users u
+       JOIN role_module_permissions rmp ON rmp.role_id = u.role_id
+       WHERE rmp.module = ? AND rmp.can_edit = 1 AND u.is_active = 1`,
+      [moduleName]
+    );
+    await Promise.all(users.map((u) => createNotification({ userId: u.id, type, title, body, relatedRecordType, relatedRecordId })));
+  } catch (err) {
+    logger.error('Failed to notify module editors', { error: err.message, moduleName, type });
+  }
+}
+
+module.exports = { createNotification, notifyDepartment, notifyRole, notifyModuleEditors };

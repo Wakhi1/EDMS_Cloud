@@ -3,10 +3,15 @@
 /// total}). Hand-rolled (no freezed/codegen) since it's a trivial shape used
 /// only for chart/list rendering, not passed around as app state.
 class CountItem {
-  const CountItem({required this.label, required this.total});
+  const CountItem({required this.label, required this.total, this.totalBytes});
 
   final String label;
   final int total;
+
+  /// Only populated by [fromCategoryJson]/[fromFolderJson] — total size of
+  /// every record's current version in this group ("file counts and size by
+  /// document type" / "folder capacity"). Null everywhere else.
+  final int? totalBytes;
 
   factory CountItem.fromStatusJson(Map<String, dynamic> json) {
     return CountItem(label: json['status'] as String, total: _asInt(json['total']));
@@ -21,11 +26,19 @@ class CountItem {
   }
 
   factory CountItem.fromCategoryJson(Map<String, dynamic> json) {
-    return CountItem(label: (json['category'] as String?) ?? 'Unclassified', total: _asInt(json['total']));
+    return CountItem(
+      label: (json['category'] as String?) ?? 'Unclassified',
+      total: _asInt(json['total']),
+      totalBytes: _asInt(json['totalBytes']),
+    );
   }
 
   factory CountItem.fromFolderJson(Map<String, dynamic> json) {
-    return CountItem(label: (json['folder'] as String?) ?? 'Unfiled', total: _asInt(json['total']));
+    return CountItem(
+      label: (json['folder'] as String?) ?? 'Unfiled',
+      total: _asInt(json['total']),
+      totalBytes: _asInt(json['totalBytes']),
+    );
   }
 
   factory CountItem.fromClassificationJson(Map<String, dynamic> json) {

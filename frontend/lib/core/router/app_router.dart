@@ -14,6 +14,10 @@ import '../../features/login/presentation/login_screen.dart';
 import '../../features/notifications/presentation/notifications_screen.dart';
 import '../../features/permissions/presentation/permissions_home_screen.dart';
 import '../../features/permissions/presentation/permissions_target_screen.dart';
+import '../../features/platform_admin/presentation/companies_list_screen.dart';
+import '../../features/platform_admin/presentation/company_detail_screen.dart';
+import '../../features/platform_admin/presentation/platform_admin_login_screen.dart';
+import '../../features/platform_admin/presentation/platform_admin_shell.dart';
 import '../../features/repository/presentation/repository_screen.dart';
 import '../../features/reports/presentation/reports_screen.dart';
 import '../../features/retention/presentation/retention_screen.dart';
@@ -28,6 +32,7 @@ import '../../features/workflow_designer/presentation/workflow_designer_screen.d
 import '../auth/auth_providers.dart';
 import '../auth/auth_state.dart';
 import '../auth/module_access_events.dart';
+import '../platform_admin/platform_admin_providers.dart';
 import '../widgets/access_denied_screen.dart';
 import '../widgets/coming_soon_screen.dart';
 import '../widgets/responsive_scaffold.dart';
@@ -40,6 +45,7 @@ import 'route_paths.dart';
 class _GoRouterRefreshNotifier extends ChangeNotifier {
   _GoRouterRefreshNotifier(Ref ref) {
     ref.listen(authControllerProvider, (_, _) => notifyListeners());
+    ref.listen(platformAdminAuthControllerProvider, (_, _) => notifyListeners());
   }
 }
 
@@ -55,6 +61,21 @@ final goRouterProvider = Provider<GoRouter>((ref) {
     initialLocation: RoutePaths.login,
     refreshListenable: refreshNotifier,
     redirect: (context, state) {
+      // /platform-admin/* is a fully separate auth domain (DocSecore
+      // staff, not a company user) — branch off before any tenant-auth
+      // logic runs, and never fall through to it.
+      if (state.matchedLocation.startsWith('/platform-admin')) {
+        final paState = ref.read(platformAdminAuthControllerProvider);
+        if (paState.isLoading) return null;
+
+        final loggedIn = paState.valueOrNull != null;
+        final atPaLogin = state.matchedLocation == RoutePaths.platformAdminLogin;
+
+        if (!loggedIn && !atPaLogin) return RoutePaths.platformAdminLogin;
+        if (loggedIn && atPaLogin) return RoutePaths.platformAdminCompanies;
+        return null;
+      }
+
       final authState = ref.read(authControllerProvider);
       // Cold-start /api/auth/me check still in flight — hold at the
       // current location rather than bouncing to /login and back.
@@ -69,6 +90,17 @@ final goRouterProvider = Provider<GoRouter>((ref) {
     },
     routes: [
       GoRoute(path: RoutePaths.login, builder: (context, state) => const LoginScreen()),
+      GoRoute(path: RoutePaths.platformAdminLogin, builder: (context, state) => const PlatformAdminLoginScreen()),
+      ShellRoute(
+        builder: (context, state, child) => PlatformAdminShell(child: child),
+        routes: [
+          GoRoute(path: RoutePaths.platformAdminCompanies, builder: (context, state) => const CompaniesListScreen()),
+          GoRoute(
+            path: RoutePaths.platformAdminCompanyDetail,
+            builder: (context, state) => CompanyDetailScreen(companyId: int.parse(state.pathParameters['id']!)),
+          ),
+        ],
+      ),
       ShellRoute(
         builder: (context, state, child) => ResponsiveScaffold(child: child),
         routes: [

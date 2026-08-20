@@ -9,6 +9,7 @@ import '../../../core/models/retention_due_item.dart';
 import '../../../core/theme/pspf_tokens.dart';
 import '../../../core/widgets/confirm_dialog.dart';
 import '../../../core/widgets/empty_state.dart';
+import '../../../core/widgets/result_dialog.dart';
 import '../../repository/providers/repository_providers.dart';
 import '../providers/retention_providers.dart';
 import 'create_document_type_dialog.dart';
@@ -97,9 +98,9 @@ class _RetentionClassesSection extends ConsumerWidget {
     try {
       await ref.read(retentionApiProvider).deleteClass(row.id);
       ref.invalidate(retentionClassesProvider);
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Retention schedule deleted.')));
+      if (context.mounted) await ResultDialog.showSuccess(context, 'Retention schedule deleted.');
     } on ApiException catch (e) {
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      if (context.mounted) await ResultDialog.showError(context, e.message);
     }
   }
 
@@ -212,10 +213,10 @@ class _DisposalDueSection extends ConsumerWidget {
       await ref.read(retentionApiProvider).dispose(item.id);
       ref.invalidate(retentionDueProvider);
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${item.recordNo} marked disposed.')));
+        await ResultDialog.showSuccess(context, '${item.recordNo} marked disposed.');
       }
     } on ApiException catch (e) {
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      if (context.mounted) await ResultDialog.showError(context, e.message);
     }
   }
 
@@ -333,9 +334,9 @@ class _DocumentTypesSection extends ConsumerWidget {
     try {
       await ref.read(documentTypesApiProvider).delete(row.id);
       ref.invalidate(documentTypesProvider);
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Document type deleted.')));
+      if (context.mounted) await ResultDialog.showSuccess(context, 'Document type deleted.');
     } on ApiException catch (e) {
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      if (context.mounted) await ResultDialog.showError(context, e.message);
     }
   }
 

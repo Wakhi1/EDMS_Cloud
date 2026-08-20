@@ -59,7 +59,11 @@ router.get('/', requireModuleAccess('repository'), asyncHandler(async (req, res)
   }
   if (folderId) { clauses.push('d.folder_id = ?'); params.push(folderId); }
   if (departmentId) { clauses.push('d.department_id = ?'); params.push(departmentId); }
+  // Archived (soft-deleted) records are Repository's recycle bin — hidden
+  // from every default/search listing unless a caller explicitly asks for
+  // status='archived' (the recycle bin view itself).
   if (status) { clauses.push('d.status = ?'); params.push(status); }
+  else { clauses.push("d.status != 'archived'"); }
   if (documentTypeId) { clauses.push('d.document_type_id = ?'); params.push(documentTypeId); }
   if (captureBatchId) {
     clauses.push('EXISTS (SELECT 1 FROM capture_batch_items cbi WHERE cbi.document_id = d.id AND cbi.batch_id = ?)');
@@ -347,6 +351,20 @@ router.delete('/:id', requireModuleAccess('repository', true), asyncHandler(asyn
   await pool.query('UPDATE documents SET status = "archived" WHERE id = ?', [req.params.id]);
   await logAudit({ userId: req.user.id, action: 'Delete', recordType: 'document', recordId: req.params.id, detail: `${doc.record_no} archived`, ip: req.ip });
   return ok(res, null, 'Record archived');
+}));
+
+/** POST /api/documents/:id/restore — takes an archived record out of the recycle bin, back to 'draft'. */
+router.post('/:id/restore', requireModuleAccess('repository', true), asyncHandler(async (req, res) => {
+  const [[doc]] = await pool.query('SELECT id, record_no, status FROM documents WHERE id = ?', [req.params.id]);
+  if (!doc) return fail(res, 'Record not found', 404);
+  if (!await aclService.hasAccess(req.user.id, req.user.role, 'document', doc.id, 'edit')) {
+    return fail(res, 'You do not have access to this record', 403);
+  }
+  if (doc.status !== 'archived') return fail(res, 'Record is not in the recycle bin', 409);
+
+  await pool.query('UPDATE documents SET status = "draft" WHERE id = ?', [req.params.id]);
+  await logAudit({ userId: req.user.id, action: 'Edit', recordType: 'document', recordId: req.params.id, detail: `${doc.record_no} restored from recycle bin`, ip: req.ip });
+  return ok(res, null, 'Record restored');
 }));
 
 /** POST /api/documents/:id/declare-final — starts the retention clock. */

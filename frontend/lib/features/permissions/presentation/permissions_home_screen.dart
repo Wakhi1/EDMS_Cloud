@@ -6,12 +6,14 @@ import '../../../core/api/api_exception.dart';
 import '../../../core/api/api_providers.dart';
 import '../../../core/auth/auth_providers.dart';
 import '../../../core/auth/module_access.dart';
+import '../../../core/models/access_request_row.dart';
 import '../../../core/models/permission_matrix_cell.dart';
 import '../../../core/models/role_row.dart';
 import '../../../core/router/route_paths.dart';
 import '../../../core/theme/pspf_tokens.dart';
 import '../../../core/widgets/confirm_dialog.dart';
 import '../../../core/widgets/empty_state.dart';
+import '../../../core/widgets/result_dialog.dart';
 import '../../users/providers/users_providers.dart';
 import '../providers/permissions_providers.dart';
 import 'create_role_dialog.dart';
@@ -33,6 +35,8 @@ class PermissionsHomeScreen extends ConsumerWidget {
           Text('Administration / Folder & Document Access', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 18),
           const _RolesSection(),
+          const SizedBox(height: 24),
+          const _AccessRequestsSection(),
           const SizedBox(height: 24),
           Text('ROLE × MODULE PERMISSION MATRIX', style: Theme.of(context).textTheme.labelSmall),
           const SizedBox(height: 10),
@@ -111,9 +115,9 @@ class _RolesSection extends ConsumerWidget {
     try {
       await ref.read(rolesApiProvider).delete(row.id);
       ref.invalidate(rolesProvider);
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Role deleted.')));
+      if (context.mounted) await ResultDialog.showSuccess(context, 'Role deleted.');
     } on ApiException catch (e) {
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      if (context.mounted) await ResultDialog.showError(context, e.message);
     }
   }
 
@@ -175,6 +179,116 @@ class _RolesSection extends ConsumerWidget {
                           OutlinedButton(
                             onPressed: r.isSystemRole ? null : () => _delete(context, ref, r),
                             child: const Text('Delete'),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Pending self-service access requests (see request_access_dialog.dart /
+/// backend/routes/access-requests.routes.js). Query is [silent403] so a
+/// non-approver landing on this shared screen doesn't get bounced just
+/// because this one section is gated behind 'permissions' edit access.
+class _AccessRequestsSection extends ConsumerWidget {
+  const _AccessRequestsSection();
+
+  Future<void> _approve(BuildContext context, WidgetRef ref, AccessRequestRow row) async {
+    try {
+      await ref.read(accessRequestsApiProvider).approve(row.id);
+      ref.invalidate(accessRequestsQueueProvider);
+      if (context.mounted) await ResultDialog.showSuccess(context, 'Access request approved.');
+    } on ApiException catch (e) {
+      if (context.mounted) await ResultDialog.showError(context, e.message);
+    }
+  }
+
+  Future<void> _deny(BuildContext context, WidgetRef ref, AccessRequestRow row) async {
+    final confirmed = await ConfirmDialog.show(
+      context,
+      title: 'Deny ${row.requesterName ?? 'this user'}\'s request for ${row.requestedLevel.replaceAll('_', ' ')} access?',
+      danger: true,
+    );
+    if (confirmed == null) return;
+
+    try {
+      await ref.read(accessRequestsApiProvider).deny(row.id);
+      ref.invalidate(accessRequestsQueueProvider);
+      if (context.mounted) await ResultDialog.showSuccess(context, 'Access request denied.');
+    } on ApiException catch (e) {
+      if (context.mounted) await ResultDialog.showError(context, e.message);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final tokens = context.tokens;
+    final textTheme = Theme.of(context).textTheme;
+    final queueAsync = ref.watch(accessRequestsQueueProvider);
+
+    return Container(
+      decoration: BoxDecoration(border: Border.all(color: tokens.line), color: tokens.surf),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            child: Text('PENDING ACCESS REQUESTS', style: textTheme.labelSmall),
+          ),
+          queueAsync.when(
+            loading: () => const Padding(padding: EdgeInsets.all(12), child: LinearProgressIndicator()),
+            error: (e, _) {
+              if (e is ApiException && e.isForbidden) {
+                return const EmptyState(message: 'Access requests are visible to approvers only.');
+              }
+              return Padding(
+                padding: const EdgeInsets.all(12),
+                child: Text(e is ApiException ? e.message : '$e', style: TextStyle(color: tokens.bad, fontSize: 12)),
+              );
+            },
+            data: (rows) {
+              if (rows.isEmpty) return const Padding(padding: EdgeInsets.all(12), child: Text('No pending requests.'));
+              return Column(
+                children: [
+                  for (final row in rows)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+                      decoration: BoxDecoration(border: Border(top: BorderSide(color: tokens.line))),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Text(row.requesterName ?? '#${row.requesterId}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      'wants ${row.requestedLevel.replaceAll('_', ' ')} on ${row.targetType} #${row.targetId}',
+                                      style: TextStyle(fontSize: 11.5, color: tokens.ink2),
+                                    ),
+                                  ],
+                                ),
+                                if (row.reason != null && row.reason!.isNotEmpty)
+                                  Text(row.reason!, style: TextStyle(fontSize: 11.5, color: tokens.ink2)),
+                              ],
+                            ),
+                          ),
+                          OutlinedButton(onPressed: () => _approve(context, ref, row), child: const Text('Approve')),
+                          const SizedBox(width: 6),
+                          OutlinedButton(
+                            onPressed: () => _deny(context, ref, row),
+                            style: OutlinedButton.styleFrom(foregroundColor: tokens.bad, side: BorderSide(color: tokens.bad)),
+                            child: const Text('Deny'),
                           ),
                         ],
                       ),

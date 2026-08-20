@@ -43,24 +43,28 @@ router.get('/by-department', asyncHandler(async (req, res) => {
   return ok(res, rows);
 }));
 
-/** GET /api/reports/by-category — document counts by document type. */
+/** GET /api/reports/by-category — document counts + total current-version size by document type. */
 router.get('/by-category', asyncHandler(async (req, res) => {
   const { where, params } = buildDocumentFilters(req.query);
   const [rows] = await pool.query(
-    `SELECT dt.name AS category, COUNT(*) AS total
-     FROM documents d JOIN document_types dt ON dt.id = d.document_type_id
+    `SELECT dt.name AS category, COUNT(*) AS total, COALESCE(SUM(v.size_bytes), 0) AS totalBytes
+     FROM documents d
+     JOIN document_types dt ON dt.id = d.document_type_id
+     LEFT JOIN document_versions v ON v.id = d.current_version_id
      ${where} GROUP BY dt.name`,
     params
   );
   return ok(res, rows);
 }));
 
-/** GET /api/reports/by-folder — document counts by folder, top 15 by volume. */
+/** GET /api/reports/by-folder — document counts + total current-version size by folder ("folder capacity"), top 15 by volume. */
 router.get('/by-folder', asyncHandler(async (req, res) => {
   const { where, params } = buildDocumentFilters(req.query);
   const [rows] = await pool.query(
-    `SELECT f.path AS folder, COUNT(*) AS total
-     FROM documents d JOIN folders f ON f.id = d.folder_id
+    `SELECT f.path AS folder, COUNT(*) AS total, COALESCE(SUM(v.size_bytes), 0) AS totalBytes
+     FROM documents d
+     JOIN folders f ON f.id = d.folder_id
+     LEFT JOIN document_versions v ON v.id = d.current_version_id
      ${where} GROUP BY f.path ORDER BY total DESC LIMIT 15`,
     params
   );

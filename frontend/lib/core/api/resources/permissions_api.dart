@@ -14,8 +14,8 @@ class PermissionsApi {
 
   final ApiClient _client;
 
-  Future<({List<AclEntryRow> own, List<AclEntryRow> inherited})> getAcl(String targetType, String targetId) async {
-    final response = await _client.get(Endpoints.permissionsFor(targetType, targetId));
+  Future<({List<AclEntryRow> own, List<AclEntryRow> inherited})> getAcl(String targetType, String targetId, {bool silent403 = false}) async {
+    final response = await _client.get(Endpoints.permissionsFor(targetType, targetId), silent403: silent403);
     return _client.unwrap(response, (data) {
       final json = data as Map<String, dynamic>;
       List<AclEntryRow> parse(String key) => (json[key] as List? ?? [])

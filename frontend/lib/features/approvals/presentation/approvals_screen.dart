@@ -9,6 +9,7 @@ import '../../../core/router/route_paths.dart';
 import '../../../core/theme/pspf_tokens.dart';
 import '../../../core/widgets/confirm_dialog.dart';
 import '../../../core/widgets/empty_state.dart';
+import '../../../core/widgets/result_dialog.dart';
 import '../../dashboard/providers/dashboard_providers.dart';
 import '../providers/approvals_providers.dart';
 
@@ -106,7 +107,7 @@ class _ApprovalCardState extends ConsumerState<_ApprovalCard> {
       await ref.read(approvalsApiProvider).reject(item.approvalId, comment: comment.isEmpty ? null : comment);
       _refresh();
     } on ApiException catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      if (mounted) await ResultDialog.showError(context, e.message);
     } finally {
       if (mounted) setState(() => _busy = false);
     }

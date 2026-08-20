@@ -159,8 +159,8 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
             children: [
               _CountChartCard(title: 'Records by status', provider: reportsByStatusProvider, colorKey: _ChartColor.acc),
               _CountChartCard(title: 'Records by department', provider: reportsByDepartmentProvider, colorKey: _ChartColor.accD),
-              _CountBarListCard(title: 'Records by category', provider: reportsByCategoryProvider, colorKey: _ChartColor.acc2),
-              _CountBarListCard(title: 'Records by folder (top 15)', provider: reportsByFolderProvider, colorKey: _ChartColor.info),
+              _CountBarListCard(title: 'Records by category', provider: reportsByCategoryProvider, colorKey: _ChartColor.acc2, showSize: true),
+              _CountBarListCard(title: 'Records by folder (top 15) — capacity', provider: reportsByFolderProvider, colorKey: _ChartColor.info, showSize: true),
               _CountChartCard(title: 'Records by classification', provider: reportsByClassificationProvider, colorKey: _ChartColor.warn),
               const _CapacityCard(),
               const _CaptureBySourceCard(),
@@ -241,11 +241,18 @@ class _CountChartCard extends ConsumerWidget {
 }
 
 class _CountBarListCard extends ConsumerWidget {
-  const _CountBarListCard({required this.title, required this.provider, required this.colorKey});
+  const _CountBarListCard({required this.title, required this.provider, required this.colorKey, this.showSize = false});
 
   final String title;
   final ProviderListenable<AsyncValue<List<CountItem>>> provider;
   final _ChartColor colorKey;
+
+  /// True for the by-category/by-folder cards ("file counts and size by
+  /// document type" / "folder capacity") — folds each row's current-version
+  /// total size into its label, since [LabelValueBarList]'s bar itself
+  /// still tracks record count (its right-hand number stays the count that
+  /// sizes the bar; size is supplementary context, not a second chart).
+  final bool showSize;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -259,7 +266,17 @@ class _CountBarListCard extends ConsumerWidget {
         error: (e, _) => Center(child: Text(e is ApiException ? e.message : '$e', style: TextStyle(color: tokens.ink2), textAlign: TextAlign.center)),
         data: (counts) {
           if (counts.isEmpty) return const EmptyState(message: 'No data for this filter.');
-          return LabelValueBarList(points: [for (final c in counts) (c.label.replaceAll('_', ' '), c.total.toDouble())], color: _resolveColor(tokens, colorKey));
+          return LabelValueBarList(
+            points: [
+              for (final c in counts)
+                (
+                  showSize ? '${c.label.replaceAll('_', ' ')} — ${formatBytes(c.totalBytes ?? 0)}' : c.label.replaceAll('_', ' '),
+                  c.total.toDouble(),
+                ),
+            ],
+            color: _resolveColor(tokens, colorKey),
+            valueSuffix: showSize ? ' files' : '',
+          );
         },
       ),
     );

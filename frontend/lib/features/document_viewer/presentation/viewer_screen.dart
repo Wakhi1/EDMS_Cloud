@@ -13,6 +13,7 @@ import '../../../core/utils/file_saver/file_saver.dart';
 import '../../../core/widgets/confirm_dialog.dart';
 import '../../../core/widgets/document_preview/pdf_preview.dart';
 import '../../../core/widgets/empty_state.dart';
+import '../../../core/widgets/result_dialog.dart';
 import '../../../core/widgets/status_chip.dart';
 import '../providers/viewer_providers.dart';
 import 'extracted_text_panel.dart';
@@ -119,10 +120,10 @@ class _ViewerBodyState extends ConsumerState<_ViewerBody> {
       await ref.read(documentsApiProvider).declareFinal(doc.id);
       ref.invalidate(documentDetailProvider(doc.id));
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Record declared final — retention clock started.')));
+        await ResultDialog.showSuccess(context, 'Record declared final — retention clock started.');
       }
     } on ApiException catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      if (mounted) await ResultDialog.showError(context, e.message);
     } finally {
       if (mounted) setState(() => _declaring = false);
     }

@@ -7,6 +7,7 @@ import '../../../core/models/department_row.dart';
 import '../../../core/theme/pspf_tokens.dart';
 import '../../../core/widgets/confirm_dialog.dart';
 import '../../../core/widgets/empty_state.dart';
+import '../../../core/widgets/result_dialog.dart';
 import '../../../core/widgets/status_chip.dart';
 import '../providers/departments_providers.dart';
 import 'create_department_dialog.dart';
@@ -109,9 +110,9 @@ class _DepartmentCard extends ConsumerWidget {
     try {
       await ref.read(departmentsApiProvider).delete(row.id);
       ref.invalidate(departmentsListProvider);
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Department deleted.')));
+      if (context.mounted) await ResultDialog.showSuccess(context, 'Department deleted.');
     } on ApiException catch (e) {
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      if (context.mounted) await ResultDialog.showError(context, e.message);
     }
   }
 

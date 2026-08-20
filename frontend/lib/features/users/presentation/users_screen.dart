@@ -9,6 +9,7 @@ import '../../../core/models/user_row.dart';
 import '../../../core/theme/pspf_tokens.dart';
 import '../../../core/widgets/confirm_dialog.dart';
 import '../../../core/widgets/empty_state.dart';
+import '../../../core/widgets/result_dialog.dart';
 import '../../../core/widgets/status_chip.dart';
 import '../../departments/providers/departments_providers.dart';
 import '../providers/users_providers.dart';
@@ -84,9 +85,9 @@ class _UsersSection extends ConsumerWidget {
     try {
       await ref.read(usersApiProvider).deactivate(row.id);
       ref.invalidate(usersListProvider);
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Account deactivated.')));
+      if (context.mounted) await ResultDialog.showSuccess(context, 'Account deactivated.');
     } on ApiException catch (e) {
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      if (context.mounted) await ResultDialog.showError(context, e.message);
     }
   }
 
@@ -125,10 +126,10 @@ class _UsersSection extends ConsumerWidget {
       await ref.read(usersApiProvider).updateLock(row.id, locking);
       ref.invalidate(usersListProvider);
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(locking ? 'Account locked.' : 'Account unlocked.')));
+        await ResultDialog.showSuccess(context, locking ? 'Account locked.' : 'Account unlocked.');
       }
     } on ApiException catch (e) {
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      if (context.mounted) await ResultDialog.showError(context, e.message);
     }
   }
 
@@ -196,9 +197,9 @@ class _UsersSection extends ConsumerWidget {
 
     try {
       await ref.read(usersApiProvider).resetMfaEnrollment(row.id);
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('MFA enrollment reset.')));
+      if (context.mounted) await ResultDialog.showSuccess(context, 'MFA enrollment reset.');
     } on ApiException catch (e) {
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      if (context.mounted) await ResultDialog.showError(context, e.message);
     }
   }
 

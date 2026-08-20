@@ -42,7 +42,7 @@ async function completeMfaLogin(req, res, userId) {
     [userId]
   );
   const user = rows[0];
-  const accessToken = jwt.sign({ sub: user.id, role: user.role_name, mfa: true }, process.env.JWT_ACCESS_SECRET, {
+  const accessToken = jwt.sign({ sub: user.id, role: user.role_name, mfa: true, cid: user.company_id }, process.env.JWT_ACCESS_SECRET, {
     expiresIn: process.env.JWT_ACCESS_EXPIRES_IN || '15m',
   });
 
@@ -52,13 +52,14 @@ async function completeMfaLogin(req, res, userId) {
   });
   const refreshHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
   await pool.query(
-    `INSERT INTO user_sessions (id, user_id, refresh_token_hash, user_agent, ip_address, mfa_satisfied, expires_at)
-     VALUES (?, ?, ?, ?, ?, 1, DATE_ADD(NOW(), INTERVAL 7 DAY))`,
-    [sessionId, user.id, refreshHash, req.headers['user-agent'] || null, req.ip]
+    `INSERT INTO user_sessions (id, user_id, company_id, refresh_token_hash, user_agent, ip_address, mfa_satisfied, expires_at)
+     VALUES (?, ?, ?, ?, ?, ?, 1, DATE_ADD(NOW(), INTERVAL 7 DAY))`,
+    [sessionId, user.id, user.company_id, refreshHash, req.headers['user-agent'] || null, req.ip]
   );
 
   await pool.query('UPDATE users SET last_login_at = NOW(), last_login_ip = ? WHERE id = ?', [req.ip, user.id]);
-  await logAudit({ userId: user.id, action: 'MFA', recordType: 'user', recordId: user.id, detail: 'MFA satisfied, login complete', ip: req.ip });
+  await pool.query('UPDATE companies SET last_login_at = NOW() WHERE id = ?', [user.company_id]);
+  await logAudit({ userId: user.id, companyId: user.company_id, action: 'MFA', recordType: 'user', recordId: user.id, detail: 'MFA satisfied, login complete', ip: req.ip });
 
   return ok(res, {
     accessToken, refreshToken,

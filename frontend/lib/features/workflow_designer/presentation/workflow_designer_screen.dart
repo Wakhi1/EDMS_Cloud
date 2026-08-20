@@ -8,6 +8,7 @@ import '../../../core/models/workflow_row.dart';
 import '../../../core/theme/pspf_tokens.dart';
 import '../../../core/widgets/confirm_dialog.dart';
 import '../../../core/widgets/empty_state.dart';
+import '../../../core/widgets/result_dialog.dart';
 import '../../../core/widgets/status_chip.dart';
 import '../../repository/providers/repository_providers.dart';
 import '../../users/providers/users_providers.dart';
@@ -156,9 +157,9 @@ class _WorkflowTileState extends ConsumerState<_WorkflowTile> {
         ref.read(editingWorkflowIdProvider.notifier).state = null;
       }
       ref.invalidate(workflowsProvider);
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Workflow deleted.')));
+      if (mounted) await ResultDialog.showSuccess(context, 'Workflow deleted.');
     } on ApiException catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      if (mounted) await ResultDialog.showError(context, e.message);
     } finally {
       if (mounted) setState(() => _busy = false);
     }

@@ -21,18 +21,19 @@ const { verifyGoogleIdToken, verifyMicrosoftIdToken } = require('../services/soc
 const adService = require('../services/ad.service');
 const { sendPasswordResetEmail } = require('../services/email.service');
 const { authenticate } = require('../middleware/auth.middleware');
+const { checkCompanyLicense } = require('../services/license.service');
 
 const router = express.Router();
 
 function signAccessToken(user, mfaSatisfied) {
   return jwt.sign(
-    { sub: user.id, role: user.role_name, mfa: mfaSatisfied },
+    { sub: user.id, role: user.role_name, mfa: mfaSatisfied, cid: user.company_id },
     process.env.JWT_ACCESS_SECRET,
     { expiresIn: process.env.JWT_ACCESS_EXPIRES_IN || '15m' }
   );
 }
 
-async function issueRefreshToken(userId, req, mfaSatisfied) {
+async function issueRefreshToken(userId, companyId, req, mfaSatisfied) {
   const sessionId = uuidv4();
   const refreshToken = jwt.sign(
     { sub: userId, sid: sessionId },
@@ -43,11 +44,25 @@ async function issueRefreshToken(userId, req, mfaSatisfied) {
   const expiresAt = new Date(Date.now() + 7 * 24 * 3600 * 1000);
 
   await pool.query(
-    `INSERT INTO user_sessions (id, user_id, refresh_token_hash, user_agent, ip_address, mfa_satisfied, expires_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [sessionId, userId, refreshHash, req.headers['user-agent'] || null, req.ip, mfaSatisfied ? 1 : 0, expiresAt]
+    `INSERT INTO user_sessions (id, user_id, company_id, refresh_token_hash, user_agent, ip_address, mfa_satisfied, expires_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [sessionId, userId, companyId, refreshHash, req.headers['user-agent'] || null, req.ip, mfaSatisfied ? 1 : 0, expiresAt]
   );
   return refreshToken;
+}
+
+/**
+ * Federated sign-in (Google/Microsoft/AD) and the legacy single-tenant
+ * dev flows below don't yet collect a companyCode (see file-level note
+ * near completeFederatedSignIn). Resolves to "the one company this
+ * deployment currently serves" — the first-created company row — which
+ * only differs from the real answer once a second company exists AND
+ * federated login is turned on for it (out of scope this pass; requires
+ * per-company IdP config in `integrations`, see database/pspf_edms_schema.sql).
+ */
+async function getDefaultCompanyId() {
+  const [[row]] = await pool.query('SELECT id FROM companies WHERE status = "active" ORDER BY id ASC LIMIT 1');
+  return row ? row.id : null;
 }
 
 /**
@@ -59,6 +74,7 @@ async function issueRefreshToken(userId, req, mfaSatisfied) {
 router.post(
   '/register',
   [
+    body('companyCode').trim().notEmpty(),
     body('fullName').trim().notEmpty(),
     body('email').isEmail(),
     body('password').isLength({ min: 10 }),
@@ -68,18 +84,21 @@ router.post(
     const errors = validationResult(req);
     if (!errors.isEmpty()) return fail(res, 'Validation failed', 422, errors.array());
 
-    const { fullName, email, password, roleId, departmentId, phoneNumber } = req.body;
-    const [existing] = await pool.query('SELECT id FROM users WHERE email = ?', [email]);
+    const { companyCode, fullName, email, password, roleId, departmentId, phoneNumber } = req.body;
+    const [[company]] = await pool.query(`SELECT id, status FROM companies WHERE company_code = ? LIMIT 1`, [companyCode]);
+    if (!company || company.status !== 'active') return fail(res, 'Unknown or inactive organization code', 404);
+
+    const [existing] = await pool.query('SELECT id FROM users WHERE company_id = ? AND email = ?', [company.id, email]);
     if (existing.length) return fail(res, 'An account with this email already exists', 409);
 
     const passwordHash = await bcrypt.hash(password, 12);
     const [result] = await pool.query(
-      `INSERT INTO users (full_name, email, phone_number, password_hash, role_id, department_id, password_changed_at)
-       VALUES (?, ?, ?, ?, ?, ?, NOW())`,
-      [fullName, email, phoneNumber || null, passwordHash, roleId, departmentId || null]
+      `INSERT INTO users (company_id, full_name, email, phone_number, password_hash, role_id, department_id, password_changed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [company.id, fullName, email, phoneNumber || null, passwordHash, roleId, departmentId || null]
     );
 
-    await logAudit({ userId: result.insertId, action: 'Create', recordType: 'user', recordId: result.insertId, detail: 'Account registered', ip: req.ip });
+    await logAudit({ userId: result.insertId, companyId: company.id, action: 'Create', recordType: 'user', recordId: result.insertId, detail: 'Account registered', ip: req.ip });
     return ok(res, { userId: result.insertId }, 'Account created', 201);
   })
 );
@@ -92,44 +111,65 @@ router.post(
  */
 router.post(
   '/login',
-  [body('email').isEmail(), body('password').notEmpty()],
+  [body('companyCode').optional().trim().notEmpty(), body('email').isEmail(), body('password').notEmpty()],
   asyncHandler(async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) return fail(res, 'Validation failed', 422, errors.array());
 
+    // companyCode is optional so the pre-multi-tenant frontend (which
+    // doesn't send it yet) keeps working unmodified — falls back to the
+    // deployment's default company, same as federated login. Once a real
+    // second company exists, its users MUST pass companyCode explicitly
+    // (their email won't resolve against the default company at all).
     const { email, password } = req.body;
+    const companyCode = req.body.companyCode || null;
     const [rows] = await pool.query(
-      `SELECT u.*, r.name AS role_name, r.mfa_required
-       FROM users u JOIN roles r ON r.id = u.role_id WHERE u.email = ? LIMIT 1`,
-      [email]
+      `SELECT u.*, r.name AS role_name, r.mfa_required, c.status AS company_status
+       FROM users u
+       JOIN roles r ON r.id = u.role_id
+       JOIN companies c ON c.id = u.company_id
+       WHERE (? IS NULL OR c.company_code = ?) AND u.email = ?
+       ${companyCode ? '' : 'ORDER BY c.id ASC'} LIMIT 1`,
+      [companyCode, companyCode, email]
     );
     const user = rows[0];
 
     if (!user || !user.password_hash) {
-      await logAudit({ action: 'Login failed', recordType: 'user', recordId: email, detail: 'Unknown account', ip: req.ip });
-      return fail(res, 'Invalid email or password', 401);
+      await logAudit({ action: 'Login failed', recordType: 'user', recordId: email, detail: `Unknown account (companyCode=${companyCode})`, ip: req.ip });
+      return fail(res, 'Invalid organization code, email, or password', 401);
+    }
+    if (user.company_status !== 'active') {
+      await logAudit({ userId: user.id, companyId: user.company_id, action: 'Login failed', recordType: 'user', recordId: user.id, detail: `Organization is ${user.company_status}`, ip: req.ip });
+      return fail(res, "This organization's account is suspended", 403);
     }
     if (user.is_locked) return fail(res, 'Account is locked — contact your System Administrator', 423);
 
     const passwordOk = await bcrypt.compare(password, user.password_hash);
     if (!passwordOk) {
       await pool.query('UPDATE users SET failed_login_attempts = failed_login_attempts + 1 WHERE id = ?', [user.id]);
-      await logAudit({ userId: user.id, action: 'Login failed', recordType: 'user', recordId: user.id, detail: 'Bad password', ip: req.ip });
-      return fail(res, 'Invalid email or password', 401);
+      await logAudit({ userId: user.id, companyId: user.company_id, action: 'Login failed', recordType: 'user', recordId: user.id, detail: 'Bad password', ip: req.ip });
+      return fail(res, 'Invalid organization code, email, or password', 401);
+    }
+
+    const licenseCheck = await checkCompanyLicense(user.company_id, 'login');
+    if (!licenseCheck.ok) {
+      await logAudit({ userId: user.id, companyId: user.company_id, action: 'Login failed', recordType: 'user', recordId: user.id, detail: `License check failed: ${licenseCheck.reason}`, ip: req.ip });
+      return fail(res, 'This organization\'s license is not active. Contact your administrator.', 403);
     }
 
     await pool.query('UPDATE users SET failed_login_attempts = 0, last_login_at = NOW(), last_login_ip = ? WHERE id = ?', [req.ip, user.id]);
+    await pool.query('UPDATE companies SET last_login_at = NOW() WHERE id = ?', [user.company_id]);
 
     const mfaMandatory = !!user.mfa_required || !!user.mfa_enabled;
     if (mfaMandatory) {
       const mfaToken = jwt.sign({ sub: user.id, stage: 'mfa_pending' }, process.env.JWT_ACCESS_SECRET, { expiresIn: '10m' });
-      await logAudit({ userId: user.id, action: 'Login', recordType: 'user', recordId: user.id, detail: 'Password OK, MFA challenge issued', ip: req.ip });
+      await logAudit({ userId: user.id, companyId: user.company_id, action: 'Login', recordType: 'user', recordId: user.id, detail: 'Password OK, MFA challenge issued', ip: req.ip });
       return ok(res, { mfaRequired: true, mfaToken }, 'MFA verification required');
     }
 
     const accessToken = signAccessToken(user, false);
-    const refreshToken = await issueRefreshToken(user.id, req, false);
-    await logAudit({ userId: user.id, action: 'Login', recordType: 'user', recordId: user.id, detail: 'Login successful', ip: req.ip });
+    const refreshToken = await issueRefreshToken(user.id, user.company_id, req, false);
+    await logAudit({ userId: user.id, companyId: user.company_id, action: 'Login', recordType: 'user', recordId: user.id, detail: 'Login successful', ip: req.ip });
 
     return ok(res, {
       accessToken, refreshToken,
@@ -168,6 +208,7 @@ router.post(
     );
     const user = rows[0];
     if (!user || !user.is_active || user.is_locked) return fail(res, 'Account is not active', 401);
+    if (sessions[0].company_id !== user.company_id) return fail(res, 'Session is out of date — please sign in again', 401);
 
     const accessToken = signAccessToken(user, !!sessions[0].mfa_satisfied);
     return ok(res, { accessToken }, 'Token refreshed');
@@ -276,35 +317,44 @@ async function completeFederatedSignIn(req, res, profile, providerName) {
     // First-time sign-in with this provider: link to an existing account
     // by email, or fail closed — new EDMS accounts must be provisioned
     // by an administrator with an explicit role, never auto-created with
-    // a default privileged role.
+    // a default privileged role. Scoped to the deployment's default
+    // company — see getDefaultCompanyId's doc comment above.
+    const companyId = await getDefaultCompanyId();
     const [byEmail] = await pool.query(
-      `SELECT u.*, r.name AS role_name, r.mfa_required FROM users u JOIN roles r ON r.id = u.role_id WHERE u.email = ? LIMIT 1`,
-      [profile.email]
+      `SELECT u.*, r.name AS role_name, r.mfa_required FROM users u JOIN roles r ON r.id = u.role_id WHERE u.company_id = ? AND u.email = ? LIMIT 1`,
+      [companyId, profile.email]
     );
     if (!byEmail[0]) {
       return fail(res, 'No PSPF EDMS account exists for this identity. Ask a System Administrator to provision one.', 403);
     }
     user = byEmail[0];
     await pool.query(
-      `INSERT INTO user_social_identities (user_id, provider, provider_user_id, provider_email, raw_profile_json)
-       VALUES (?, ?, ?, ?, ?)`,
-      [user.id, providerName, profile.providerUserId, profile.email, JSON.stringify(profile.raw)]
+      `INSERT INTO user_social_identities (company_id, user_id, provider, provider_user_id, provider_email, raw_profile_json)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [user.company_id, user.id, providerName, profile.providerUserId, profile.email, JSON.stringify(profile.raw)]
     );
   }
 
   if (!user.is_active || user.is_locked) return fail(res, 'Account is not active', 401);
 
+  const licenseCheck = await checkCompanyLicense(user.company_id, 'login');
+  if (!licenseCheck.ok) {
+    await logAudit({ userId: user.id, companyId: user.company_id, action: 'Login failed', recordType: 'user', recordId: user.id, detail: `License check failed: ${licenseCheck.reason}`, ip: req.ip });
+    return fail(res, 'This organization\'s license is not active. Contact your administrator.', 403);
+  }
+
   const mfaMandatory = !!user.mfa_required || !!user.mfa_enabled;
   if (mfaMandatory) {
     const mfaToken = jwt.sign({ sub: user.id, stage: 'mfa_pending' }, process.env.JWT_ACCESS_SECRET, { expiresIn: '10m' });
-    await logAudit({ userId: user.id, action: 'Login', recordType: 'user', recordId: user.id, detail: `${providerName} sign-in, MFA challenge issued`, ip: req.ip });
+    await logAudit({ userId: user.id, companyId: user.company_id, action: 'Login', recordType: 'user', recordId: user.id, detail: `${providerName} sign-in, MFA challenge issued`, ip: req.ip });
     return ok(res, { mfaRequired: true, mfaToken }, 'MFA verification required');
   }
 
   const accessToken = signAccessToken(user, false);
-  const refreshToken = await issueRefreshToken(user.id, req, false);
+  const refreshToken = await issueRefreshToken(user.id, user.company_id, req, false);
   await pool.query('UPDATE users SET last_login_at = NOW(), last_login_ip = ? WHERE id = ?', [req.ip, user.id]);
-  await logAudit({ userId: user.id, action: 'Login', recordType: 'user', recordId: user.id, detail: `${providerName} sign-in successful`, ip: req.ip });
+  await pool.query('UPDATE companies SET last_login_at = NOW() WHERE id = ?', [user.company_id]);
+  await logAudit({ userId: user.id, companyId: user.company_id, action: 'Login', recordType: 'user', recordId: user.id, detail: `${providerName} sign-in successful`, ip: req.ip });
 
   return ok(res, {
     accessToken, refreshToken,
@@ -316,8 +366,11 @@ async function completeFederatedSignIn(req, res, profile, providerName) {
 router.post(
   '/password-reset/request',
   asyncHandler(async (req, res) => {
-    const { email } = req.body;
-    const [rows] = await pool.query('SELECT id FROM users WHERE email = ?', [email]);
+    const { companyCode, email } = req.body;
+    const [rows] = await pool.query(
+      `SELECT u.id FROM users u JOIN companies c ON c.id = u.company_id WHERE c.company_code = ? AND u.email = ? LIMIT 1`,
+      [companyCode, email]
+    );
     // Always respond 200 to avoid leaking which emails are registered.
     if (rows[0]) {
       const token = jwt.sign({ sub: rows[0].id, purpose: 'password_reset' }, process.env.JWT_ACCESS_SECRET, { expiresIn: '30m' });

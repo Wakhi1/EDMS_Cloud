@@ -9,6 +9,7 @@ import '../../../core/models/storage_provider_ids.dart';
 import '../../../core/theme/pspf_tokens.dart';
 import '../../../core/widgets/confirm_dialog.dart';
 import '../../../core/widgets/empty_state.dart';
+import '../../../core/widgets/result_dialog.dart';
 import '../../../core/widgets/status_chip.dart';
 import '../../repository/providers/repository_providers.dart';
 import '../providers/integrations_providers.dart';
@@ -235,9 +236,9 @@ class _IntegrationCardState extends ConsumerState<_IntegrationCard> {
     try {
       await ref.read(integrationsApiProvider).delete(widget.row.id);
       ref.invalidate(integrationsListProvider);
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Integration deleted.')));
+      if (mounted) await ResultDialog.showSuccess(context, 'Integration deleted.');
     } on ApiException catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      if (mounted) await ResultDialog.showError(context, e.message);
     }
   }
 

@@ -30,8 +30,8 @@ function requireModuleAccess(moduleName, needsEdit = false) {
   return async (req, res, next) => {
     try {
       const [rows] = await pool.query(
-        `SELECT can_view, can_edit FROM role_module_permissions WHERE role_id = ? AND module = ? LIMIT 1`,
-        [req.user.roleId, moduleName]
+        `SELECT can_view, can_edit FROM role_module_permissions WHERE company_id = ? AND role_id = ? AND module = ? LIMIT 1`,
+        [req.user.companyId, req.user.roleId, moduleName]
       );
       const perm = rows[0];
       const allowed = perm && (needsEdit ? perm.can_edit : perm.can_view);
