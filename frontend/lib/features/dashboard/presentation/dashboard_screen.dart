@@ -11,6 +11,7 @@ import '../../../core/theme/pspf_tokens.dart';
 import '../../../core/utils/format_bytes.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/kpi_card.dart';
+import '../../../core/widgets/label_value_line_chart.dart';
 import '../providers/dashboard_providers.dart';
 
 class DashboardScreen extends ConsumerWidget {
@@ -49,6 +50,16 @@ class DashboardScreen extends ConsumerWidget {
               Expanded(child: const _CategoryChartCard()),
               SizedBox(width: wide ? 16 : 0, height: wide ? 0 : 16),
               Expanded(child: const _FolderChartCard()),
+            ],
+          ),
+          const SizedBox(height: 22),
+          Flex(
+            direction: wide ? Axis.horizontal : Axis.vertical,
+            crossAxisAlignment: wide ? CrossAxisAlignment.start : CrossAxisAlignment.stretch,
+            children: [
+              Expanded(flex: wide ? 2 : 1, child: const _CapturedOverTimeCard()),
+              SizedBox(width: wide ? 16 : 0, height: wide ? 0 : 16),
+              Expanded(child: const _RetentionStatusPreviewCard()),
             ],
           ),
           const SizedBox(height: 22),
@@ -98,8 +109,16 @@ class _KpiRow extends ConsumerWidget {
     final byStatus = ref.watch(dashboardByStatusProvider);
     final approvals = ref.watch(dashboardApprovalsProvider);
     final capacity = ref.watch(dashboardCapacityProvider);
+    final overdue = ref.watch(dashboardOverdueRetentionProvider);
 
-    final total = byStatus.valueOrNull?.fold<int>(0, (sum, c) => sum + c.total);
+    // 'archived' (Repository's recycle bin) and 'disposed' (retention/
+    // Empty-recycle-bin's terminal state) are excluded from the total —
+    // otherwise deleting a record (or emptying the bin) just shifts its
+    // count from one status bucket to another and this KPI never moves,
+    // even though the record is no longer live in the Repository.
+    final total = byStatus.valueOrNull
+        ?.where((c) => c.label != 'archived' && c.label != 'disposed')
+        .fold<int>(0, (sum, c) => sum + c.total);
     final pendingFromStatus = byStatus.valueOrNull?.where((c) => c.label == 'pending_approval').fold<int>(0, (s, c) => s + c.total);
 
     return Wrap(
@@ -140,6 +159,15 @@ class _KpiRow extends ConsumerWidget {
             sub: capacity.valueOrNull != null
                 ? 'of ${formatBytes(capacity.valueOrNull!.capacityBytes)} (${(capacity.valueOrNull!.usedFraction * 100).toStringAsFixed(0)}%)'
                 : (capacity.hasError ? 'Not available for your role' : null),
+          ),
+        ),
+        SizedBox(
+          width: 210,
+          child: KpiCard(
+            label: 'Overdue for disposal',
+            value: overdue.valueOrNull?.toString() ?? (overdue.hasError ? '—' : '…'),
+            sub: overdue.hasError ? 'Not available for your role' : 'Past their retention due date',
+            onTap: () => context.go('/retention'),
           ),
         ),
       ],
@@ -267,6 +295,79 @@ class _BarChart extends StatelessWidget {
               barRods: [BarChartRodData(toY: counts[i].total.toDouble(), color: color, width: 22, borderRadius: BorderRadius.zero)],
             ),
         ],
+      ),
+    );
+  }
+}
+
+class _CapturedOverTimeCard extends ConsumerWidget {
+  const _CapturedOverTimeCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final tokens = context.tokens;
+    final async = ref.watch(dashboardCapturedOverTimeProvider);
+
+    return _SectionCard(
+      title: 'Records captured over time',
+      child: SizedBox(
+        height: 220,
+        child: async.when(
+          loading: () => const Center(child: CircularProgressIndicator()),
+          error: (e, _) => Center(child: Text(e is ApiException ? e.message : '$e', style: TextStyle(color: tokens.ink2), textAlign: TextAlign.center)),
+          data: (counts) {
+            if (counts.isEmpty) return const EmptyState(message: 'No records yet.');
+            return LabelValueLineChart(points: [for (final c in counts) (c.label, c.total.toDouble())], color: tokens.acc);
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _RetentionStatusPreviewCard extends ConsumerWidget {
+  const _RetentionStatusPreviewCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final tokens = context.tokens;
+    final async = ref.watch(dashboardRetentionStatusProvider);
+
+    return _SectionCard(
+      title: 'Retention & disposal status',
+      action: TextButton(onPressed: () => context.go('/retention'), child: const Text('View all')),
+      child: SizedBox(
+        height: 220,
+        child: async.when(
+          loading: () => const Center(child: CircularProgressIndicator()),
+          error: (e, _) => Center(child: Text(e is ApiException ? e.message : '$e', style: TextStyle(color: tokens.ink2), textAlign: TextAlign.center)),
+          data: (rows) {
+            if (rows.isEmpty) return const EmptyState(message: 'No data yet.');
+            return ListView.separated(
+              itemCount: rows.length,
+              separatorBuilder: (_, _) => const SizedBox(height: 8),
+              itemBuilder: (context, i) {
+                final r = rows[i];
+                final fraction = r.total == 0 ? 0.0 : r.disposed / r.total;
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(child: Text(r.retentionClass, style: const TextStyle(fontSize: 12), overflow: TextOverflow.ellipsis)),
+                        Text('${r.disposed}/${r.total} disposed', style: TextStyle(fontSize: 11, color: tokens.ink2)),
+                      ],
+                    ),
+                    const SizedBox(height: 3),
+                    ClipRRect(
+                      child: LinearProgressIndicator(value: fraction, minHeight: 5, backgroundColor: tokens.surf2, color: tokens.warn),
+                    ),
+                  ],
+                );
+              },
+            );
+          },
+        ),
       ),
     );
   }

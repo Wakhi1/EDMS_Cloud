@@ -11,6 +11,21 @@ const { authenticate } = require('../middleware/auth.middleware');
 const { requireModuleAccess } = require('../middleware/rbac.middleware');
 const { verifyChain, logAudit } = require('../services/audit.service');
 const { getSettingInt } = require('../services/settings.service');
+const { toCsv, toXlsxBuffer, toPdfBuffer } = require('../utils/exportTable');
+
+const AUDIT_EXPORT_HEADERS = ['id', 'created_at', 'user_name', 'action', 'record_type', 'record_id', 'detail', 'ip_address'];
+
+async function fetchAuditExportRows(query) {
+  const limit = await getSettingInt('bulk_export_limit', 500);
+  const { where, params } = buildAuditFilters(query);
+  const [rows] = await pool.query(
+    `SELECT a.id, a.created_at, u.full_name AS user_name, a.action, a.record_type, a.record_id, a.detail, a.ip_address
+     FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
+     ${where} ORDER BY a.id DESC LIMIT ?`,
+    [...params, limit]
+  );
+  return rows;
+}
 
 const router = express.Router();
 router.use(authenticate);
@@ -59,23 +74,38 @@ router.get('/record-types', asyncHandler(async (req, res) => {
  * was showing on screen).
  */
 router.get('/export.csv', asyncHandler(async (req, res) => {
-  const limit = await getSettingInt('bulk_export_limit', 500);
-  const { where, params } = buildAuditFilters(req.query);
-  const [rows] = await pool.query(
-    `SELECT a.id, a.created_at, u.full_name AS user_name, a.action, a.record_type, a.record_id, a.detail, a.ip_address
-     FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
-     ${where} ORDER BY a.id DESC LIMIT ?`,
-    [...params, limit]
-  );
-  const header = 'id,created_at,user_name,action,record_type,record_id,detail,ip_address\n';
-  const csvEscape = (v) => (v === null || v === undefined ? '' : `"${String(v).replace(/"/g, '""')}"`);
-  const body = rows.map((r) => Object.values(r).map(csvEscape).join(',')).join('\n');
+  const rows = await fetchAuditExportRows(req.query);
+  const csv = toCsv(AUDIT_EXPORT_HEADERS, rows);
 
   await logAudit({ userId: req.user.id, action: 'Download', recordType: 'audit_log', recordId: 'export', detail: `${rows.length} rows`, ip: req.ip });
 
   res.setHeader('Content-Type', 'text/csv');
   res.setHeader('Content-Disposition', 'attachment; filename="audit-export.csv"');
-  return res.send(header + body);
+  return res.send(csv);
+}));
+
+/** GET /api/audit/export.xlsx — same filters/limit as export.csv, one worksheet. */
+router.get('/export.xlsx', asyncHandler(async (req, res) => {
+  const rows = await fetchAuditExportRows(req.query);
+  const buffer = toXlsxBuffer([{ name: 'Audit log', headers: AUDIT_EXPORT_HEADERS, rows }]);
+
+  await logAudit({ userId: req.user.id, action: 'Download', recordType: 'audit_log', recordId: 'export', detail: `${rows.length} rows (xlsx)`, ip: req.ip });
+
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', 'attachment; filename="audit-export.xlsx"');
+  return res.send(buffer);
+}));
+
+/** GET /api/audit/export.pdf — same filters/limit as export.csv, one printable table. */
+router.get('/export.pdf', asyncHandler(async (req, res) => {
+  const rows = await fetchAuditExportRows(req.query);
+  const buffer = await toPdfBuffer('Audit Trail Export', [{ title: 'Audit log', headers: AUDIT_EXPORT_HEADERS, rows }]);
+
+  await logAudit({ userId: req.user.id, action: 'Download', recordType: 'audit_log', recordId: 'export', detail: `${rows.length} rows (pdf)`, ip: req.ip });
+
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', 'attachment; filename="audit-export.pdf"');
+  return res.send(buffer);
 }));
 
 /** GET /api/audit/verify-chain */

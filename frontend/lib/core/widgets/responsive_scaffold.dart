@@ -249,7 +249,7 @@ class _NavGroupSection extends ConsumerWidget {
   }
 }
 
-class _NavTile extends StatelessWidget {
+class _NavTile extends ConsumerWidget {
   const _NavTile({required this.item, required this.selected, required this.maybeLocked, this.trailingCount = 0});
 
   final NavItem item;
@@ -258,10 +258,15 @@ class _NavTile extends StatelessWidget {
   final int trailingCount;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final tokens = context.tokens;
     return InkWell(
-      onTap: () => context.go(item.path),
+      onTap: () {
+        // Every nav click starts the target page fresh — see
+        // resetPerUserUiState's doc comment (core/auth/auth_providers.dart).
+        resetPerUserUiStateFromWidget(ref);
+        context.go(item.path);
+      },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
@@ -315,7 +320,10 @@ class _NavRail extends ConsumerWidget {
           backgroundColor: tokens.surf,
           selectedIndex: selectedIndex < 0 ? null : selectedIndex,
           labelType: NavigationRailLabelType.all,
-          onDestinationSelected: (i) => context.go(_flatItems[i].path),
+          onDestinationSelected: (i) {
+            resetPerUserUiStateFromWidget(ref);
+            context.go(_flatItems[i].path);
+          },
           destinations: [
             for (final item in _flatItems)
               NavigationRailDestination(
@@ -329,13 +337,13 @@ class _NavRail extends ConsumerWidget {
   }
 }
 
-class _BottomNav extends StatelessWidget {
+class _BottomNav extends ConsumerWidget {
   const _BottomNav({required this.currentPath});
 
   final String currentPath;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final flatItems = kNavGroups.expand((g) => g.items).toList(growable: false);
     final primary = [for (final p in kBottomNavPaths) flatItems.firstWhere((i) => i.path == p)];
     final selectedIndex = kBottomNavPaths.indexOf(currentPath);
@@ -348,6 +356,7 @@ class _BottomNav extends StatelessWidget {
           Scaffold.of(context).openDrawer();
           return;
         }
+        resetPerUserUiStateFromWidget(ref);
         context.go(primary[i].path);
       },
       items: [

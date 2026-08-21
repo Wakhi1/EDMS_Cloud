@@ -13,6 +13,7 @@ import '../../../core/widgets/confirm_dialog.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/result_dialog.dart';
 import '../../../core/widgets/status_chip.dart';
+import '../../../core/widgets/storage_location_icon.dart';
 import '../providers/repository_providers.dart';
 import 'edit_document_dialog.dart';
 
@@ -42,11 +43,12 @@ class RepositoryScreen extends ConsumerWidget {
               final filterBar = _FilterBar();
               const viewToggle = _ViewModeToggle();
               const recycleToggle = _RecycleBinToggle();
+              const emptyBinButton = _EmptyRecycleBinButton();
               if (constraints.maxWidth < 560) {
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(children: [title, const Spacer(), recycleToggle, const SizedBox(width: 8), viewToggle]),
+                    Row(children: [title, const Spacer(), emptyBinButton, recycleToggle, const SizedBox(width: 8), viewToggle]),
                     const SizedBox(height: 10),
                     filterBar,
                   ],
@@ -58,6 +60,7 @@ class RepositoryScreen extends ConsumerWidget {
                   const Spacer(),
                   filterBar,
                   const SizedBox(width: 10),
+                  emptyBinButton,
                   recycleToggle,
                   const SizedBox(width: 8),
                   viewToggle,
@@ -123,6 +126,64 @@ class _RecycleBinToggle extends ConsumerWidget {
             : null,
         icon: Icon(active ? Icons.arrow_back : Icons.delete_outline, size: 16),
         label: Text(active ? 'Back' : 'Recycle bin'),
+      ),
+    );
+  }
+}
+
+/// Only rendered while the recycle bin view is active — a permanent,
+/// bulk version of the per-row Restore action's opposite: every archived
+/// record the caller can edit gets marked disposed (see documents.routes.js's
+/// POST /recycle-bin/empty), the same terminal state Retention & Disposal's
+/// own dispose action uses. Never a literal SQL DELETE.
+class _EmptyRecycleBinButton extends ConsumerStatefulWidget {
+  const _EmptyRecycleBinButton();
+
+  @override
+  ConsumerState<_EmptyRecycleBinButton> createState() => _EmptyRecycleBinButtonState();
+}
+
+class _EmptyRecycleBinButtonState extends ConsumerState<_EmptyRecycleBinButton> {
+  bool _emptying = false;
+
+  Future<void> _empty() async {
+    final confirmed = await ConfirmDialog.show(
+      context,
+      title: 'Empty recycle bin?',
+      body: 'Permanently disposes every record currently in the recycle bin. This cannot be undone from here.',
+      okLabel: 'Empty recycle bin',
+      danger: true,
+    );
+    if (confirmed == null) return;
+
+    setState(() => _emptying = true);
+    try {
+      final disposed = await ref.read(documentsApiProvider).emptyRecycleBin();
+      ref.invalidate(repositoryDocumentsProvider);
+      ref.read(selectedDocumentProvider.notifier).state = null;
+      if (mounted) {
+        await ResultDialog.showSuccess(context, disposed > 0 ? '$disposed record(s) permanently disposed.' : 'Recycle bin was already empty.');
+      }
+    } on ApiException catch (e) {
+      if (mounted) await ResultDialog.showError(context, e.message);
+    } finally {
+      if (mounted) setState(() => _emptying = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final active = ref.watch(repositoryRecycleBinProvider);
+    if (!active) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: OutlinedButton.icon(
+        onPressed: _emptying ? null : _empty,
+        style: OutlinedButton.styleFrom(foregroundColor: context.tokens.bad),
+        icon: _emptying
+            ? const SizedBox(height: 14, width: 14, child: CircularProgressIndicator(strokeWidth: 2))
+            : const Icon(Icons.delete_forever_outlined, size: 16),
+        label: const Text('Empty recycle bin'),
       ),
     );
   }
@@ -221,6 +282,8 @@ class _ViewModeToggle extends ConsumerWidget {
   }
 }
 
+final _fileplanSearchProvider = StateProvider.autoDispose<String>((ref) => '');
+
 class _FolderTree extends ConsumerWidget {
   const _FolderTree();
 
@@ -229,6 +292,7 @@ class _FolderTree extends ConsumerWidget {
     final tokens = context.tokens;
     final foldersAsync = ref.watch(foldersProvider);
     final filters = ref.watch(repositoryFiltersProvider);
+    final search = ref.watch(_fileplanSearchProvider);
 
     return Container(
       decoration: BoxDecoration(
@@ -245,51 +309,87 @@ class _FolderTree extends ConsumerWidget {
               style: Theme.of(context).textTheme.labelSmall,
             ),
           ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: SizedBox(
+              height: 30,
+              child: TextField(
+                style: const TextStyle(fontSize: 12),
+                decoration: const InputDecoration(
+                  isDense: true,
+                  hintText: 'Search folders…',
+                  prefixIcon: Icon(Icons.search, size: 14),
+                ),
+                onChanged: (v) => ref.read(_fileplanSearchProvider.notifier).state = v,
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
           Expanded(
-            child: SingleChildScrollView(
-              child: Column(
-                children: [
-                  _FolderRow(
-                    label: 'All records',
-                    selected: filters.folderId == null,
-                    onTap: () {
-                      ref.read(repositoryFiltersProvider.notifier).state =
-                          filters.copyWith(folderId: () => null);
-                    },
-                  ),
-                  foldersAsync.when(
-                    loading: () => const Padding(
-                      padding: EdgeInsets.all(12),
-                      child: LinearProgressIndicator(),
-                    ),
-                    error: (e, _) => Padding(
-                      padding: const EdgeInsets.all(10),
-                      child: Text(
-                        '$e',
-                        style: TextStyle(color: tokens.bad, fontSize: 11),
+            // Explicit ScrollController + always-visible Scrollbar: a plain
+            // SingleChildScrollView scrolls fine but gives no visual hint
+            // that there's more below the fold once a company has enough
+            // folders to overflow this fixed-width panel.
+            child: Scrollbar(
+              thumbVisibility: true,
+              child: SingleChildScrollView(
+                child: Column(
+                  children: [
+                    if (search.trim().isEmpty)
+                      _FolderRow(
+                        label: 'All records',
+                        selected: filters.folderId == null,
+                        onTap: () {
+                          ref.read(repositoryFiltersProvider.notifier).state =
+                              filters.copyWith(folderId: () => null);
+                        },
                       ),
+                    foldersAsync.when(
+                      loading: () => const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: LinearProgressIndicator(),
+                      ),
+                      error: (e, _) => Padding(
+                        padding: const EdgeInsets.all(10),
+                        child: Text(
+                          '$e',
+                          style: TextStyle(color: tokens.bad, fontSize: 11),
+                        ),
+                      ),
+                      data: (folders) {
+                        final q = search.trim().toLowerCase();
+                        final sorted = [...folders]
+                          ..sort((a, b) => a.path.compareTo(b.path));
+                        final visible = q.isEmpty ? sorted : sorted.where((f) => f.name.toLowerCase().contains(q) || f.path.toLowerCase().contains(q)).toList();
+                        if (q.isNotEmpty && visible.isEmpty) {
+                          return Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Text('No folders match "$search".', style: TextStyle(fontSize: 11.5, color: tokens.ink2)),
+                          );
+                        }
+                        return Column(
+                          children: [
+                            for (final f in visible)
+                              _FolderRow(
+                                label: f.name,
+                                // A search match's ancestors may be filtered out, so its
+                                // indent would otherwise misleadingly jump to the root —
+                                // only indent by nesting depth while showing the full tree.
+                                indent: q.isEmpty ? '/'.allMatches(f.path).length.clamp(0, 4) : 0,
+                                selected: filters.folderId == f.id,
+                                folderId: f.id,
+                                storageProviders: f.storageProviders,
+                                onTap: () {
+                                  ref.read(repositoryFiltersProvider.notifier).state =
+                                      filters.copyWith(folderId: () => f.id);
+                                },
+                              ),
+                          ],
+                        );
+                      },
                     ),
-                    data: (folders) {
-                      final sorted = [...folders]
-                        ..sort((a, b) => a.path.compareTo(b.path));
-                      return Column(
-                        children: [
-                          for (final f in sorted)
-                            _FolderRow(
-                              label: f.name,
-                              indent: '/'.allMatches(f.path).length.clamp(0, 4),
-                              selected: filters.folderId == f.id,
-                              folderId: f.id,
-                              onTap: () {
-                                ref.read(repositoryFiltersProvider.notifier).state =
-                                    filters.copyWith(folderId: () => f.id);
-                              },
-                            ),
-                        ],
-                      );
-                    },
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
@@ -306,6 +406,7 @@ class _FolderRow extends ConsumerWidget {
     required this.onTap,
     this.indent = 0,
     this.folderId,
+    this.storageProviders,
   });
 
   final String label;
@@ -313,6 +414,7 @@ class _FolderRow extends ConsumerWidget {
   final VoidCallback onTap;
   final int indent;
   final int? folderId;
+  final String? storageProviders;
 
   Future<void> _rename(BuildContext context, WidgetRef ref) async {
     final newName = await ConfirmDialog.show(
@@ -378,6 +480,10 @@ class _FolderRow extends ConsumerWidget {
                   ),
                 ),
               ),
+              if (storageProviders != null) ...[
+                StorageLocationIcon(provider: storageProviders, size: 12, color: tokens.ink3),
+                const SizedBox(width: 4),
+              ],
               if (folderId != null)
                 IconButton(
                   tooltip: 'Manage access',
@@ -619,7 +725,20 @@ class _DocumentList extends ConsumerWidget {
                   ),
                   child: Row(
                     children: [
-                      cell(d.recordNo, flexes[0]),
+                      cell(
+                        '',
+                        flexes[0],
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Flexible(child: Text(d.recordNo, overflow: TextOverflow.ellipsis)),
+                            if (d.storageProvider != null) ...[
+                              const SizedBox(width: 5),
+                              StorageLocationIcon(provider: d.storageProvider, size: 13, color: tokens.ink3),
+                            ],
+                          ],
+                        ),
+                      ),
                       cell(d.title, flexes[1]),
                       cell(d.documentType ?? '—', flexes[2]),
                       cell(d.department ?? '—', flexes[3]),
@@ -738,6 +857,10 @@ class _DocumentGrid extends ConsumerWidget {
               Row(
                 children: [
                   Icon(_iconForMime(d.mimeType), size: 30, color: tokens.accD),
+                  if (d.storageProvider != null) ...[
+                    const SizedBox(width: 4),
+                    StorageLocationIcon(provider: d.storageProvider, size: 13, color: tokens.ink3),
+                  ],
                   const Spacer(),
                   _DocumentActionsButton(doc: d, recycleBin: recycleBin),
                 ],
@@ -822,6 +945,7 @@ class _PropertiesPanel extends ConsumerWidget {
       ),
       ('Classification', doc.classification),
       ('File plan', doc.folderPath ?? '—'),
+      ('Storage', doc.storageProvider != null ? storageProviderIconAndLabel(doc.storageProvider!).$2 : '—'),
     ];
 
     return Container(

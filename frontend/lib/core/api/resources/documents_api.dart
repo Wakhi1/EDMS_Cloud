@@ -186,4 +186,12 @@ class DocumentsApi {
     final response = await _client.post(Endpoints.documentRestore('$id'));
     _client.unwrap(response, (_) => null);
   }
+
+  /// POST /api/documents/recycle-bin/empty — permanently disposes every
+  /// archived record the caller has edit access to. Returns how many were
+  /// actually disposed (some may be skipped for lack of access).
+  Future<int> emptyRecycleBin() async {
+    final response = await _client.post(Endpoints.documentsEmptyRecycleBin);
+    return _client.unwrap(response, (data) => (data as Map<String, dynamic>)['disposed'] as int);
+  }
 }

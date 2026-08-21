@@ -25,6 +25,7 @@ _DocumentRecord _$DocumentRecordFromJson(Map<String, dynamic> json) =>
       mimeType: json['mime_type'] as String?,
       fileName: json['file_name'] as String?,
       sizeBytes: _intFromDynamic(json['size_bytes']),
+      storageProvider: json['storage_provider'] as String?,
     );
 
 Map<String, dynamic> _$DocumentRecordToJson(_DocumentRecord instance) =>
@@ -46,4 +47,5 @@ Map<String, dynamic> _$DocumentRecordToJson(_DocumentRecord instance) =>
       'mime_type': instance.mimeType,
       'file_name': instance.fileName,
       'size_bytes': instance.sizeBytes,
+      'storage_provider': instance.storageProvider,
     };

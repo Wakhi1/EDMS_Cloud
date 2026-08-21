@@ -381,6 +381,26 @@ CREATE TABLE `document_encryption_keys` (
   CONSTRAINT `fk_dek_kek`     FOREIGN KEY (`key_encryption_key_id`) REFERENCES `key_encryption_keys`(`id`)
 ) ENGINE=InnoDB;
 
+-- Expiring, revocable public links for the Sharing & Links screen
+-- (routes/sharing.routes.js) — a recipient with the link and no EDMS
+-- account of their own can view/download the current version until
+-- expires_at or revoked_at, whichever comes first.
+CREATE TABLE `document_share_links` (
+  `id`               INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `company_id`       INT UNSIGNED NOT NULL,
+  `document_id`      INT UNSIGNED NOT NULL,
+  `token`            CHAR(43) NOT NULL UNIQUE,   -- URL-safe base64, 32 random bytes
+  `created_by`       INT UNSIGNED NOT NULL,
+  `expires_at`       DATETIME NOT NULL,
+  `revoked_at`       DATETIME NULL,
+  `access_count`     INT UNSIGNED NOT NULL DEFAULT 0,
+  `last_accessed_at` DATETIME NULL,
+  `created_at`       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_share_document` FOREIGN KEY (`document_id`) REFERENCES `documents`(`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_share_creator` FOREIGN KEY (`created_by`) REFERENCES `users`(`id`),
+  INDEX `ix_share_document` (`document_id`)
+) ENGINE=InnoDB;
+
 -- ---------------------------------------------------------------------
 -- 4. ACCESS CONTROL (folder & document level, inheritable)
 -- ---------------------------------------------------------------------

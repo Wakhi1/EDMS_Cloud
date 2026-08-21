@@ -22,7 +22,8 @@ import '../../features/retention/presentation/retention_screen.dart';
 import '../../features/search/presentation/search_screen.dart';
 import '../../features/security/presentation/security_screen.dart';
 import '../../features/settings/presentation/settings_screen.dart';
-import '../../features/sharing_placeholder/presentation/sharing_placeholder_screen.dart';
+import '../../features/sharing/presentation/share_view_screen.dart';
+import '../../features/sharing/presentation/sharing_screen.dart';
 import '../../features/smart_upload/presentation/smart_upload_screen.dart';
 import '../../features/users/presentation/users_screen.dart';
 import '../../features/versions/presentation/versions_screen.dart';
@@ -82,6 +83,13 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       final atActivation = matched == RoutePaths.licenseActivation;
       if (!licenseState.active) return atActivation ? null : RoutePaths.licenseActivation;
 
+      // A shared-record link (see features/sharing/presentation/
+      // share_view_screen.dart) needs no EDMS account — the recipient was
+      // never going to log in at all. Still gated on the license check
+      // above (an unlicensed deployment blocks everything), just not on
+      // "logged in".
+      if (matched.startsWith('/s/')) return null;
+
       final loggedIn = authState.valueOrNull is LoginAuthenticated;
       final atLogin = matched == RoutePaths.login;
 
@@ -100,6 +108,13 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(path: RoutePaths.bootstrap, builder: (context, state) => const BootstrapScreen()),
       GoRoute(path: RoutePaths.login, builder: (context, state) => const LoginScreen()),
       GoRoute(path: RoutePaths.licenseActivation, builder: (context, state) => const LicenseActivationScreen()),
+      // Outside the ShellRoute, deliberately — no nav chrome for a
+      // recipient who was never going to log in. See this file's redirect
+      // bypass above.
+      GoRoute(
+        path: RoutePaths.shareView,
+        builder: (context, state) => ShareViewScreen(token: state.pathParameters['token']!),
+      ),
       ShellRoute(
         builder: (context, state, child) => ResponsiveScaffold(child: child),
         routes: [
@@ -111,7 +126,7 @@ final goRouterProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(path: RoutePaths.search, builder: (context, state) => const SearchScreen()),
           GoRoute(path: '/upload', builder: (context, state) => const SmartUploadScreen()),
-          GoRoute(path: RoutePaths.sharing, builder: (context, state) => const SharingPlaceholderScreen()),
+          GoRoute(path: RoutePaths.sharing, builder: (context, state) => const SharingScreen()),
           GoRoute(path: RoutePaths.approvals, builder: (context, state) => const ApprovalsScreen()),
           GoRoute(path: RoutePaths.workflow, builder: (context, state) => const WorkflowDesignerScreen()),
           GoRoute(path: RoutePaths.versions, builder: (context, state) => const VersionsEmptyScreen()),

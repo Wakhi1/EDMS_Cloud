@@ -50,6 +50,38 @@ class AuditApi {
     return (bytes: (response.data as List<int>?) ?? const [], fileName: 'audit-export.csv');
   }
 
+  /// GET /api/audit/export.xlsx — same filters/shape as [exportCsv].
+  Future<({List<int> bytes, String fileName})> exportXlsx({String? action, String? recordType, String? q, String? from, String? to}) async {
+    final response = await _client.get(
+      Endpoints.auditExportXlsx,
+      queryParameters: {
+        if (action != null && action.isNotEmpty) 'action': action,
+        if (recordType != null && recordType.isNotEmpty) 'recordType': recordType,
+        if (q != null && q.isNotEmpty) 'q': q,
+        if (from != null && from.isNotEmpty) 'from': from,
+        if (to != null && to.isNotEmpty) 'to': to,
+      },
+      options: Options(responseType: ResponseType.bytes),
+    );
+    return (bytes: (response.data as List<int>?) ?? const [], fileName: 'audit-export.xlsx');
+  }
+
+  /// GET /api/audit/export.pdf — same filters/shape as [exportCsv].
+  Future<({List<int> bytes, String fileName})> exportPdf({String? action, String? recordType, String? q, String? from, String? to}) async {
+    final response = await _client.get(
+      Endpoints.auditExportPdf,
+      queryParameters: {
+        if (action != null && action.isNotEmpty) 'action': action,
+        if (recordType != null && recordType.isNotEmpty) 'recordType': recordType,
+        if (q != null && q.isNotEmpty) 'q': q,
+        if (from != null && from.isNotEmpty) 'from': from,
+        if (to != null && to.isNotEmpty) 'to': to,
+      },
+      options: Options(responseType: ResponseType.bytes),
+    );
+    return (bytes: (response.data as List<int>?) ?? const [], fileName: 'audit-export.pdf');
+  }
+
   Future<({bool valid, int? brokenAtId, int entries})> verifyChain() async {
     final response = await _client.get(Endpoints.auditVerifyChain);
     return _client.unwrap(response, (data) {

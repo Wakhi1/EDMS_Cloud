@@ -14,6 +14,7 @@ _FolderRow _$FolderRowFromJson(Map<String, dynamic> json) => _FolderRow(
   departmentId: (json['department_id'] as num?)?.toInt(),
   retentionClassId: (json['retention_class_id'] as num?)?.toInt(),
   retentionClassName: json['retention_class_name'] as String?,
+  storageProviders: json['storage_providers'] as String?,
 );
 
 Map<String, dynamic> _$FolderRowToJson(_FolderRow instance) =>
@@ -25,4 +26,5 @@ Map<String, dynamic> _$FolderRowToJson(_FolderRow instance) =>
       'department_id': instance.departmentId,
       'retention_class_id': instance.retentionClassId,
       'retention_class_name': instance.retentionClassName,
+      'storage_providers': instance.storageProviders,
     };

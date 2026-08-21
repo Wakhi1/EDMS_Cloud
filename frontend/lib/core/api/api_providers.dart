@@ -25,6 +25,7 @@ import 'resources/reports_api.dart';
 import 'resources/retention_api.dart';
 import 'resources/roles_api.dart';
 import 'resources/settings_api.dart';
+import 'resources/sharing_api.dart';
 import 'resources/users_api.dart';
 import 'resources/versions_api.dart';
 import 'resources/workflow_api.dart';
@@ -85,3 +86,4 @@ final settingsApiProvider = Provider<SettingsApi>((ref) => SettingsApi(ref.watch
 final backupApiProvider = Provider<BackupApi>((ref) => BackupApi(ref.watch(apiClientProvider)));
 final licenseApiProvider = Provider<LicenseApi>((ref) => LicenseApi(ref.watch(apiClientProvider)));
 final brandingApiProvider = Provider<BrandingApi>((ref) => BrandingApi(ref.watch(apiClientProvider)));
+final sharingApiProvider = Provider<SharingApi>((ref) => SharingApi(ref.watch(apiClientProvider)));

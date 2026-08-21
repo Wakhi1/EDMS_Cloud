@@ -15,7 +15,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$DocumentRecord {
 
- int get id;@JsonKey(name: 'record_no') String get recordNo; String get title; String get status; String get classification;@JsonKey(name: 'member_number') String? get memberNumber;@JsonKey(name: 'member_name') String? get memberName;@JsonKey(name: 'created_at') String? get createdAt;@JsonKey(name: 'updated_at') String? get updatedAt;@JsonKey(name: 'document_type') String? get documentType; String? get department;@JsonKey(name: 'folder_path') String? get folderPath;@JsonKey(name: 'current_version_no') int? get currentVersionNo;@JsonKey(name: 'owner_name') String? get ownerName;@JsonKey(name: 'mime_type') String? get mimeType;@JsonKey(name: 'file_name') String? get fileName;@JsonKey(name: 'size_bytes', fromJson: _intFromDynamic) int? get sizeBytes;
+ int get id;@JsonKey(name: 'record_no') String get recordNo; String get title; String get status; String get classification;@JsonKey(name: 'member_number') String? get memberNumber;@JsonKey(name: 'member_name') String? get memberName;@JsonKey(name: 'created_at') String? get createdAt;@JsonKey(name: 'updated_at') String? get updatedAt;@JsonKey(name: 'document_type') String? get documentType; String? get department;@JsonKey(name: 'folder_path') String? get folderPath;@JsonKey(name: 'current_version_no') int? get currentVersionNo;@JsonKey(name: 'owner_name') String? get ownerName;@JsonKey(name: 'mime_type') String? get mimeType;@JsonKey(name: 'file_name') String? get fileName;@JsonKey(name: 'size_bytes', fromJson: _intFromDynamic) int? get sizeBytes;@JsonKey(name: 'storage_provider') String? get storageProvider;
 /// Create a copy of DocumentRecord
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -28,16 +28,16 @@ $DocumentRecordCopyWith<DocumentRecord> get copyWith => _$DocumentRecordCopyWith
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is DocumentRecord&&(identical(other.id, id) || other.id == id)&&(identical(other.recordNo, recordNo) || other.recordNo == recordNo)&&(identical(other.title, title) || other.title == title)&&(identical(other.status, status) || other.status == status)&&(identical(other.classification, classification) || other.classification == classification)&&(identical(other.memberNumber, memberNumber) || other.memberNumber == memberNumber)&&(identical(other.memberName, memberName) || other.memberName == memberName)&&(identical(other.createdAt, createdAt) || other.createdAt == createdAt)&&(identical(other.updatedAt, updatedAt) || other.updatedAt == updatedAt)&&(identical(other.documentType, documentType) || other.documentType == documentType)&&(identical(other.department, department) || other.department == department)&&(identical(other.folderPath, folderPath) || other.folderPath == folderPath)&&(identical(other.currentVersionNo, currentVersionNo) || other.currentVersionNo == currentVersionNo)&&(identical(other.ownerName, ownerName) || other.ownerName == ownerName)&&(identical(other.mimeType, mimeType) || other.mimeType == mimeType)&&(identical(other.fileName, fileName) || other.fileName == fileName)&&(identical(other.sizeBytes, sizeBytes) || other.sizeBytes == sizeBytes));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is DocumentRecord&&(identical(other.id, id) || other.id == id)&&(identical(other.recordNo, recordNo) || other.recordNo == recordNo)&&(identical(other.title, title) || other.title == title)&&(identical(other.status, status) || other.status == status)&&(identical(other.classification, classification) || other.classification == classification)&&(identical(other.memberNumber, memberNumber) || other.memberNumber == memberNumber)&&(identical(other.memberName, memberName) || other.memberName == memberName)&&(identical(other.createdAt, createdAt) || other.createdAt == createdAt)&&(identical(other.updatedAt, updatedAt) || other.updatedAt == updatedAt)&&(identical(other.documentType, documentType) || other.documentType == documentType)&&(identical(other.department, department) || other.department == department)&&(identical(other.folderPath, folderPath) || other.folderPath == folderPath)&&(identical(other.currentVersionNo, currentVersionNo) || other.currentVersionNo == currentVersionNo)&&(identical(other.ownerName, ownerName) || other.ownerName == ownerName)&&(identical(other.mimeType, mimeType) || other.mimeType == mimeType)&&(identical(other.fileName, fileName) || other.fileName == fileName)&&(identical(other.sizeBytes, sizeBytes) || other.sizeBytes == sizeBytes)&&(identical(other.storageProvider, storageProvider) || other.storageProvider == storageProvider));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hash(runtimeType,id,recordNo,title,status,classification,memberNumber,memberName,createdAt,updatedAt,documentType,department,folderPath,currentVersionNo,ownerName,mimeType,fileName,sizeBytes);
+int get hashCode => Object.hash(runtimeType,id,recordNo,title,status,classification,memberNumber,memberName,createdAt,updatedAt,documentType,department,folderPath,currentVersionNo,ownerName,mimeType,fileName,sizeBytes,storageProvider);
 
 @override
 String toString() {
-  return 'DocumentRecord(id: $id, recordNo: $recordNo, title: $title, status: $status, classification: $classification, memberNumber: $memberNumber, memberName: $memberName, createdAt: $createdAt, updatedAt: $updatedAt, documentType: $documentType, department: $department, folderPath: $folderPath, currentVersionNo: $currentVersionNo, ownerName: $ownerName, mimeType: $mimeType, fileName: $fileName, sizeBytes: $sizeBytes)';
+  return 'DocumentRecord(id: $id, recordNo: $recordNo, title: $title, status: $status, classification: $classification, memberNumber: $memberNumber, memberName: $memberName, createdAt: $createdAt, updatedAt: $updatedAt, documentType: $documentType, department: $department, folderPath: $folderPath, currentVersionNo: $currentVersionNo, ownerName: $ownerName, mimeType: $mimeType, fileName: $fileName, sizeBytes: $sizeBytes, storageProvider: $storageProvider)';
 }
 
 
@@ -48,7 +48,7 @@ abstract mixin class $DocumentRecordCopyWith<$Res>  {
   factory $DocumentRecordCopyWith(DocumentRecord value, $Res Function(DocumentRecord) _then) = _$DocumentRecordCopyWithImpl;
 @useResult
 $Res call({
- int id,@JsonKey(name: 'record_no') String recordNo, String title, String status, String classification,@JsonKey(name: 'member_number') String? memberNumber,@JsonKey(name: 'member_name') String? memberName,@JsonKey(name: 'created_at') String? createdAt,@JsonKey(name: 'updated_at') String? updatedAt,@JsonKey(name: 'document_type') String? documentType, String? department,@JsonKey(name: 'folder_path') String? folderPath,@JsonKey(name: 'current_version_no') int? currentVersionNo,@JsonKey(name: 'owner_name') String? ownerName,@JsonKey(name: 'mime_type') String? mimeType,@JsonKey(name: 'file_name') String? fileName,@JsonKey(name: 'size_bytes', fromJson: _intFromDynamic) int? sizeBytes
+ int id,@JsonKey(name: 'record_no') String recordNo, String title, String status, String classification,@JsonKey(name: 'member_number') String? memberNumber,@JsonKey(name: 'member_name') String? memberName,@JsonKey(name: 'created_at') String? createdAt,@JsonKey(name: 'updated_at') String? updatedAt,@JsonKey(name: 'document_type') String? documentType, String? department,@JsonKey(name: 'folder_path') String? folderPath,@JsonKey(name: 'current_version_no') int? currentVersionNo,@JsonKey(name: 'owner_name') String? ownerName,@JsonKey(name: 'mime_type') String? mimeType,@JsonKey(name: 'file_name') String? fileName,@JsonKey(name: 'size_bytes', fromJson: _intFromDynamic) int? sizeBytes,@JsonKey(name: 'storage_provider') String? storageProvider
 });
 
 
@@ -65,7 +65,7 @@ class _$DocumentRecordCopyWithImpl<$Res>
 
 /// Create a copy of DocumentRecord
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? recordNo = null,Object? title = null,Object? status = null,Object? classification = null,Object? memberNumber = freezed,Object? memberName = freezed,Object? createdAt = freezed,Object? updatedAt = freezed,Object? documentType = freezed,Object? department = freezed,Object? folderPath = freezed,Object? currentVersionNo = freezed,Object? ownerName = freezed,Object? mimeType = freezed,Object? fileName = freezed,Object? sizeBytes = freezed,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? recordNo = null,Object? title = null,Object? status = null,Object? classification = null,Object? memberNumber = freezed,Object? memberName = freezed,Object? createdAt = freezed,Object? updatedAt = freezed,Object? documentType = freezed,Object? department = freezed,Object? folderPath = freezed,Object? currentVersionNo = freezed,Object? ownerName = freezed,Object? mimeType = freezed,Object? fileName = freezed,Object? sizeBytes = freezed,Object? storageProvider = freezed,}) {
   return _then(_self.copyWith(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as int,recordNo: null == recordNo ? _self.recordNo : recordNo // ignore: cast_nullable_to_non_nullable
@@ -84,7 +84,8 @@ as int?,ownerName: freezed == ownerName ? _self.ownerName : ownerName // ignore:
 as String?,mimeType: freezed == mimeType ? _self.mimeType : mimeType // ignore: cast_nullable_to_non_nullable
 as String?,fileName: freezed == fileName ? _self.fileName : fileName // ignore: cast_nullable_to_non_nullable
 as String?,sizeBytes: freezed == sizeBytes ? _self.sizeBytes : sizeBytes // ignore: cast_nullable_to_non_nullable
-as int?,
+as int?,storageProvider: freezed == storageProvider ? _self.storageProvider : storageProvider // ignore: cast_nullable_to_non_nullable
+as String?,
   ));
 }
 
@@ -169,10 +170,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( int id, @JsonKey(name: 'record_no')  String recordNo,  String title,  String status,  String classification, @JsonKey(name: 'member_number')  String? memberNumber, @JsonKey(name: 'member_name')  String? memberName, @JsonKey(name: 'created_at')  String? createdAt, @JsonKey(name: 'updated_at')  String? updatedAt, @JsonKey(name: 'document_type')  String? documentType,  String? department, @JsonKey(name: 'folder_path')  String? folderPath, @JsonKey(name: 'current_version_no')  int? currentVersionNo, @JsonKey(name: 'owner_name')  String? ownerName, @JsonKey(name: 'mime_type')  String? mimeType, @JsonKey(name: 'file_name')  String? fileName, @JsonKey(name: 'size_bytes', fromJson: _intFromDynamic)  int? sizeBytes)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( int id, @JsonKey(name: 'record_no')  String recordNo,  String title,  String status,  String classification, @JsonKey(name: 'member_number')  String? memberNumber, @JsonKey(name: 'member_name')  String? memberName, @JsonKey(name: 'created_at')  String? createdAt, @JsonKey(name: 'updated_at')  String? updatedAt, @JsonKey(name: 'document_type')  String? documentType,  String? department, @JsonKey(name: 'folder_path')  String? folderPath, @JsonKey(name: 'current_version_no')  int? currentVersionNo, @JsonKey(name: 'owner_name')  String? ownerName, @JsonKey(name: 'mime_type')  String? mimeType, @JsonKey(name: 'file_name')  String? fileName, @JsonKey(name: 'size_bytes', fromJson: _intFromDynamic)  int? sizeBytes, @JsonKey(name: 'storage_provider')  String? storageProvider)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _DocumentRecord() when $default != null:
-return $default(_that.id,_that.recordNo,_that.title,_that.status,_that.classification,_that.memberNumber,_that.memberName,_that.createdAt,_that.updatedAt,_that.documentType,_that.department,_that.folderPath,_that.currentVersionNo,_that.ownerName,_that.mimeType,_that.fileName,_that.sizeBytes);case _:
+return $default(_that.id,_that.recordNo,_that.title,_that.status,_that.classification,_that.memberNumber,_that.memberName,_that.createdAt,_that.updatedAt,_that.documentType,_that.department,_that.folderPath,_that.currentVersionNo,_that.ownerName,_that.mimeType,_that.fileName,_that.sizeBytes,_that.storageProvider);case _:
   return orElse();
 
 }
@@ -190,10 +191,10 @@ return $default(_that.id,_that.recordNo,_that.title,_that.status,_that.classific
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( int id, @JsonKey(name: 'record_no')  String recordNo,  String title,  String status,  String classification, @JsonKey(name: 'member_number')  String? memberNumber, @JsonKey(name: 'member_name')  String? memberName, @JsonKey(name: 'created_at')  String? createdAt, @JsonKey(name: 'updated_at')  String? updatedAt, @JsonKey(name: 'document_type')  String? documentType,  String? department, @JsonKey(name: 'folder_path')  String? folderPath, @JsonKey(name: 'current_version_no')  int? currentVersionNo, @JsonKey(name: 'owner_name')  String? ownerName, @JsonKey(name: 'mime_type')  String? mimeType, @JsonKey(name: 'file_name')  String? fileName, @JsonKey(name: 'size_bytes', fromJson: _intFromDynamic)  int? sizeBytes)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( int id, @JsonKey(name: 'record_no')  String recordNo,  String title,  String status,  String classification, @JsonKey(name: 'member_number')  String? memberNumber, @JsonKey(name: 'member_name')  String? memberName, @JsonKey(name: 'created_at')  String? createdAt, @JsonKey(name: 'updated_at')  String? updatedAt, @JsonKey(name: 'document_type')  String? documentType,  String? department, @JsonKey(name: 'folder_path')  String? folderPath, @JsonKey(name: 'current_version_no')  int? currentVersionNo, @JsonKey(name: 'owner_name')  String? ownerName, @JsonKey(name: 'mime_type')  String? mimeType, @JsonKey(name: 'file_name')  String? fileName, @JsonKey(name: 'size_bytes', fromJson: _intFromDynamic)  int? sizeBytes, @JsonKey(name: 'storage_provider')  String? storageProvider)  $default,) {final _that = this;
 switch (_that) {
 case _DocumentRecord():
-return $default(_that.id,_that.recordNo,_that.title,_that.status,_that.classification,_that.memberNumber,_that.memberName,_that.createdAt,_that.updatedAt,_that.documentType,_that.department,_that.folderPath,_that.currentVersionNo,_that.ownerName,_that.mimeType,_that.fileName,_that.sizeBytes);case _:
+return $default(_that.id,_that.recordNo,_that.title,_that.status,_that.classification,_that.memberNumber,_that.memberName,_that.createdAt,_that.updatedAt,_that.documentType,_that.department,_that.folderPath,_that.currentVersionNo,_that.ownerName,_that.mimeType,_that.fileName,_that.sizeBytes,_that.storageProvider);case _:
   throw StateError('Unexpected subclass');
 
 }
@@ -210,10 +211,10 @@ return $default(_that.id,_that.recordNo,_that.title,_that.status,_that.classific
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( int id, @JsonKey(name: 'record_no')  String recordNo,  String title,  String status,  String classification, @JsonKey(name: 'member_number')  String? memberNumber, @JsonKey(name: 'member_name')  String? memberName, @JsonKey(name: 'created_at')  String? createdAt, @JsonKey(name: 'updated_at')  String? updatedAt, @JsonKey(name: 'document_type')  String? documentType,  String? department, @JsonKey(name: 'folder_path')  String? folderPath, @JsonKey(name: 'current_version_no')  int? currentVersionNo, @JsonKey(name: 'owner_name')  String? ownerName, @JsonKey(name: 'mime_type')  String? mimeType, @JsonKey(name: 'file_name')  String? fileName, @JsonKey(name: 'size_bytes', fromJson: _intFromDynamic)  int? sizeBytes)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( int id, @JsonKey(name: 'record_no')  String recordNo,  String title,  String status,  String classification, @JsonKey(name: 'member_number')  String? memberNumber, @JsonKey(name: 'member_name')  String? memberName, @JsonKey(name: 'created_at')  String? createdAt, @JsonKey(name: 'updated_at')  String? updatedAt, @JsonKey(name: 'document_type')  String? documentType,  String? department, @JsonKey(name: 'folder_path')  String? folderPath, @JsonKey(name: 'current_version_no')  int? currentVersionNo, @JsonKey(name: 'owner_name')  String? ownerName, @JsonKey(name: 'mime_type')  String? mimeType, @JsonKey(name: 'file_name')  String? fileName, @JsonKey(name: 'size_bytes', fromJson: _intFromDynamic)  int? sizeBytes, @JsonKey(name: 'storage_provider')  String? storageProvider)?  $default,) {final _that = this;
 switch (_that) {
 case _DocumentRecord() when $default != null:
-return $default(_that.id,_that.recordNo,_that.title,_that.status,_that.classification,_that.memberNumber,_that.memberName,_that.createdAt,_that.updatedAt,_that.documentType,_that.department,_that.folderPath,_that.currentVersionNo,_that.ownerName,_that.mimeType,_that.fileName,_that.sizeBytes);case _:
+return $default(_that.id,_that.recordNo,_that.title,_that.status,_that.classification,_that.memberNumber,_that.memberName,_that.createdAt,_that.updatedAt,_that.documentType,_that.department,_that.folderPath,_that.currentVersionNo,_that.ownerName,_that.mimeType,_that.fileName,_that.sizeBytes,_that.storageProvider);case _:
   return null;
 
 }
@@ -225,7 +226,7 @@ return $default(_that.id,_that.recordNo,_that.title,_that.status,_that.classific
 @JsonSerializable()
 
 class _DocumentRecord implements DocumentRecord {
-  const _DocumentRecord({required this.id, @JsonKey(name: 'record_no') required this.recordNo, required this.title, required this.status, required this.classification, @JsonKey(name: 'member_number') this.memberNumber, @JsonKey(name: 'member_name') this.memberName, @JsonKey(name: 'created_at') this.createdAt, @JsonKey(name: 'updated_at') this.updatedAt, @JsonKey(name: 'document_type') this.documentType, this.department, @JsonKey(name: 'folder_path') this.folderPath, @JsonKey(name: 'current_version_no') this.currentVersionNo, @JsonKey(name: 'owner_name') this.ownerName, @JsonKey(name: 'mime_type') this.mimeType, @JsonKey(name: 'file_name') this.fileName, @JsonKey(name: 'size_bytes', fromJson: _intFromDynamic) this.sizeBytes});
+  const _DocumentRecord({required this.id, @JsonKey(name: 'record_no') required this.recordNo, required this.title, required this.status, required this.classification, @JsonKey(name: 'member_number') this.memberNumber, @JsonKey(name: 'member_name') this.memberName, @JsonKey(name: 'created_at') this.createdAt, @JsonKey(name: 'updated_at') this.updatedAt, @JsonKey(name: 'document_type') this.documentType, this.department, @JsonKey(name: 'folder_path') this.folderPath, @JsonKey(name: 'current_version_no') this.currentVersionNo, @JsonKey(name: 'owner_name') this.ownerName, @JsonKey(name: 'mime_type') this.mimeType, @JsonKey(name: 'file_name') this.fileName, @JsonKey(name: 'size_bytes', fromJson: _intFromDynamic) this.sizeBytes, @JsonKey(name: 'storage_provider') this.storageProvider});
   factory _DocumentRecord.fromJson(Map<String, dynamic> json) => _$DocumentRecordFromJson(json);
 
 @override final  int id;
@@ -245,6 +246,7 @@ class _DocumentRecord implements DocumentRecord {
 @override@JsonKey(name: 'mime_type') final  String? mimeType;
 @override@JsonKey(name: 'file_name') final  String? fileName;
 @override@JsonKey(name: 'size_bytes', fromJson: _intFromDynamic) final  int? sizeBytes;
+@override@JsonKey(name: 'storage_provider') final  String? storageProvider;
 
 /// Create a copy of DocumentRecord
 /// with the given fields replaced by the non-null parameter values.
@@ -259,16 +261,16 @@ Map<String, dynamic> toJson() {
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _DocumentRecord&&(identical(other.id, id) || other.id == id)&&(identical(other.recordNo, recordNo) || other.recordNo == recordNo)&&(identical(other.title, title) || other.title == title)&&(identical(other.status, status) || other.status == status)&&(identical(other.classification, classification) || other.classification == classification)&&(identical(other.memberNumber, memberNumber) || other.memberNumber == memberNumber)&&(identical(other.memberName, memberName) || other.memberName == memberName)&&(identical(other.createdAt, createdAt) || other.createdAt == createdAt)&&(identical(other.updatedAt, updatedAt) || other.updatedAt == updatedAt)&&(identical(other.documentType, documentType) || other.documentType == documentType)&&(identical(other.department, department) || other.department == department)&&(identical(other.folderPath, folderPath) || other.folderPath == folderPath)&&(identical(other.currentVersionNo, currentVersionNo) || other.currentVersionNo == currentVersionNo)&&(identical(other.ownerName, ownerName) || other.ownerName == ownerName)&&(identical(other.mimeType, mimeType) || other.mimeType == mimeType)&&(identical(other.fileName, fileName) || other.fileName == fileName)&&(identical(other.sizeBytes, sizeBytes) || other.sizeBytes == sizeBytes));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is _DocumentRecord&&(identical(other.id, id) || other.id == id)&&(identical(other.recordNo, recordNo) || other.recordNo == recordNo)&&(identical(other.title, title) || other.title == title)&&(identical(other.status, status) || other.status == status)&&(identical(other.classification, classification) || other.classification == classification)&&(identical(other.memberNumber, memberNumber) || other.memberNumber == memberNumber)&&(identical(other.memberName, memberName) || other.memberName == memberName)&&(identical(other.createdAt, createdAt) || other.createdAt == createdAt)&&(identical(other.updatedAt, updatedAt) || other.updatedAt == updatedAt)&&(identical(other.documentType, documentType) || other.documentType == documentType)&&(identical(other.department, department) || other.department == department)&&(identical(other.folderPath, folderPath) || other.folderPath == folderPath)&&(identical(other.currentVersionNo, currentVersionNo) || other.currentVersionNo == currentVersionNo)&&(identical(other.ownerName, ownerName) || other.ownerName == ownerName)&&(identical(other.mimeType, mimeType) || other.mimeType == mimeType)&&(identical(other.fileName, fileName) || other.fileName == fileName)&&(identical(other.sizeBytes, sizeBytes) || other.sizeBytes == sizeBytes)&&(identical(other.storageProvider, storageProvider) || other.storageProvider == storageProvider));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hash(runtimeType,id,recordNo,title,status,classification,memberNumber,memberName,createdAt,updatedAt,documentType,department,folderPath,currentVersionNo,ownerName,mimeType,fileName,sizeBytes);
+int get hashCode => Object.hash(runtimeType,id,recordNo,title,status,classification,memberNumber,memberName,createdAt,updatedAt,documentType,department,folderPath,currentVersionNo,ownerName,mimeType,fileName,sizeBytes,storageProvider);
 
 @override
 String toString() {
-  return 'DocumentRecord(id: $id, recordNo: $recordNo, title: $title, status: $status, classification: $classification, memberNumber: $memberNumber, memberName: $memberName, createdAt: $createdAt, updatedAt: $updatedAt, documentType: $documentType, department: $department, folderPath: $folderPath, currentVersionNo: $currentVersionNo, ownerName: $ownerName, mimeType: $mimeType, fileName: $fileName, sizeBytes: $sizeBytes)';
+  return 'DocumentRecord(id: $id, recordNo: $recordNo, title: $title, status: $status, classification: $classification, memberNumber: $memberNumber, memberName: $memberName, createdAt: $createdAt, updatedAt: $updatedAt, documentType: $documentType, department: $department, folderPath: $folderPath, currentVersionNo: $currentVersionNo, ownerName: $ownerName, mimeType: $mimeType, fileName: $fileName, sizeBytes: $sizeBytes, storageProvider: $storageProvider)';
 }
 
 
@@ -279,7 +281,7 @@ abstract mixin class _$DocumentRecordCopyWith<$Res> implements $DocumentRecordCo
   factory _$DocumentRecordCopyWith(_DocumentRecord value, $Res Function(_DocumentRecord) _then) = __$DocumentRecordCopyWithImpl;
 @override @useResult
 $Res call({
- int id,@JsonKey(name: 'record_no') String recordNo, String title, String status, String classification,@JsonKey(name: 'member_number') String? memberNumber,@JsonKey(name: 'member_name') String? memberName,@JsonKey(name: 'created_at') String? createdAt,@JsonKey(name: 'updated_at') String? updatedAt,@JsonKey(name: 'document_type') String? documentType, String? department,@JsonKey(name: 'folder_path') String? folderPath,@JsonKey(name: 'current_version_no') int? currentVersionNo,@JsonKey(name: 'owner_name') String? ownerName,@JsonKey(name: 'mime_type') String? mimeType,@JsonKey(name: 'file_name') String? fileName,@JsonKey(name: 'size_bytes', fromJson: _intFromDynamic) int? sizeBytes
+ int id,@JsonKey(name: 'record_no') String recordNo, String title, String status, String classification,@JsonKey(name: 'member_number') String? memberNumber,@JsonKey(name: 'member_name') String? memberName,@JsonKey(name: 'created_at') String? createdAt,@JsonKey(name: 'updated_at') String? updatedAt,@JsonKey(name: 'document_type') String? documentType, String? department,@JsonKey(name: 'folder_path') String? folderPath,@JsonKey(name: 'current_version_no') int? currentVersionNo,@JsonKey(name: 'owner_name') String? ownerName,@JsonKey(name: 'mime_type') String? mimeType,@JsonKey(name: 'file_name') String? fileName,@JsonKey(name: 'size_bytes', fromJson: _intFromDynamic) int? sizeBytes,@JsonKey(name: 'storage_provider') String? storageProvider
 });
 
 
@@ -296,7 +298,7 @@ class __$DocumentRecordCopyWithImpl<$Res>
 
 /// Create a copy of DocumentRecord
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? recordNo = null,Object? title = null,Object? status = null,Object? classification = null,Object? memberNumber = freezed,Object? memberName = freezed,Object? createdAt = freezed,Object? updatedAt = freezed,Object? documentType = freezed,Object? department = freezed,Object? folderPath = freezed,Object? currentVersionNo = freezed,Object? ownerName = freezed,Object? mimeType = freezed,Object? fileName = freezed,Object? sizeBytes = freezed,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? recordNo = null,Object? title = null,Object? status = null,Object? classification = null,Object? memberNumber = freezed,Object? memberName = freezed,Object? createdAt = freezed,Object? updatedAt = freezed,Object? documentType = freezed,Object? department = freezed,Object? folderPath = freezed,Object? currentVersionNo = freezed,Object? ownerName = freezed,Object? mimeType = freezed,Object? fileName = freezed,Object? sizeBytes = freezed,Object? storageProvider = freezed,}) {
   return _then(_DocumentRecord(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as int,recordNo: null == recordNo ? _self.recordNo : recordNo // ignore: cast_nullable_to_non_nullable
@@ -315,7 +317,8 @@ as int?,ownerName: freezed == ownerName ? _self.ownerName : ownerName // ignore:
 as String?,mimeType: freezed == mimeType ? _self.mimeType : mimeType // ignore: cast_nullable_to_non_nullable
 as String?,fileName: freezed == fileName ? _self.fileName : fileName // ignore: cast_nullable_to_non_nullable
 as String?,sizeBytes: freezed == sizeBytes ? _self.sizeBytes : sizeBytes // ignore: cast_nullable_to_non_nullable
-as int?,
+as int?,storageProvider: freezed == storageProvider ? _self.storageProvider : storageProvider // ignore: cast_nullable_to_non_nullable
+as String?,
   ));
 }
 

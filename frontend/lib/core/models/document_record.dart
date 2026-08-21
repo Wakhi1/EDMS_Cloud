@@ -29,6 +29,7 @@ abstract class DocumentRecord with _$DocumentRecord {
     @JsonKey(name: 'mime_type') String? mimeType,
     @JsonKey(name: 'file_name') String? fileName,
     @JsonKey(name: 'size_bytes', fromJson: _intFromDynamic) int? sizeBytes,
+    @JsonKey(name: 'storage_provider') String? storageProvider,
   }) = _DocumentRecord;
 
   factory DocumentRecord.fromJson(Map<String, dynamic> json) => _$DocumentRecordFromJson(json);

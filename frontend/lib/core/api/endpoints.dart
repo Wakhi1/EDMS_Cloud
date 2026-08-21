@@ -1,3 +1,5 @@
+import '../env/env.dart';
+
 /// Backend route paths, mirroring backend/routes/*.routes.js 1:1. Phases
 /// 1-6 populate auth, mfa, documents, folders, reports, approvals,
 /// notifications, document-types, audit, retention, users, permissions,
@@ -7,6 +9,13 @@
 /// instead of here — a Phase 3 inconsistency, not worth churning now.)
 class Endpoints {
   const Endpoints._();
+
+  // sharing.routes.js
+  static const sharing = '/api/sharing';
+  static String shareLinkById(String id) => '/api/sharing/$id';
+  static String sharePublicInfo(String token) => '/api/sharing/public/$token';
+  static String sharePublicContent(String token) => '/api/sharing/public/$token/content';
+  static String sharePublicContentAbsolute(String token) => '${Env.apiBaseUrl}${sharePublicContent(token)}';
 
   // auth.routes.js
   static const authRegister = '/api/auth/register';
@@ -46,6 +55,7 @@ class Endpoints {
   static String documentOcrText(String id) => '/api/documents/$id/ocr-text';
   static String documentDeclareFinal(String id) => '/api/documents/$id/declare-final';
   static String documentRestore(String id) => '/api/documents/$id/restore';
+  static const documentsEmptyRecycleBin = '/api/documents/recycle-bin/empty';
 
   // document-types.routes.js
   static const documentTypes = '/api/document-types';
@@ -72,10 +82,14 @@ class Endpoints {
   static const reportsTopUsers = '/api/reports/top-users';
   static const reportsClaimTurnaround = '/api/reports/claim-turnaround';
   static const reportsAuditActions = '/api/reports/audit-actions';
+  static const reportsOverdueRetention = '/api/reports/overdue-retention';
+  static const reportsExport = '/api/reports/export';
 
   // audit.routes.js
   static const audit = '/api/audit';
   static const auditExportCsv = '/api/audit/export.csv';
+  static const auditExportXlsx = '/api/audit/export.xlsx';
+  static const auditExportPdf = '/api/audit/export.pdf';
   static const auditVerifyChain = '/api/audit/verify-chain';
   static const auditRecordTypes = '/api/audit/record-types';
 

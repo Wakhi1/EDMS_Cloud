@@ -1,3 +1,5 @@
+import 'package:dio/dio.dart';
+
 import '../../models/capacity_stats.dart';
 import '../../models/capture_source_stat.dart';
 import '../../models/claim_turnaround_point.dart';
@@ -183,6 +185,13 @@ class ReportsApi {
     });
   }
 
+  /// Deliberately unfiltered, same reasoning as [capacity] — a records
+  /// manager's "needs action" number for the Dashboard KPI row.
+  Future<int> overdueRetention({bool silent403 = false}) async {
+    final response = await _client.get(Endpoints.reportsOverdueRetention, silent403: silent403);
+    return _client.unwrap(response, (data) => (data as Map<String, dynamic>)['count'] as int);
+  }
+
   Future<List<CountItem>> auditActions({bool silent403 = false, String? from, String? to}) async {
     final response = await _client.get(
       Endpoints.reportsAuditActions,
@@ -199,5 +208,25 @@ class ReportsApi {
       queryParameters: {if (from != null && from.isNotEmpty) 'from': from, if (to != null && to.isNotEmpty) 'to': to},
     );
     return _client.unwrapList(response, CountItem.fromUserJson);
+  }
+
+  /// GET /api/reports/export?format=csv|xlsx|pdf — every card on the
+  /// Reports screen, respecting the same filters, as one document. Raw
+  /// bytes (not the {success,data} envelope), same as AuditApi's exports.
+  Future<({List<int> bytes, String fileName})> export({
+    required String format,
+    String? from,
+    String? to,
+    int? departmentId,
+    int? documentTypeId,
+    int? folderId,
+    String? classification,
+  }) async {
+    final response = await _client.get(
+      Endpoints.reportsExport,
+      queryParameters: {'format': format, ..._documentFilterParams(from: from, to: to, departmentId: departmentId, documentTypeId: documentTypeId, folderId: folderId, classification: classification)},
+      options: Options(responseType: ResponseType.bytes),
+    );
+    return (bytes: (response.data as List<int>?) ?? const [], fileName: 'reports-export.$format');
   }
 }

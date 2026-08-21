@@ -3,8 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/api/api_exception.dart';
+import '../../../core/api/api_providers.dart';
 import '../../../core/models/count_item.dart';
 import '../../../core/theme/pspf_tokens.dart';
+import '../../../core/utils/file_saver/file_saver.dart';
 import '../../../core/utils/format_bytes.dart';
 import '../../../core/widgets/compact_date_range_picker.dart';
 import '../../../core/widgets/empty_state.dart';
@@ -36,6 +38,36 @@ class ReportsScreen extends ConsumerStatefulWidget {
 }
 
 class _ReportsScreenState extends ConsumerState<ReportsScreen> {
+  bool _exporting = false;
+
+  static const _mimeTypes = {
+    'csv': 'text/csv',
+    'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'pdf': 'application/pdf',
+  };
+
+  Future<void> _export(String format) async {
+    setState(() => _exporting = true);
+    try {
+      final f = ref.read(reportsFiltersProvider);
+      final result = await ref.read(reportsApiProvider).export(
+            format: format,
+            from: f.from,
+            to: f.to,
+            departmentId: f.departmentId,
+            documentTypeId: f.documentTypeId,
+            folderId: f.folderId,
+            classification: f.classification,
+          );
+      await saveBytes(bytes: result.bytes, fileName: result.fileName, mimeType: _mimeTypes[format]!);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Downloaded ${result.fileName}')));
+    } on ApiException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
+  }
+
   Future<void> _pickDateRange() async {
     final now = DateTime.now();
     final filters = ref.read(reportsFiltersProvider);
@@ -71,7 +103,35 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Governance / Reports', style: Theme.of(context).textTheme.titleMedium),
+          Row(
+            children: [
+              Text('Governance / Reports', style: Theme.of(context).textTheme.titleMedium),
+              const Spacer(),
+              PopupMenuButton<String>(
+                enabled: !_exporting,
+                onSelected: _export,
+                itemBuilder: (_) => const [
+                  PopupMenuItem(value: 'csv', child: Text('Export as CSV')),
+                  PopupMenuItem(value: 'xlsx', child: Text('Export as Excel')),
+                  PopupMenuItem(value: 'pdf', child: Text('Export as PDF')),
+                ],
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                  decoration: BoxDecoration(border: Border.all(color: context.tokens.line2)),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _exporting
+                          ? const SizedBox(height: 14, width: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                          : Icon(Icons.download, size: 16, color: context.tokens.ink),
+                      const SizedBox(width: 8),
+                      const Text('Export report'),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 14),
           Wrap(
             spacing: 10,

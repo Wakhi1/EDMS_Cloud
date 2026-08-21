@@ -14,6 +14,11 @@ class RoutePaths {
   static const viewer = '/viewer/:documentId';
   static const search = '/search';
   static const sharing = '/sharing';
+  /// Public, unauthenticated landing page for a shared-record link — see
+  /// features/sharing/presentation/share_view_screen.dart and this file's
+  /// note on app_router.dart's redirect allowlist.
+  static const shareView = '/s/:token';
+  static String shareViewFor(String token) => '/s/$token';
   static const accessDenied = '/access-denied';
   static const devWidgets = '/dev/widgets';
   static const approvals = '/approvals';

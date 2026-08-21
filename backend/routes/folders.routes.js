@@ -26,8 +26,17 @@ router.get('/', requireModuleAccess('repository'), asyncHandler(async (req, res)
   if (retentionClassId) { clauses.push('f.retention_class_id = ?'); params.push(retentionClassId); }
   const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
 
+  // storage_providers: comma-separated distinct providers used by this
+  // folder's own (direct, non-recursive) documents — not their
+  // subfolders' — so the file plan can show a location icon per folder
+  // without a second round trip. NULL when the folder has no documents.
   const [rows] = await pool.query(
-    `SELECT f.*, rc.name AS retention_class_name
+    `SELECT f.*, rc.name AS retention_class_name,
+            (SELECT GROUP_CONCAT(DISTINCT dso.provider)
+             FROM documents d
+             JOIN document_versions dv ON dv.id = d.current_version_id
+             JOIN document_storage_objects dso ON dso.id = dv.storage_object_id
+             WHERE d.folder_id = f.id AND d.status != 'archived') AS storage_providers
      FROM folders f LEFT JOIN retention_classes rc ON rc.id = f.retention_class_id
      ${where} ORDER BY f.path`,
     params

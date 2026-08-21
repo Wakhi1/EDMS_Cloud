@@ -31,5 +31,6 @@ router.use('/settings', require('./settings.routes'));
 router.use('/backup', require('./backup.routes'));
 router.use('/license', require('./license.routes'));
 router.use('/branding', require('./branding.routes'));
+router.use('/sharing', require('./sharing.routes'));
 
 module.exports = router;

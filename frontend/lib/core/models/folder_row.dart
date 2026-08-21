@@ -16,6 +16,10 @@ abstract class FolderRow with _$FolderRow {
     @JsonKey(name: 'department_id') int? departmentId,
     @JsonKey(name: 'retention_class_id') int? retentionClassId,
     @JsonKey(name: 'retention_class_name') String? retentionClassName,
+    // Comma-separated distinct storage providers used by this folder's own
+    // (direct, non-recursive) documents — see folders.routes.js. Null if
+    // the folder has none.
+    @JsonKey(name: 'storage_providers') String? storageProviders,
   }) = _FolderRow;
 
   factory FolderRow.fromJson(Map<String, dynamic> json) => _$FolderRowFromJson(json);

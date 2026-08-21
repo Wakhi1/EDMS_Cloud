@@ -29,12 +29,23 @@ class AuditScreen extends ConsumerStatefulWidget {
 class _AuditScreenState extends ConsumerState<AuditScreen> {
   bool _exporting = false;
 
-  Future<void> _exportCsv() async {
+  static const _mimeTypes = {
+    'csv': 'text/csv',
+    'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'pdf': 'application/pdf',
+  };
+
+  Future<void> _export(String format) async {
     setState(() => _exporting = true);
     try {
       final f = ref.read(auditFiltersProvider);
-      final result = await ref.read(auditApiProvider).exportCsv(action: f.action, recordType: f.recordType, q: f.q, from: f.from, to: f.to);
-      await saveBytes(bytes: result.bytes, fileName: result.fileName, mimeType: 'text/csv');
+      final api = ref.read(auditApiProvider);
+      final result = switch (format) {
+        'xlsx' => await api.exportXlsx(action: f.action, recordType: f.recordType, q: f.q, from: f.from, to: f.to),
+        'pdf' => await api.exportPdf(action: f.action, recordType: f.recordType, q: f.q, from: f.from, to: f.to),
+        _ => await api.exportCsv(action: f.action, recordType: f.recordType, q: f.q, from: f.from, to: f.to),
+      };
+      await saveBytes(bytes: result.bytes, fileName: result.fileName, mimeType: _mimeTypes[format]!);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Downloaded ${result.fileName}')));
       }
@@ -59,11 +70,28 @@ class _AuditScreenState extends ConsumerState<AuditScreen> {
             children: [
               Text('Governance / Audit Trail', style: Theme.of(context).textTheme.titleMedium),
               const Spacer(),
-              OutlinedButton(
-                onPressed: _exporting ? null : _exportCsv,
-                child: _exporting
-                    ? const SizedBox(height: 14, width: 14, child: CircularProgressIndicator(strokeWidth: 2))
-                    : const Text('Export audit log (CSV)'),
+              PopupMenuButton<String>(
+                enabled: !_exporting,
+                onSelected: _export,
+                itemBuilder: (_) => const [
+                  PopupMenuItem(value: 'csv', child: Text('Export as CSV')),
+                  PopupMenuItem(value: 'xlsx', child: Text('Export as Excel')),
+                  PopupMenuItem(value: 'pdf', child: Text('Export as PDF')),
+                ],
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                  decoration: BoxDecoration(border: Border.all(color: tokens.line2)),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _exporting
+                          ? const SizedBox(height: 14, width: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                          : Icon(Icons.download, size: 16, color: tokens.ink),
+                      const SizedBox(width: 8),
+                      const Text('Export audit log'),
+                    ],
+                  ),
+                ),
               ),
               const SizedBox(width: 8),
               const _VerifyChainButton(),
@@ -71,7 +99,7 @@ class _AuditScreenState extends ConsumerState<AuditScreen> {
           ),
           const SizedBox(height: 4),
           Text(
-            'CSV export respects the filters below and is capped by the configured bulk export limit.',
+            'Exports (CSV, Excel, PDF) respect the filters below and are capped by the configured bulk export limit.',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(color: tokens.ink2),
           ),
           const SizedBox(height: 12),

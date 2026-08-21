@@ -76,12 +76,13 @@ router.get('/', requireModuleAccess('repository'), asyncHandler(async (req, res)
             d.member_name, d.created_at, d.updated_at,
             dt.name AS document_type, dep.name AS department, f.path AS folder_path,
             v.version_no AS current_version_no, u.full_name AS owner_name,
-            v.mime_type, v.file_name, v.size_bytes
+            v.mime_type, v.file_name, v.size_bytes, dso.provider AS storage_provider
      FROM documents d
      JOIN document_types dt ON dt.id = d.document_type_id
      LEFT JOIN departments dep ON dep.id = d.department_id
      JOIN folders f ON f.id = d.folder_id
      LEFT JOIN document_versions v ON v.id = d.current_version_id
+     LEFT JOIN document_storage_objects dso ON dso.id = v.storage_object_id
      JOIN users u ON u.id = d.owner_id
      ${where}
      ORDER BY d.created_at DESC
@@ -95,11 +96,14 @@ router.get('/', requireModuleAccess('repository'), asyncHandler(async (req, res)
 /** GET /api/documents/:id — full metadata for the document viewer. */
 router.get('/:id', requireModuleAccess('viewer'), asyncHandler(async (req, res) => {
   const [rows] = await pool.query(
-    `SELECT d.*, dt.name AS document_type, f.path AS folder_path, u.full_name AS owner_name
+    `SELECT d.*, dt.name AS document_type, f.path AS folder_path, u.full_name AS owner_name,
+            dso.provider AS storage_provider
      FROM documents d
      JOIN document_types dt ON dt.id = d.document_type_id
      JOIN folders f ON f.id = d.folder_id
      JOIN users u ON u.id = d.owner_id
+     LEFT JOIN document_versions v ON v.id = d.current_version_id
+     LEFT JOIN document_storage_objects dso ON dso.id = v.storage_object_id
      WHERE d.id = ?`,
     [req.params.id]
   );
@@ -351,6 +355,28 @@ router.delete('/:id', requireModuleAccess('repository', true), asyncHandler(asyn
   await pool.query('UPDATE documents SET status = "archived" WHERE id = ?', [req.params.id]);
   await logAudit({ userId: req.user.id, action: 'Delete', recordType: 'document', recordId: req.params.id, detail: `${doc.record_no} archived`, ip: req.ip });
   return ok(res, null, 'Record archived');
+}));
+
+/**
+ * POST /api/documents/recycle-bin/empty — permanently disposes every
+ * archived (recycle-bin) record the caller has edit access to. Same
+ * terminal state as retention.routes.js's dispose action — never a raw
+ * SQL DELETE, records-integrity: nothing registered here is ever truly
+ * erased, only marked disposed (and excluded from every normal listing).
+ */
+router.post('/recycle-bin/empty', requireModuleAccess('repository', true), asyncHandler(async (req, res) => {
+  const [docs] = await pool.query(`SELECT id, record_no FROM documents WHERE status = 'archived'`);
+  let disposed = 0;
+  for (const doc of docs) {
+    // eslint-disable-next-line no-await-in-loop
+    if (!await aclService.hasAccess(req.user.id, req.user.role, 'document', doc.id, 'edit')) continue;
+    // eslint-disable-next-line no-await-in-loop
+    await pool.query(`UPDATE documents SET status = 'disposed' WHERE id = ?`, [doc.id]);
+    // eslint-disable-next-line no-await-in-loop
+    await logAudit({ userId: req.user.id, action: 'Disposal', recordType: 'document', recordId: doc.id, detail: `${doc.record_no} permanently disposed via empty recycle bin`, ip: req.ip });
+    disposed += 1;
+  }
+  return ok(res, { disposed }, disposed ? `${disposed} record(s) permanently disposed` : 'Recycle bin is already empty');
 }));
 
 /** POST /api/documents/:id/restore — takes an archived record out of the recycle bin, back to 'draft'. */
