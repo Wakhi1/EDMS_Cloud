@@ -5,19 +5,17 @@ import 'package:go_router/go_router.dart';
 import '../../features/approvals/presentation/approvals_screen.dart';
 import '../../features/audit/presentation/audit_screen.dart';
 import '../../features/backup/presentation/backup_screen.dart';
+import '../../features/bootstrap/presentation/bootstrap_screen.dart';
 import '../../features/capture/presentation/capture_screen.dart';
 import '../../features/dashboard/presentation/dashboard_screen.dart';
 import '../../features/departments/presentation/departments_screen.dart';
 import '../../features/document_viewer/presentation/viewer_screen.dart';
 import '../../features/integrations/presentation/integrations_screen.dart';
+import '../../features/license_activation/presentation/license_activation_screen.dart';
 import '../../features/login/presentation/login_screen.dart';
 import '../../features/notifications/presentation/notifications_screen.dart';
 import '../../features/permissions/presentation/permissions_home_screen.dart';
 import '../../features/permissions/presentation/permissions_target_screen.dart';
-import '../../features/platform_admin/presentation/companies_list_screen.dart';
-import '../../features/platform_admin/presentation/company_detail_screen.dart';
-import '../../features/platform_admin/presentation/platform_admin_login_screen.dart';
-import '../../features/platform_admin/presentation/platform_admin_shell.dart';
 import '../../features/repository/presentation/repository_screen.dart';
 import '../../features/reports/presentation/reports_screen.dart';
 import '../../features/retention/presentation/retention_screen.dart';
@@ -32,20 +30,21 @@ import '../../features/workflow_designer/presentation/workflow_designer_screen.d
 import '../auth/auth_providers.dart';
 import '../auth/auth_state.dart';
 import '../auth/module_access_events.dart';
-import '../platform_admin/platform_admin_providers.dart';
+import '../license/license_gate_provider.dart';
 import '../widgets/access_denied_screen.dart';
 import '../widgets/coming_soon_screen.dart';
 import '../widgets/responsive_scaffold.dart';
 import 'route_paths.dart';
 
-/// Bridges Riverpod's authControllerProvider into go_router's
-/// [Listenable]-based `refreshListenable`, so navigation re-evaluates
-/// `redirect` whenever the login state machine transitions (e.g. reaching
-/// `authenticated`, or forceSignOut() firing after a failed token refresh).
+/// Bridges Riverpod's authControllerProvider/licenseGateControllerProvider
+/// into go_router's [Listenable]-based `refreshListenable`, so navigation
+/// re-evaluates `redirect` whenever either state machine transitions
+/// (e.g. reaching `authenticated`, forceSignOut() firing after a failed
+/// token refresh, or the license gate flipping active after activation).
 class _GoRouterRefreshNotifier extends ChangeNotifier {
   _GoRouterRefreshNotifier(Ref ref) {
     ref.listen(authControllerProvider, (_, _) => notifyListeners());
-    ref.listen(platformAdminAuthControllerProvider, (_, _) => notifyListeners());
+    ref.listen(licenseGateControllerProvider, (_, _) => notifyListeners());
   }
 }
 
@@ -58,49 +57,49 @@ final goRouterProvider = Provider<GoRouter>((ref) {
   ref.onDispose(refreshNotifier.dispose);
 
   final router = GoRouter(
-    initialLocation: RoutePaths.login,
+    // Neutral splash, not /login — a company's license is not confirmed
+    // active yet at this point, and /login must never render (even for a
+    // single frame) until it is. See BootstrapScreen's doc comment.
+    initialLocation: RoutePaths.bootstrap,
     refreshListenable: refreshNotifier,
     redirect: (context, state) {
-      // /platform-admin/* is a fully separate auth domain (DocSecore
-      // staff, not a company user) — branch off before any tenant-auth
-      // logic runs, and never fall through to it.
-      if (state.matchedLocation.startsWith('/platform-admin')) {
-        final paState = ref.read(platformAdminAuthControllerProvider);
-        if (paState.isLoading) return null;
+      final matched = state.matchedLocation;
+      final licenseState = ref.read(licenseGateControllerProvider);
+      final authState = ref.read(authControllerProvider);
 
-        final loggedIn = paState.valueOrNull != null;
-        final atPaLogin = state.matchedLocation == RoutePaths.platformAdminLogin;
-
-        if (!loggedIn && !atPaLogin) return RoutePaths.platformAdminLogin;
-        if (loggedIn && atPaLogin) return RoutePaths.platformAdminCompanies;
-        return null;
+      // Neither check has resolved yet — park on the splash. This is the
+      // fix for "/login renders even when the license hasn't been
+      // confirmed": previously, while checking, redirect returned null and
+      // just let whatever route was already matched (e.g. /login, typed
+      // directly into the address bar) render as-is.
+      if (licenseState.checking || authState.isLoading) {
+        return matched == RoutePaths.bootstrap ? null : RoutePaths.bootstrap;
       }
 
-      final authState = ref.read(authControllerProvider);
-      // Cold-start /api/auth/me check still in flight — hold at the
-      // current location rather than bouncing to /login and back.
-      if (authState.isLoading) return null;
+      // This deployment's own license is checked before anything else —
+      // no company user reaches /login, let alone any authenticated
+      // route, while it's inactive. See core/license/license_gate_provider.dart.
+      final atActivation = matched == RoutePaths.licenseActivation;
+      if (!licenseState.active) return atActivation ? null : RoutePaths.licenseActivation;
 
       final loggedIn = authState.valueOrNull is LoginAuthenticated;
-      final atLogin = state.matchedLocation == RoutePaths.login;
+      final atLogin = matched == RoutePaths.login;
+
+      // Both checks just resolved (coming from the splash) or the license
+      // just got activated — send to the real destination in one hop
+      // rather than landing on an intermediate screen first.
+      if (matched == RoutePaths.bootstrap || atActivation) {
+        return loggedIn ? RoutePaths.dashboard : RoutePaths.login;
+      }
 
       if (!loggedIn && !atLogin) return RoutePaths.login;
       if (loggedIn && atLogin) return RoutePaths.dashboard;
       return null;
     },
     routes: [
+      GoRoute(path: RoutePaths.bootstrap, builder: (context, state) => const BootstrapScreen()),
       GoRoute(path: RoutePaths.login, builder: (context, state) => const LoginScreen()),
-      GoRoute(path: RoutePaths.platformAdminLogin, builder: (context, state) => const PlatformAdminLoginScreen()),
-      ShellRoute(
-        builder: (context, state, child) => PlatformAdminShell(child: child),
-        routes: [
-          GoRoute(path: RoutePaths.platformAdminCompanies, builder: (context, state) => const CompaniesListScreen()),
-          GoRoute(
-            path: RoutePaths.platformAdminCompanyDetail,
-            builder: (context, state) => CompanyDetailScreen(companyId: int.parse(state.pathParameters['id']!)),
-          ),
-        ],
-      ),
+      GoRoute(path: RoutePaths.licenseActivation, builder: (context, state) => const LicenseActivationScreen()),
       ShellRoute(
         builder: (context, state, child) => ResponsiveScaffold(child: child),
         routes: [

@@ -141,28 +141,22 @@ class Endpoints {
   static const settings = '/api/settings';
   static String settingByKey(String key) => '/api/settings/$key';
   static const settingsMyPreferences = '/api/settings/me/preferences';
+  static const settingsTheme = '/api/settings/theme';
 
   // backup.routes.js
   static const backups = '/api/backup';
   static const backupRun = '/api/backup/run';
   static String backupRestore(String id) => '/api/backup/$id/restore';
 
-  // platform-admin/*.routes.js — DocSecore staff, a fully separate identity
-  // space from every endpoint above (see backend/middleware/platformAuth.middleware.js).
-  static const platformAdminLogin = '/api/platform-admin/auth/login';
-  static const platformAdminRefresh = '/api/platform-admin/auth/refresh';
-  static const platformAdminLogout = '/api/platform-admin/auth/logout';
-  static const platformAdminMe = '/api/platform-admin/auth/me';
-  static const platformAdminCompanies = '/api/platform-admin/companies';
-  static String platformAdminCompanyById(String id) => '/api/platform-admin/companies/$id';
-  static String platformAdminCompanyStatus(String id) => '/api/platform-admin/companies/$id/status';
-  static String platformAdminCompanyAdminUser(String id) => '/api/platform-admin/companies/$id/admin-user';
-  static String platformAdminCompanyBrandingTheme(String id) => '/api/platform-admin/companies/$id/branding/theme';
-  static String platformAdminCompanyBrandingHistory(String id) => '/api/platform-admin/companies/$id/branding/history';
-  static String platformAdminCompanyAudit(String id) => '/api/platform-admin/companies/$id/audit';
-  static const platformAdminLicenses = '/api/platform-admin/licenses';
-  static String platformAdminLicenseById(String id) => '/api/platform-admin/licenses/$id';
-  static String platformAdminLicenseRevoke(String id) => '/api/platform-admin/licenses/$id/revoke';
-  static String platformAdminLicenseValidate(String id) => '/api/platform-admin/licenses/$id/validate';
-  static String platformAdminLicenseValidationHistory(String id) => '/api/platform-admin/licenses/$id/validation-history';
+  // license.routes.js — this deployment's own license status/activation,
+  // checked before the login screen. DocSecure's docsecure-platform-provider
+  // is the actual licensing authority now; there is no local platform-admin
+  // console anymore (see git history for routes/platform-admin/'s removal).
+  static const licenseStatus = '/api/license/status';
+  static const licenseActivate = '/api/license/activate';
+
+  // branding.routes.js
+  static const branding = '/api/branding';
+  static const brandingLogoUrl = '/api/branding/logo';
+  static const brandingFaviconUrl = '/api/branding/favicon';
 }

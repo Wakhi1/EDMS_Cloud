@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/auth/auth_providers.dart';
 import '../../../../core/auth/auth_state.dart';
+import '../../../../core/branding/branding_provider.dart';
+import '../../../../core/models/company_branding.dart';
 import '../../../../core/theme/pspf_tokens.dart';
 import '../../../../core/widgets/error_banner.dart';
 import '../../../../core/widgets/step_eyebrow.dart';
@@ -43,6 +45,7 @@ class _CredentialsStepState extends ConsumerState<CredentialsStep> {
     final tokens = context.tokens;
     final textTheme = Theme.of(context).textTheme;
     final submitting = widget.state.isSubmitting;
+    final branding = ref.watch(companyBrandingProvider).valueOrNull ?? CompanyBranding.fallback;
 
     return Form(
       key: _formKey,
@@ -74,7 +77,7 @@ class _CredentialsStepState extends ConsumerState<CredentialsStep> {
             keyboardType: TextInputType.emailAddress,
             enabled: !submitting,
             autofillHints: const [AutofillHints.username],
-            validator: (v) => (v == null || v.trim().isEmpty) ? 'Enter your PSPF email address.' : null,
+            validator: (v) => (v == null || v.trim().isEmpty) ? 'Enter your ${branding.companyCode ?? branding.name} email address.' : null,
             onFieldSubmitted: (_) => _submit(),
           ),
           const SizedBox(height: 14),
@@ -112,7 +115,7 @@ class _CredentialsStepState extends ConsumerState<CredentialsStep> {
               border: Border(left: BorderSide(color: tokens.warn, width: 3)),
             ),
             child: Text(
-              'Access is restricted to authorised PSPF staff and ministry liaison officers. '
+              'Access is restricted to authorised ${branding.companyCode ?? branding.name} staff and ministry liaison officers. '
               'Sign-in attempts, IP address and device are recorded.',
               style: textTheme.bodySmall?.copyWith(color: tokens.ink2),
             ),

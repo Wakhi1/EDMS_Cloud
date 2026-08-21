@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/auth/auth_providers.dart';
 import '../../../../core/auth/auth_state.dart';
+import '../../../../core/branding/branding_provider.dart';
+import '../../../../core/models/company_branding.dart';
 import '../../../../core/theme/pspf_tokens.dart';
 import '../../../../core/widgets/error_banner.dart';
 import '../../../../core/widgets/step_eyebrow.dart';
@@ -30,6 +32,7 @@ class _ResetPasswordStepState extends ConsumerState<ResetPasswordStep> {
     final tokens = context.tokens;
     final textTheme = Theme.of(context).textTheme;
     final state = widget.state;
+    final branding = ref.watch(companyBrandingProvider).valueOrNull ?? CompanyBranding.fallback;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -40,7 +43,7 @@ class _ResetPasswordStepState extends ConsumerState<ResetPasswordStep> {
         Text('Reset password', style: textTheme.headlineSmall),
         const SizedBox(height: 8),
         Text(
-          'A single-use link is sent to your official PSPF email address.',
+          'A single-use link is sent to your official ${branding.companyCode ?? branding.name} email address.',
           style: textTheme.bodyMedium?.copyWith(color: tokens.ink2),
         ),
         const SizedBox(height: 16),

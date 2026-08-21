@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../models/company_branding.dart';
+import '../utils/hex_color.dart';
 import 'app_colors.dart';
 import 'app_typography.dart';
 import 'pspf_tokens.dart';
@@ -12,8 +14,35 @@ class AppTheme {
 
   static const _zero = RoundedRectangleBorder(borderRadius: BorderRadius.zero);
 
-  static ThemeData light() => _build(AppColors.light(), PspfTokens.light);
-  static ThemeData dark() => _build(AppColors.dark(), PspfTokens.dark);
+  static ThemeData light({CompanyBranding? branding}) => _build(AppColors.light(), _brandedTokens(PspfTokens.light, branding));
+  static ThemeData dark({CompanyBranding? branding}) => _build(AppColors.dark(), _brandedTokens(PspfTokens.dark, branding));
+
+  /// Re-tints the accent-family tokens (buttons, focus rings, the app
+  /// bar's bottom line, selected states, the info color) from this
+  /// deployment's own company branding, read live from
+  /// docsecure-platform-provider — everything else (paper/surf/ink and
+  /// the light/dark structural colors) stays as designed, so a bad or
+  /// low-contrast brand color can't wreck legibility, only the accent.
+  static PspfTokens _brandedTokens(PspfTokens base, CompanyBranding? branding) {
+    final primary = parseHexColor(branding?.primaryColor);
+    final secondary = parseHexColor(branding?.secondaryColor);
+    final accent = parseHexColor(branding?.accentColor);
+    if (primary == null && secondary == null && accent == null) return base;
+
+    return base.copyWith(
+      acc: primary ?? base.acc,
+      accD: primary != null ? _shiftLightness(primary, -0.12) : base.accD,
+      accT: primary != null ? _shiftLightness(primary, 0.35) : base.accT,
+      barLine: primary ?? base.barLine,
+      acc2: secondary ?? base.acc2,
+      info: accent ?? base.info,
+    );
+  }
+
+  static Color _shiftLightness(Color color, double amount) {
+    final hsl = HSLColor.fromColor(color);
+    return hsl.withLightness((hsl.lightness + amount).clamp(0.0, 1.0)).toColor();
+  }
 
   static ThemeData _build(ColorScheme scheme, PspfTokens tokens) {
     final textTheme = AppTypography.textTheme(tokens.ink, tokens.ink2);

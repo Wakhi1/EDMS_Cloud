@@ -33,4 +33,15 @@ class SettingsApi {
     );
     _client.unwrap(response, (_) => null);
   }
+
+  /// PUT /api/settings/theme — pushes this company's brand colors up to
+  /// docsecure-platform-provider (System Administrator only server-side).
+  /// Each color is "#RRGGBB" or null to leave it unchanged.
+  Future<void> updateTheme({String? primaryColor, String? secondaryColor, String? accentColor}) async {
+    final response = await _client.put(
+      Endpoints.settingsTheme,
+      data: {'primaryColor': ?primaryColor, 'secondaryColor': ?secondaryColor, 'accentColor': ?accentColor},
+    );
+    _client.unwrap(response, (_) => null);
+  }
 }

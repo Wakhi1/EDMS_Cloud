@@ -13,6 +13,7 @@ const asyncHandler = require('../utils/asyncHandler');
 const { authenticate } = require('../middleware/auth.middleware');
 const { requireModuleAccess, allowRoles } = require('../middleware/rbac.middleware');
 const { logAudit } = require('../services/audit.service');
+const { getStoredLicenseKey, verifyLicenseKeyWithProvider } = require('../services/license.service');
 
 const router = express.Router();
 router.use(authenticate);
@@ -49,6 +50,53 @@ router.put(
       [req.user.id, req.user.companyId, themeMode || null, density || null, themeMode || null, density || null]
     );
     return ok(res, null, 'Preferences updated');
+  })
+);
+
+/**
+ * PUT /api/settings/theme — { primaryColor?, secondaryColor?, accentColor? }
+ * (each "#RRGGBB" or omitted to leave unchanged). Pushes this company's
+ * brand colors up to docsecure-platform-provider — the actual owner of
+ * branding — authenticated by this deployment's own stored license key,
+ * not a separate credential. Registered before PUT /:key (a wildcard
+ * route) so it isn't shadowed.
+ */
+router.put(
+  '/theme',
+  allowRoles('System Administrator'),
+  [
+    body('primaryColor').optional({ checkFalsy: true }).matches(/^#[0-9a-fA-F]{6}$/),
+    body('secondaryColor').optional({ checkFalsy: true }).matches(/^#[0-9a-fA-F]{6}$/),
+    body('accentColor').optional({ checkFalsy: true }).matches(/^#[0-9a-fA-F]{6}$/),
+  ],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return fail(res, 'Enter colors as #RRGGBB.', 422, errors.array());
+
+    const licenseKey = await getStoredLicenseKey();
+    if (!licenseKey) return fail(res, 'This deployment has no active license to update branding for.', 409);
+
+    const baseUrl = process.env.PLATFORM_PROVIDER_BASE_URL;
+    if (!baseUrl) return fail(res, 'This deployment is not configured to reach DocSecure’s licensing platform.', 502);
+
+    const verification = await verifyLicenseKeyWithProvider(licenseKey);
+    if (!verification.valid) return fail(res, 'This deployment’s license is not currently valid.', 403);
+
+    let payload;
+    try {
+      const response = await fetch(`${baseUrl}/companies/${encodeURIComponent(verification.companyCode)}/theme`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ licenseKey, ...req.body }),
+      });
+      payload = await response.json();
+      if (!response.ok) return fail(res, payload.error || 'Could not update theme.', response.status);
+    } catch {
+      return fail(res, 'Could not reach DocSecure’s licensing platform.', 502);
+    }
+
+    await logAudit({ userId: req.user.id, companyId: req.user.companyId, action: 'Edit', recordType: 'branding_theme', recordId: 'theme', ip: req.ip });
+    return ok(res, null, 'Theme updated');
   })
 );
 

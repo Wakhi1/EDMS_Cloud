@@ -1,114 +1,109 @@
 /**
  * services/license.service.js
- * "Two-key" license signing/verification: a private key (env-only, never
- * in the DB or an API response) signs a license as an RS256 JWT; the
- * matching public key verifies it and is safe to expose (served
- * unauthenticated at GET /api/platform-admin/licenses/public-key).
+ * Licensing is owned entirely by docsecure-platform-provider now:
+ * companies, license terms, status, and history all live there. This
+ * deployment keeps exactly one thing locally — the license key it was
+ * activated with (system_settings, key 'license_key') — and verifies
+ * it against the provider live, on every check. There is no local
+ * `licenses`/`license_validation_log` table, no cached status, and no
+ * resilience to a provider outage: if the provider can't be reached,
+ * the check fails, on purpose (see checkDeploymentLicense).
  */
-const jwt = require('jsonwebtoken');
 const { pool } = require('../config/db');
 const logger = require('../config/logger');
 
-/** .env stores PEMs as single-line, \n-escaped strings — see .env.example. */
-function unescapePem(value) {
-  return value ? value.replace(/\\n/g, '\n') : value;
+const LICENSE_KEY_SETTING = 'license_key';
+
+/** This deployment is single-tenant — every row still tagged with a company_id (users, documents, ...) uses this fixed value. */
+const HOME_COMPANY_ID = 1;
+
+async function getStoredLicenseKey() {
+  const [[row]] = await pool.query(`SELECT setting_value FROM system_settings WHERE setting_key = ?`, [LICENSE_KEY_SETTING]);
+  return row?.setting_value || null;
 }
 
-function privateKeyPem() {
-  return unescapePem(process.env.LICENSE_SIGNING_PRIVATE_KEY_PEM);
-}
-
-function publicKeyPem() {
-  return unescapePem(process.env.LICENSE_SIGNING_PUBLIC_KEY_PEM);
-}
-
-/**
- * Signs a new license token. Does not touch the database — callers
- * (routes/platform-admin/licenses.routes.js) persist the returned token
- * into `licenses.signed_token` themselves, in the same transaction as
- * the row insert.
- */
-function signLicense({ licenseKey, companyId, companyCode, licenseType, maxUsers, storageQuotaBytes, enabledModules, expiresAt }) {
-  const payload = {
-    jti: licenseKey,
-    sub: `company:${companyId}`,
-    companyId,
-    companyCode,
-    licenseType,
-    maxUsers: maxUsers ?? null,
-    storageQuotaBytes: storageQuotaBytes ?? null,
-    enabledModules: enabledModules ?? [],
-  };
-  const expiresInMs = new Date(expiresAt).getTime() - Date.now();
-  return jwt.sign(payload, privateKeyPem(), {
-    algorithm: 'RS256',
-    issuer: process.env.LICENSE_ISSUER,
-    expiresIn: Math.max(Math.floor(expiresInMs / 1000), 1),
-  });
-}
-
-/**
- * Verifies a persisted license token's signature/expiry against the
- * public key. Returns { valid, claims } or { valid: false, result, detail }
- * where `result` matches the license_validation_log.result enum.
- */
-function verifyLicenseToken(token) {
-  try {
-    const claims = jwt.verify(token, publicKeyPem(), {
-      algorithms: ['RS256'],
-      issuer: process.env.LICENSE_ISSUER,
-    });
-    return { valid: true, claims };
-  } catch (err) {
-    if (err.name === 'TokenExpiredError') return { valid: false, result: 'expired', detail: err.message };
-    if (err.name === 'JsonWebTokenError') return { valid: false, result: 'signature_invalid', detail: err.message };
-    return { valid: false, result: 'malformed', detail: err.message };
-  }
-}
-
-async function writeValidationLog({ licenseId = null, companyId = null, result, source, detail = null }) {
-  try {
-    await pool.query(
-      `INSERT INTO license_validation_log (license_id, company_id, result, source, detail) VALUES (?, ?, ?, ?, ?)`,
-      [licenseId, companyId, result, source, detail]
-    );
-  } catch (err) {
-    logger.error('Failed to write license_validation_log entry', { error: err.message, licenseId, companyId, result });
-  }
-}
-
-/**
- * The actual enforcement point — called from POST /api/auth/login (and
- * the federated sign-in tail) before tokens are issued, and on-demand via
- * POST /api/platform-admin/licenses/:id/validate. `source` is
- * 'login' | 'manual_admin_check' (the third value, 'scheduled_check', is
- * written directly by services/license/scheduler.js instead).
- */
-async function checkCompanyLicense(companyId, source = 'login') {
-  const [[license]] = await pool.query(
-    `SELECT * FROM licenses WHERE company_id = ? AND status = 'active' ORDER BY issued_at DESC LIMIT 1`,
-    [companyId]
+async function storeLicenseKey(licenseKey) {
+  await pool.query(
+    `INSERT INTO system_settings (setting_key, company_id, setting_value, description)
+     VALUES (?, ?, ?, 'The license key this deployment was activated with — verified live against DocSecure''s licensing platform on every check')
+     ON DUPLICATE KEY UPDATE setting_value = ?`,
+    [LICENSE_KEY_SETTING, HOME_COMPANY_ID, licenseKey, licenseKey]
   );
-  if (!license) {
-    await writeValidationLog({ companyId, result: 'not_found', source, detail: 'No active license row' });
-    return { ok: false, reason: 'not_found' };
-  }
-
-  const verification = verifyLicenseToken(license.signed_token);
-  if (!verification.valid) {
-    // A token failing signature/expiry verification while the DB row still
-    // says 'active' means the row is stale (e.g. the scheduler hasn't
-    // ticked yet for an expiry) — flip it here too, not just in the
-    // scheduler, so enforcement is never a step behind the log.
-    if (verification.result === 'expired') {
-      await pool.query(`UPDATE licenses SET status = 'expired' WHERE id = ?`, [license.id]);
-    }
-    await writeValidationLog({ licenseId: license.id, companyId, result: verification.result, source, detail: verification.detail });
-    return { ok: false, reason: verification.result };
-  }
-
-  await writeValidationLog({ licenseId: license.id, companyId, result: 'valid', source });
-  return { ok: true, license, claims: verification.claims };
 }
 
-module.exports = { signLicense, verifyLicenseToken, checkCompanyLicense, writeValidationLog, privateKeyPem, publicKeyPem };
+/** "3d 4h" / "6h" / "expired" — for logging/display of a license's remaining time. */
+function formatCountdown(expiresAt) {
+  const ms = new Date(expiresAt).getTime() - Date.now();
+  if (ms <= 0) return 'expired';
+  const days = Math.floor(ms / 86400000);
+  const hours = Math.floor((ms % 86400000) / 3600000);
+  return days > 0 ? `${days}d ${hours}h remaining` : `${hours}h remaining`;
+}
+
+/**
+ * Calls docsecure-platform-provider's GET /verify/:licenseKey — the one
+ * and only way this deployment ever learns whether it's licensed, used
+ * both by activation (a fresh key an admin was just emailed) and by
+ * every ongoing check (the previously-stored key). Never throws;
+ * network/malformed-response failures come back as
+ * { valid: false, reason: 'provider_unreachable' }.
+ */
+async function verifyLicenseKeyWithProvider(licenseKey) {
+  const baseUrl = process.env.PLATFORM_PROVIDER_BASE_URL;
+  if (!baseUrl) return { valid: false, reason: 'not_configured' };
+
+  try {
+    const response = await fetch(`${baseUrl}/verify/${encodeURIComponent(licenseKey)}`);
+    if (!response.ok) return { valid: false, reason: 'provider_unreachable' };
+    const payload = await response.json();
+    if (!payload.valid) return { valid: false, reason: payload.result || 'invalid' };
+    return {
+      valid: true,
+      companyCode: payload.companyCode,
+      companyName: payload.companyName,
+      licenseType: payload.licenseType,
+      expiresAt: payload.expiresAt,
+    };
+  } catch (err) {
+    logger.error('License key verification request failed', { error: err.message });
+    return { valid: false, reason: 'provider_unreachable' };
+  }
+}
+
+/**
+ * The actual enforcement point — called from POST /api/auth/login, the
+ * federated sign-in tail, GET /api/license/status, and the startup/
+ * hourly scheduler. Reads the stored key and re-verifies it against the
+ * provider live every time; there's no local cache to fall back on, so
+ * a provider outage fails the check rather than silently passing.
+ */
+async function checkDeploymentLicense(source = 'login') {
+  const licenseKey = await getStoredLicenseKey();
+  if (!licenseKey) return { ok: false, reason: 'not_activated' };
+
+  const verification = await verifyLicenseKeyWithProvider(licenseKey);
+  if (!verification.valid) {
+    logger.warn('License check failed', { source, reason: verification.reason });
+    return { ok: false, reason: verification.reason };
+  }
+  return { ok: true, ...verification };
+}
+
+/** Verifies a fresh key against the provider and, if valid, stores it as this deployment's license. */
+async function activateLicense(licenseKey) {
+  const verification = await verifyLicenseKeyWithProvider(licenseKey);
+  if (!verification.valid) return { activated: false, reason: verification.reason };
+
+  await storeLicenseKey(licenseKey);
+  logger.info('License activated', { companyCode: verification.companyCode, licenseType: verification.licenseType });
+  return { activated: true, ...verification };
+}
+
+module.exports = {
+  HOME_COMPANY_ID,
+  getStoredLicenseKey,
+  checkDeploymentLicense,
+  verifyLicenseKeyWithProvider,
+  activateLicense,
+  formatCountdown,
+};

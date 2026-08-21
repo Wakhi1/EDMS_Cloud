@@ -1,41 +1,44 @@
 /**
  * services/license/scheduler.js
- * Hourly proactive check of every active license's expiry — same
- * non-durable, setInterval-based philosophy as services/backup/scheduler.js
- * (no job queue, no persistence across restarts). Flips `licenses.status`
- * to 'expired' in the DB as soon as `expires_at` passes, so a dormant
- * company's license doesn't appear falsely "active" between logins.
+ * Re-verifies this deployment's license against docsecure-platform-
+ * provider — once, synchronously, at server startup (server.js awaits
+ * runInitialCheck() before it starts accepting connections, so "the
+ * server is up" and "the license has been checked with DocSecure" are
+ * the same moment, not a background race), then again every hour after
+ * that (startScheduler) to catch a revoke/suspend/renewal issued
+ * centrally. There's nothing to write locally on a tick — the check
+ * itself (services/license.service.js's checkDeploymentLicense) is the
+ * whole point; login enforces it live on every request regardless.
  */
-const { pool } = require('../../config/db');
 const logger = require('../../config/logger');
-const { checkCompanyLicense } = require('../license.service');
+const { checkDeploymentLicense } = require('../license.service');
 
 const CHECK_INTERVAL_MS = 60 * 60 * 1000;
 
 let timer = null;
 
-async function checkAllActiveLicenses() {
-  try {
-    const [rows] = await pool.query(`SELECT id, company_id FROM licenses WHERE status = 'active'`);
-    for (const row of rows) {
-      // checkCompanyLicense already flips an expired row's status and
-      // writes the log entry as a side effect; run it per-company so a
-      // superseded/duplicate row (shouldn't normally exist) doesn't get
-      // double-counted.
-      // eslint-disable-next-line no-await-in-loop
-      await checkCompanyLicense(row.company_id, 'scheduled_check');
-    }
-    logger.info('License scheduler tick complete', { checked: rows.length });
-  } catch (err) {
-    logger.error('License scheduler tick failed', { error: err.message });
-  }
+/**
+ * Awaited once, directly in server.js's startup sequence, before
+ * app.listen() — this is the literal "when it starts, it connects to
+ * the docsecure-platform-provider engine to verify the license" step.
+ * A provider outage here doesn't crash the boot — the server still
+ * comes up either way, and every login attempt re-checks live anyway —
+ * but the result is logged before the server is considered ready.
+ */
+async function runInitialCheck() {
+  logger.info('Verifying license with DocSecure platform-provider...', { baseUrl: process.env.PLATFORM_PROVIDER_BASE_URL || '(not configured)' });
+  const result = await checkDeploymentLicense('scheduled_check');
+  logger.info('Initial license verification complete', { active: result.ok, reason: result.reason });
 }
 
 function startScheduler() {
   if (timer) return;
-  timer = setInterval(checkAllActiveLicenses, CHECK_INTERVAL_MS);
-  checkAllActiveLicenses();
+  timer = setInterval(() => {
+    checkDeploymentLicense('scheduled_check')
+      .then((result) => logger.info('License scheduler tick complete', { active: result.ok, reason: result.reason }))
+      .catch((err) => logger.error('License scheduler tick failed', { error: err.message }));
+  }, CHECK_INTERVAL_MS);
   logger.info('License scheduler started', { checkIntervalMs: CHECK_INTERVAL_MS });
 }
 
-module.exports = { startScheduler };
+module.exports = { runInitialCheck, startScheduler };

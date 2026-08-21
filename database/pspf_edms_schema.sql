@@ -3,13 +3,18 @@
 -- Database schema (MySQL 5.7+/8, InnoDB, utf8mb4) — XAMPP/phpMyAdmin ready
 -- Import via phpMyAdmin > Import, or:  mysql -u root -p < pspf_edms_schema.sql
 --
--- Multi-tenant: every tenant-owned table below carries a `company_id`
--- (see section 0). This file is pure structure + a bootstrap 'PSPF'
--- company row so the existing seed data below has somewhere to attach —
--- it does NOT seed a platform_admins login (never hardcode credentials in
--- source control). Run `node backend/scripts/migrate-multitenant.js`
--- after importing this file to create your own platform-admin login and
--- (on an existing pre-multi-tenant DB) backfill company_id on real data.
+-- Single-tenant per deployment: company identity and licensing are owned
+-- entirely by docsecure-platform-provider (a separate system) — this
+-- database holds no `companies`/`licenses` tables of its own. Every
+-- tenant-owned table below still carries a `company_id` (kept as a plain,
+-- unconstrained tag, not a foreign key) for consistency, seeded here as
+-- `1`. The one thing this deployment records locally is the license key
+-- it was activated with (`system_settings`, key 'license_key') — see
+-- backend/services/license.service.js — verified live against the
+-- provider on every check, not cached. It does NOT seed a platform_admins
+-- login (never hardcode credentials in source control); run
+-- `node backend/scripts/migrate-multitenant.js` after importing this file
+-- to create your own.
 -- =====================================================================
 
 SET NAMES utf8mb4;
@@ -53,93 +58,6 @@ CREATE TABLE `platform_admin_sessions` (
   CONSTRAINT `fk_pasession_admin` FOREIGN KEY (`platform_admin_id`) REFERENCES `platform_admins`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
--- One row per licensed client company (tenant). `created_by` is nullable
--- so this table can be seeded (see bootstrap INSERT below) before any
--- platform_admins row exists, without a circular FK dependency.
-CREATE TABLE `companies` (
-  `id`                     INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  `company_code`           VARCHAR(20) NOT NULL UNIQUE,   -- short slug e.g. 'PSPF' — entered at login to disambiguate which tenant a user belongs to
-  `name`                   VARCHAR(190) NOT NULL,
-  `registration_no`        VARCHAR(80) NULL,
-  `tax_id`                 VARCHAR(80) NULL,
-  `contact_name`           VARCHAR(150) NULL,
-  `contact_email`          VARCHAR(190) NULL,
-  `contact_phone`          VARCHAR(30) NULL,
-  `logo_provider`          VARCHAR(30) NULL,              -- matches document_storage_objects.provider enum values
-  `logo_object_key`        VARCHAR(500) NULL,
-  `logo_content_type`      VARCHAR(120) NULL,
-  `favicon_provider`       VARCHAR(30) NULL,
-  `favicon_object_key`     VARCHAR(500) NULL,
-  `favicon_content_type`   VARCHAR(120) NULL,
-  `theme_primary_color`    CHAR(7) NULL,                  -- '#RRGGBB'
-  `theme_secondary_color`  CHAR(7) NULL,
-  `theme_accent_color`     CHAR(7) NULL,
-  `custom_domain`          VARCHAR(190) NULL UNIQUE,
-  `enabled_modules_json`   JSON NULL,                     -- array of module keys this company is entitled to (see config/constants.js)
-  `storage_quota_bytes`    BIGINT UNSIGNED NULL,           -- NULL = no explicit cap
-  `max_users`              INT UNSIGNED NULL,
-  `status`                 ENUM('active','suspended','deleted') NOT NULL DEFAULT 'active',
-  `last_login_at`          DATETIME NULL,                  -- most recent successful login by any user of this company
-  `created_by`             INT UNSIGNED NULL,
-  `created_at`              DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at`              DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  CONSTRAINT `fk_company_creator` FOREIGN KEY (`created_by`) REFERENCES `platform_admins`(`id`) ON DELETE SET NULL
-) ENGINE=InnoDB;
-
--- One row per issued license (a company can have many over its lifetime —
--- renewals/upgrades supersede the previous active one rather than
--- overwriting it, so validation history stays meaningful).
-CREATE TABLE `licenses` (
-  `id`                    INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  `license_key`           CHAR(36) NOT NULL UNIQUE,       -- UUID, embedded as the signed JWT's `jti`
-  `company_id`            INT UNSIGNED NOT NULL,
-  `license_type`          ENUM('trial','standard','enterprise') NOT NULL DEFAULT 'trial',
-  `status`                ENUM('active','suspended','expired','revoked') NOT NULL DEFAULT 'active',
-  `issued_at`              DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `expires_at`             DATETIME NOT NULL,
-  `max_users`              INT UNSIGNED NULL,              -- snapshot at issuance
-  `storage_quota_bytes`    BIGINT UNSIGNED NULL,
-  `enabled_modules_json`   JSON NULL,                      -- snapshot at issuance
-  `signed_token`           TEXT NOT NULL,                  -- the persisted RS256 JWT artifact itself — re-verifiable without re-signing
-  `issued_by`               INT UNSIGNED NOT NULL,
-  `revoked_at`              DATETIME NULL,
-  `revoked_by`              INT UNSIGNED NULL,
-  `revoke_reason`           VARCHAR(255) NULL,
-  `created_at`              DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT `fk_license_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
-  CONSTRAINT `fk_license_issuer`  FOREIGN KEY (`issued_by`) REFERENCES `platform_admins`(`id`),
-  CONSTRAINT `fk_license_revoker` FOREIGN KEY (`revoked_by`) REFERENCES `platform_admins`(`id`) ON DELETE SET NULL,
-  INDEX `ix_license_company` (`company_id`),
-  INDEX `ix_license_status` (`status`)
-) ENGINE=InnoDB;
-
-CREATE TABLE `license_validation_log` (
-  `id`             BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  `license_id`     INT UNSIGNED NULL,     -- NULL if the token didn't even resolve to a known row
-  `company_id`     INT UNSIGNED NULL,
-  `result`         ENUM('valid','expired','signature_invalid','suspended','revoked','not_found','malformed') NOT NULL,
-  `source`         ENUM('login','scheduled_check','manual_admin_check') NOT NULL DEFAULT 'login',
-  `detail`         VARCHAR(500) NULL,
-  `checked_at`     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT `fk_lvl_license` FOREIGN KEY (`license_id`) REFERENCES `licenses`(`id`) ON DELETE SET NULL,
-  CONSTRAINT `fk_lvl_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`) ON DELETE SET NULL,
-  INDEX `ix_lvl_company` (`company_id`),
-  INDEX `ix_lvl_checked` (`checked_at`)
-) ENGINE=InnoDB;
-
-CREATE TABLE `company_branding_history` (
-  `id`            BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  `company_id`    INT UNSIGNED NOT NULL,
-  `changed_field` ENUM('logo','favicon','theme_primary_color','theme_secondary_color','theme_accent_color','custom_domain') NOT NULL,
-  `old_value`     VARCHAR(500) NULL,
-  `new_value`     VARCHAR(500) NULL,
-  `changed_by`    INT UNSIGNED NOT NULL,   -- FK platform_admins.id — no company self-service branding UI yet
-  `changed_at`    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT `fk_cbh_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`) ON DELETE CASCADE,
-  CONSTRAINT `fk_cbh_admin`   FOREIGN KEY (`changed_by`) REFERENCES `platform_admins`(`id`),
-  INDEX `ix_cbh_company` (`company_id`)
-) ENGINE=InnoDB;
-
 CREATE TABLE `platform_admin_audit_log` (
   `id`                 BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   `platform_admin_id`  INT UNSIGNED NULL,
@@ -149,7 +67,6 @@ CREATE TABLE `platform_admin_audit_log` (
   `ip_address`         VARCHAR(45) NULL,
   `created_at`         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT `fk_paal_admin`   FOREIGN KEY (`platform_admin_id`) REFERENCES `platform_admins`(`id`) ON DELETE SET NULL,
-  CONSTRAINT `fk_paal_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`) ON DELETE SET NULL,
   INDEX `ix_paal_company` (`company_id`),
   INDEX `ix_paal_created` (`created_at`)
 ) ENGINE=InnoDB;
@@ -166,7 +83,6 @@ CREATE TABLE `departments` (
   `description` VARCHAR(255) NULL,
   `is_active`   TINYINT(1) NOT NULL DEFAULT 1,
   `created_at`  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT `fk_department_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   UNIQUE KEY `uq_department_company_name` (`company_id`, `name`)
 ) ENGINE=InnoDB;
 
@@ -178,7 +94,6 @@ CREATE TABLE `roles` (
   `mfa_required`     TINYINT(1) NOT NULL DEFAULT 0,  -- roles touching member money / PII must use 2FA
   `is_system_role`   TINYINT(1) NOT NULL DEFAULT 0,
   `created_at`       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT `fk_role_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   UNIQUE KEY `uq_role_company_name` (`company_id`, `name`)
 ) ENGINE=InnoDB;
 
@@ -202,7 +117,6 @@ CREATE TABLE `users` (
   `password_changed_at`    DATETIME NULL,
   `created_at`             DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at`             DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  CONSTRAINT `fk_users_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   CONSTRAINT `fk_users_role` FOREIGN KEY (`role_id`) REFERENCES `roles`(`id`),
   CONSTRAINT `fk_users_department` FOREIGN KEY (`department_id`) REFERENCES `departments`(`id`),
   UNIQUE KEY `uq_users_company_staff_number` (`company_id`, `staff_number`),
@@ -226,7 +140,6 @@ CREATE TABLE `user_social_identities` (
   `raw_profile_json`  JSON NULL,
   `linked_at`         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY `uq_provider_identity` (`company_id`, `provider`, `provider_user_id`),
-  CONSTRAINT `fk_social_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   CONSTRAINT `fk_social_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
@@ -249,7 +162,6 @@ CREATE TABLE `user_mfa_methods` (
   -- KEY UPDATE` on enrol/re-enrol and backup-code regeneration to actually
   -- replace the existing row instead of silently inserting a duplicate.
   UNIQUE KEY `uq_user_method` (`user_id`, `method_type`),
-  CONSTRAINT `fk_mfa_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   CONSTRAINT `fk_mfa_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
@@ -265,7 +177,6 @@ CREATE TABLE `otp_codes` (
   `consumed_at` DATETIME NULL,
   `attempts`    TINYINT UNSIGNED NOT NULL DEFAULT 0,
   `created_at`  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT `fk_otp_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   CONSTRAINT `fk_otp_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
@@ -280,7 +191,6 @@ CREATE TABLE `user_sessions` (
   `expires_at`        DATETIME NOT NULL,
   `revoked_at`        DATETIME NULL,
   `created_at`        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT `fk_session_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   CONSTRAINT `fk_session_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,
   INDEX `ix_session_company` (`company_id`)
 ) ENGINE=InnoDB;
@@ -291,7 +201,6 @@ CREATE TABLE `groups` (
   `name`        VARCHAR(120) NOT NULL,
   `description` VARCHAR(255) NULL,
   `created_at`  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT `fk_group_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   UNIQUE KEY `uq_group_company_name` (`company_id`, `name`)
 ) ENGINE=InnoDB;
 
@@ -300,7 +209,6 @@ CREATE TABLE `group_members` (
   `group_id` INT UNSIGNED NOT NULL,
   `user_id`  INT UNSIGNED NOT NULL,
   PRIMARY KEY (`group_id`, `user_id`),
-  CONSTRAINT `fk_gm_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   CONSTRAINT `fk_gm_group` FOREIGN KEY (`group_id`) REFERENCES `groups`(`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_gm_user`  FOREIGN KEY (`user_id`)  REFERENCES `users`(`id`)  ON DELETE CASCADE
 ) ENGINE=InnoDB;
@@ -314,7 +222,6 @@ CREATE TABLE `document_types` (
   `company_id` INT UNSIGNED NOT NULL,
   `name`       VARCHAR(120) NOT NULL,   -- e.g. Claim — Retirement, Contribution Statement, Payout Voucher
   `code`       VARCHAR(20) NOT NULL,    -- e.g. PC (Pension Claim)
-  CONSTRAINT `fk_doctype_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   UNIQUE KEY `uq_doctype_company_name` (`company_id`, `name`),
   UNIQUE KEY `uq_doctype_company_code` (`company_id`, `code`)
 ) ENGINE=InnoDB;
@@ -329,7 +236,6 @@ CREATE TABLE `retention_classes` (
   `disposal_action`  ENUM('destroy','archive','transfer_to_national_archives','review') NOT NULL DEFAULT 'review',
   `requires_records_manager_approval` TINYINT(1) NOT NULL DEFAULT 1,
   `created_at`       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT `fk_retention_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   UNIQUE KEY `uq_retention_company_code` (`company_id`, `code`)
 ) ENGINE=InnoDB;
 
@@ -347,7 +253,6 @@ CREATE TABLE `folders` (
   `retention_class_id` INT UNSIGNED NULL,
   `created_by`         INT UNSIGNED NULL,
   `created_at`         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT `fk_folder_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   CONSTRAINT `fk_folder_parent` FOREIGN KEY (`parent_id`) REFERENCES `folders`(`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_folder_dept`   FOREIGN KEY (`department_id`) REFERENCES `departments`(`id`),
   CONSTRAINT `fk_folder_retention` FOREIGN KEY (`retention_class_id`) REFERENCES `retention_classes`(`id`),
@@ -375,7 +280,6 @@ CREATE TABLE `documents` (
   `created_by`          INT UNSIGNED NOT NULL,
   `created_at`          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at`          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  CONSTRAINT `fk_doc_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   CONSTRAINT `fk_doc_type`   FOREIGN KEY (`document_type_id`) REFERENCES `document_types`(`id`),
   CONSTRAINT `fk_doc_folder` FOREIGN KEY (`folder_id`) REFERENCES `folders`(`id`),
   CONSTRAINT `fk_doc_dept`   FOREIGN KEY (`department_id`) REFERENCES `departments`(`id`),
@@ -397,7 +301,6 @@ CREATE TABLE `document_custom_fields` (
   `field_label` VARCHAR(100) NOT NULL,
   `field_value` VARCHAR(500) NOT NULL,
   `created_at`  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT `fk_custom_field_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   CONSTRAINT `fk_custom_field_document` FOREIGN KEY (`document_id`) REFERENCES `documents`(`id`) ON DELETE CASCADE,
   INDEX `ix_custom_field_document` (`document_id`),
   FULLTEXT KEY `ftx_custom_field_value` (`field_value`)
@@ -416,7 +319,6 @@ CREATE TABLE `document_storage_objects` (
   `is_encrypted`     TINYINT(1) NOT NULL DEFAULT 1,   -- encrypted at rest (envelope encryption before upload)
   `checksum_sha256`  CHAR(64) NOT NULL,               -- of the *plaintext* file, for integrity verification after decrypt
   `uploaded_at`       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT `fk_storage_object_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   UNIQUE KEY `uq_storage_object` (`provider`, `bucket_or_container`, `object_key`(255))
 ) ENGINE=InnoDB;
 
@@ -432,8 +334,7 @@ CREATE TABLE `key_encryption_keys` (
   `kms_key_reference` VARCHAR(255) NULL,             -- ARN / Key Vault URI / KMS resource name
   `is_active`       TINYINT(1) NOT NULL DEFAULT 1,
   `created_at`      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `rotated_at`      DATETIME NULL,
-  CONSTRAINT `fk_kek_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`)
+  `rotated_at`      DATETIME NULL
 ) ENGINE=InnoDB;
 
 CREATE TABLE `document_versions` (
@@ -449,7 +350,6 @@ CREATE TABLE `document_versions` (
   `is_current`        TINYINT(1) NOT NULL DEFAULT 1,
   `created_by`        INT UNSIGNED NOT NULL,
   `created_at`        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT `fk_ver_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   CONSTRAINT `fk_ver_document` FOREIGN KEY (`document_id`) REFERENCES `documents`(`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_ver_storage`  FOREIGN KEY (`storage_object_id`) REFERENCES `document_storage_objects`(`id`),
   CONSTRAINT `fk_ver_creator`  FOREIGN KEY (`created_by`) REFERENCES `users`(`id`),
@@ -477,7 +377,6 @@ CREATE TABLE `document_encryption_keys` (
   `file_iv`             VARBINARY(32) NOT NULL,    -- IV used to encrypt the file itself with the DEK
   `file_auth_tag`       VARBINARY(32) NOT NULL,
   `created_at`          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT `fk_dek_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   CONSTRAINT `fk_dek_version` FOREIGN KEY (`document_version_id`) REFERENCES `document_versions`(`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_dek_kek`     FOREIGN KEY (`key_encryption_key_id`) REFERENCES `key_encryption_keys`(`id`)
 ) ENGINE=InnoDB;
@@ -500,7 +399,6 @@ CREATE TABLE `document_acl` (
   `permission_level` ENUM('view','comment','edit','approve','full_control') NOT NULL,
   `granted_by`      INT UNSIGNED NOT NULL,
   `granted_at`      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT `fk_acl_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   CONSTRAINT `fk_acl_grantor` FOREIGN KEY (`granted_by`) REFERENCES `users`(`id`),
   INDEX `ix_acl_target` (`target_type`, `target_id`),
   INDEX `ix_acl_principal` (`principal_type`, `principal_id`)
@@ -524,7 +422,6 @@ CREATE TABLE `access_requests` (
   `decided_at`      DATETIME NULL,
   `decision_note`   VARCHAR(500) NULL,
   `created_at`      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT `fk_accreq_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   CONSTRAINT `fk_accreq_requester` FOREIGN KEY (`requester_id`) REFERENCES `users`(`id`),
   CONSTRAINT `fk_accreq_decider` FOREIGN KEY (`decided_by`) REFERENCES `users`(`id`),
   INDEX `ix_accreq_target` (`target_type`, `target_id`),
@@ -543,7 +440,6 @@ CREATE TABLE `role_module_permissions` (
   `can_view`  TINYINT(1) NOT NULL DEFAULT 0,
   `can_edit`  TINYINT(1) NOT NULL DEFAULT 0,
   PRIMARY KEY (`role_id`, `module`),
-  CONSTRAINT `fk_rmp_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   CONSTRAINT `fk_rmp_role` FOREIGN KEY (`role_id`) REFERENCES `roles`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
@@ -560,7 +456,6 @@ CREATE TABLE `workflows` (
   `is_active`          TINYINT(1) NOT NULL DEFAULT 1,
   `created_by`         INT UNSIGNED NOT NULL,
   `created_at`         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT `fk_wf_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   CONSTRAINT `fk_wf_doctype` FOREIGN KEY (`trigger_doc_type_id`) REFERENCES `document_types`(`id`),
   CONSTRAINT `fk_wf_folder`  FOREIGN KEY (`trigger_folder_id`) REFERENCES `folders`(`id`),
   CONSTRAINT `fk_wf_creator` FOREIGN KEY (`created_by`) REFERENCES `users`(`id`)
@@ -583,7 +478,6 @@ CREATE TABLE `workflow_steps` (
   -- child instance to reach a terminal state. `role_id` is still required
   -- by the column above but is ignored for a step configured this way.
   `sub_workflow_id`    INT UNSIGNED NULL,
-  CONSTRAINT `fk_wfs_company`    FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   CONSTRAINT `fk_wfs_workflow`   FOREIGN KEY (`workflow_id`) REFERENCES `workflows`(`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_wfs_role`       FOREIGN KEY (`role_id`) REFERENCES `roles`(`id`),
   CONSTRAINT `fk_wfs_esc_role`   FOREIGN KEY (`escalation_role_id`) REFERENCES `roles`(`id`),
@@ -607,7 +501,6 @@ CREATE TABLE `document_workflow_instances` (
   `parent_instance_id` BIGINT UNSIGNED NULL,
   `started_at`     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `completed_at`   DATETIME NULL,
-  CONSTRAINT `fk_dwi_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   CONSTRAINT `fk_dwi_document` FOREIGN KEY (`document_id`) REFERENCES `documents`(`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_dwi_workflow` FOREIGN KEY (`workflow_id`) REFERENCES `workflows`(`id`),
   CONSTRAINT `fk_dwi_step`     FOREIGN KEY (`current_step_id`) REFERENCES `workflow_steps`(`id`),
@@ -628,7 +521,6 @@ CREATE TABLE `workflow_approvals` (
   -- sla_days, so it's only ever escalated once.
   `escalated_at`   DATETIME NULL,
   `created_at`     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT `fk_appr_company`  FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   CONSTRAINT `fk_appr_instance` FOREIGN KEY (`instance_id`) REFERENCES `document_workflow_instances`(`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_appr_step`     FOREIGN KEY (`step_id`) REFERENCES `workflow_steps`(`id`),
   CONSTRAINT `fk_appr_user`     FOREIGN KEY (`approver_id`) REFERENCES `users`(`id`)
@@ -659,7 +551,6 @@ CREATE TABLE `audit_log` (
   `prev_hash`     CHAR(64) NULL,
   `entry_hash`    CHAR(64) NOT NULL,    -- sha256(prev_hash + canonical(this row)) — verifies chain integrity
   `created_at`    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT `fk_audit_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`) ON DELETE SET NULL,
   CONSTRAINT `fk_audit_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE SET NULL,
   INDEX `ix_audit_company` (`company_id`),
   INDEX `ix_audit_created` (`created_at`),
@@ -681,7 +572,6 @@ CREATE TABLE `notifications` (
   `related_record_id`   VARCHAR(60) NULL,
   `is_read`        TINYINT(1) NOT NULL DEFAULT 0,
   `created_at`      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT `fk_notif_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   CONSTRAINT `fk_notif_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
@@ -707,7 +597,6 @@ CREATE TABLE `integrations` (
   `last_sync_at`  DATETIME NULL,
   `stats_json`    JSON NULL,
   `updated_at`    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  CONSTRAINT `fk_integration_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   INDEX `ix_integration_company` (`company_id`)
 ) ENGINE=InnoDB;
 
@@ -724,7 +613,6 @@ CREATE TABLE `capture_batches` (
   `completed_at`   DATETIME NULL,
   `created_by`     INT UNSIGNED NULL,
   `created_at`     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT `fk_batch_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   CONSTRAINT `fk_batch_creator` FOREIGN KEY (`created_by`) REFERENCES `users`(`id`),
   UNIQUE KEY `uq_batch_company_no` (`company_id`, `batch_no`)
 ) ENGINE=InnoDB;
@@ -741,7 +629,6 @@ CREATE TABLE `capture_batch_items` (
   `document_id`       INT UNSIGNED NULL,
   `error_message`     VARCHAR(500) NULL,
   `created_at`        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT `fk_batch_item_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   CONSTRAINT `fk_batch_item_batch` FOREIGN KEY (`batch_id`) REFERENCES `capture_batches`(`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_batch_item_document` FOREIGN KEY (`document_id`) REFERENCES `documents`(`id`) ON DELETE SET NULL,
   INDEX `ix_batch_item_batch` (`batch_id`)
@@ -759,7 +646,6 @@ CREATE TABLE `system_settings` (
   `setting_value` VARCHAR(500) NULL,
   `description`   VARCHAR(255) NULL,
   `updated_at`    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  CONSTRAINT `fk_setting_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   INDEX `ix_setting_company` (`company_id`)
 ) ENGINE=InnoDB;
 
@@ -771,7 +657,6 @@ CREATE TABLE `user_preferences` (
   `theme_mode`   ENUM('system','light','dark') NOT NULL DEFAULT 'system',
   `density`      ENUM('comfortable','compact') NOT NULL DEFAULT 'comfortable',
   `updated_at`   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  CONSTRAINT `fk_prefs_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
   CONSTRAINT `fk_prefs_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
@@ -803,20 +688,12 @@ CREATE TABLE `backups` (
   `created_by`       INT UNSIGNED NULL,
   `created_at`       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `completed_at`     DATETIME NULL,
-  CONSTRAINT `fk_backup_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`) ON DELETE SET NULL,
   CONSTRAINT `fk_backup_creator` FOREIGN KEY (`created_by`) REFERENCES `users`(`id`)
 ) ENGINE=InnoDB;
 
 -- =====================================================================
 -- SEED DATA
 -- =====================================================================
-
--- Bootstrap tenant for a fresh install. `created_by` is NULL (no
--- platform_admins row is seeded here — see the file header comment);
--- a real deployment renames/edits this row via the platform-admin API
--- once an admin logs in.
-INSERT INTO `companies` (`id`, `company_code`, `name`, `status`) VALUES
-(1, 'PSPF', 'Public Service Pensions Fund', 'active');
 
 INSERT INTO `departments` (`company_id`, `name`, `description`) VALUES
 (1, 'Benefits', 'Pension claims and benefit processing'),
@@ -890,7 +767,8 @@ INSERT INTO `system_settings` (`setting_key`, `company_id`, `setting_value`, `de
 ('active_storage_provider', 1, 'aws_s3', 'Default cloud storage provider for new uploads'),
 ('backup_schedule_enabled', 1, 'false', 'Run an automatic nightly database backup'),
 ('backup_schedule_hour', 1, '2', 'Hour of day (0-23, server local time) the automatic nightly backup runs'),
-('storage_capacity_bytes', 1, '107374182400', 'Total provisioned storage capacity in bytes, shown on the Dashboard (default 100 GB)');
+('storage_capacity_bytes', 1, '107374182400', 'Total provisioned storage capacity in bytes, shown on the Dashboard (default 100 GB)'),
+('license_key', 1, NULL, 'The license key this deployment was activated with — verified live against DocSecure''s licensing platform on every check');
 
 -- Role x module permission matrix. `module` = dashboard, repository, capture,
 -- search, versions, viewer, permissions, security, users, departments,

@@ -3,7 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/auth/auth_providers.dart';
 import '../../../core/auth/auth_state.dart';
+import '../../../core/branding/branding_provider.dart';
+import '../../../core/license/license_gate_provider.dart';
+import '../../../core/models/company_branding.dart';
 import '../../../core/theme/pspf_tokens.dart';
+import '../../../core/widgets/company_logo_box.dart';
 import 'widgets/account_locked_step.dart';
 import 'widgets/credentials_step.dart';
 import 'widgets/device_trust_step.dart';
@@ -16,11 +20,32 @@ import 'widgets/reset_password_step.dart';
 /// a single screen whose body swaps between step widgets. Matches the
 /// mockup's split layout: a hero panel on wide screens + a form panel that
 /// always renders full-width on narrow screens.
-class LoginScreen extends ConsumerWidget {
+class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends ConsumerState<LoginScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Defense-in-depth beyond the router's own gate (core/router/app_router.dart):
+    // that gate already keeps a not-yet-licensed deployment off /login
+    // entirely, but its check runs once at cold app start and is cached
+    // for the rest of the session. Re-verifying here means a license
+    // revoked centrally while this tab has been sitting idle on /login
+    // (or the user navigates back to it later in the same session,
+    // without a full page reload) still gets caught — every real visit to
+    // this screen asks docsecure-platform-provider again, not just app boot.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(licenseGateControllerProvider.notifier).recheck();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final authState = ref.watch(authControllerProvider);
     final tokens = context.tokens;
     final wide = MediaQuery.sizeOf(context).width >= 720;
@@ -68,27 +93,22 @@ class LoginScreen extends ConsumerWidget {
   }
 }
 
-class _HeroPanel extends StatelessWidget {
+class _HeroPanel extends ConsumerWidget {
   const _HeroPanel({required this.tokens});
 
   final PspfTokens tokens;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final textTheme = Theme.of(context).textTheme;
+    final branding = ref.watch(companyBrandingProvider).valueOrNull ?? CompanyBranding.fallback;
     return Container(
       color: tokens.surf2,
       padding: const EdgeInsets.fromLTRB(46, 42, 46, 42),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 56,
-            height: 56,
-            color: tokens.acc,
-            alignment: Alignment.center,
-            child: const Text('P', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w700)),
-          ),
+          const CompanyLogoBox(),
           const SizedBox(height: 22),
           Text(
             'KINGDOM OF ESWATINI',
@@ -97,7 +117,7 @@ class _HeroPanel extends StatelessWidget {
           const SizedBox(height: 8),
           SizedBox(
             width: 320,
-            child: Text('Public Service Pensions Fund', style: textTheme.displaySmall),
+            child: Text(branding.name, style: textTheme.displaySmall),
           ),
           const SizedBox(height: 18),
           SizedBox(

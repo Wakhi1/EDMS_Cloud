@@ -34,6 +34,11 @@
             "date": 1787177035576,
             "name": "C:\\Users\\celim\\projects\\PSPF_EDMS\\pspf-edms\\backend\\logs\\app-2026-08-20.log",
             "hash": "8fd6074b522e8fa6021674cc8ec3227cd90536d9cdafc39acea7de713c9a3650"
+        },
+        {
+            "date": 1787263220311,
+            "name": "C:\\Users\\celim\\projects\\PSPF_EDMS\\pspf-edms\\backend\\logs\\app-2026-08-21.log",
+            "hash": "3ea30c24ed7d5ca2f00e0fc2d4db7097c44e74f43e82edbf6062b562f2688378"
         }
     ],
     "hashType": "sha256"

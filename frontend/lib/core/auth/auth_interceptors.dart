@@ -19,9 +19,8 @@ void configureAuthInterceptors(
   required TokenGetter getRefreshToken,
   required RefreshFn refresh,
   required AsyncVoidCallback onRefreshFailed,
-  // Overridable so a second Dio instance (e.g. the platform-admin client,
-  // core/platform_admin/platform_admin_providers.dart) can wire this same
-  // interceptor against its own refresh endpoint without an infinite loop.
+  // Overridable so a second Dio instance wired against a different
+  // refresh endpoint can reuse this same interceptor without an infinite loop.
   String refreshPath = Endpoints.authRefresh,
 }) {
   Future<String?>? inFlightRefresh;

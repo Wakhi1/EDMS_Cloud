@@ -21,7 +21,7 @@ const { verifyGoogleIdToken, verifyMicrosoftIdToken } = require('../services/soc
 const adService = require('../services/ad.service');
 const { sendPasswordResetEmail } = require('../services/email.service');
 const { authenticate } = require('../middleware/auth.middleware');
-const { checkCompanyLicense } = require('../services/license.service');
+const { checkDeploymentLicense, HOME_COMPANY_ID } = require('../services/license.service');
 
 const router = express.Router();
 
@@ -51,19 +51,13 @@ async function issueRefreshToken(userId, companyId, req, mfaSatisfied) {
   return refreshToken;
 }
 
-/**
- * Federated sign-in (Google/Microsoft/AD) and the legacy single-tenant
- * dev flows below don't yet collect a companyCode (see file-level note
- * near completeFederatedSignIn). Resolves to "the one company this
- * deployment currently serves" — the first-created company row — which
- * only differs from the real answer once a second company exists AND
- * federated login is turned on for it (out of scope this pass; requires
- * per-company IdP config in `integrations`, see database/pspf_edms_schema.sql).
- */
-async function getDefaultCompanyId() {
-  const [[row]] = await pool.query('SELECT id FROM companies WHERE status = "active" ORDER BY id ASC LIMIT 1');
-  return row ? row.id : null;
-}
+// This deployment is single-tenant — docsecure-platform-provider owns
+// company identity outright (see services/license.service.js). Every
+// user row here still carries a company_id (HOME_COMPANY_ID), but it's
+// no longer a foreign key to anything local; companyCode on the wire
+// (register/login bodies below) is accepted for backward compatibility
+// with the existing request shape but no longer used to look anything
+// up — there's nothing local left to disambiguate against.
 
 /**
  * POST /api/auth/register
@@ -74,7 +68,6 @@ async function getDefaultCompanyId() {
 router.post(
   '/register',
   [
-    body('companyCode').trim().notEmpty(),
     body('fullName').trim().notEmpty(),
     body('email').isEmail(),
     body('password').isLength({ min: 10 }),
@@ -84,21 +77,18 @@ router.post(
     const errors = validationResult(req);
     if (!errors.isEmpty()) return fail(res, 'Validation failed', 422, errors.array());
 
-    const { companyCode, fullName, email, password, roleId, departmentId, phoneNumber } = req.body;
-    const [[company]] = await pool.query(`SELECT id, status FROM companies WHERE company_code = ? LIMIT 1`, [companyCode]);
-    if (!company || company.status !== 'active') return fail(res, 'Unknown or inactive organization code', 404);
-
-    const [existing] = await pool.query('SELECT id FROM users WHERE company_id = ? AND email = ?', [company.id, email]);
+    const { fullName, email, password, roleId, departmentId, phoneNumber } = req.body;
+    const [existing] = await pool.query('SELECT id FROM users WHERE email = ?', [email]);
     if (existing.length) return fail(res, 'An account with this email already exists', 409);
 
     const passwordHash = await bcrypt.hash(password, 12);
     const [result] = await pool.query(
       `INSERT INTO users (company_id, full_name, email, phone_number, password_hash, role_id, department_id, password_changed_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
-      [company.id, fullName, email, phoneNumber || null, passwordHash, roleId, departmentId || null]
+      [HOME_COMPANY_ID, fullName, email, phoneNumber || null, passwordHash, roleId, departmentId || null]
     );
 
-    await logAudit({ userId: result.insertId, companyId: company.id, action: 'Create', recordType: 'user', recordId: result.insertId, detail: 'Account registered', ip: req.ip });
+    await logAudit({ userId: result.insertId, companyId: HOME_COMPANY_ID, action: 'Create', recordType: 'user', recordId: result.insertId, detail: 'Account registered', ip: req.ip });
     return ok(res, { userId: result.insertId }, 'Account created', 201);
   })
 );
@@ -111,36 +101,28 @@ router.post(
  */
 router.post(
   '/login',
-  [body('companyCode').optional().trim().notEmpty(), body('email').isEmail(), body('password').notEmpty()],
+  [body('companyCode').optional().trim(), body('email').isEmail(), body('password').notEmpty()],
   asyncHandler(async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) return fail(res, 'Validation failed', 422, errors.array());
 
-    // companyCode is optional so the pre-multi-tenant frontend (which
-    // doesn't send it yet) keeps working unmodified — falls back to the
-    // deployment's default company, same as federated login. Once a real
-    // second company exists, its users MUST pass companyCode explicitly
-    // (their email won't resolve against the default company at all).
+    // companyCode is accepted (frontend still sends it) but no longer
+    // used to look anything up — this deployment is single-tenant, and
+    // its license (not a local companies row) is what's actually being
+    // verified below.
     const { email, password } = req.body;
-    const companyCode = req.body.companyCode || null;
     const [rows] = await pool.query(
-      `SELECT u.*, r.name AS role_name, r.mfa_required, c.status AS company_status
+      `SELECT u.*, r.name AS role_name, r.mfa_required
        FROM users u
        JOIN roles r ON r.id = u.role_id
-       JOIN companies c ON c.id = u.company_id
-       WHERE (? IS NULL OR c.company_code = ?) AND u.email = ?
-       ${companyCode ? '' : 'ORDER BY c.id ASC'} LIMIT 1`,
-      [companyCode, companyCode, email]
+       WHERE u.email = ? LIMIT 1`,
+      [email]
     );
     const user = rows[0];
 
     if (!user || !user.password_hash) {
-      await logAudit({ action: 'Login failed', recordType: 'user', recordId: email, detail: `Unknown account (companyCode=${companyCode})`, ip: req.ip });
+      await logAudit({ action: 'Login failed', recordType: 'user', recordId: email, detail: 'Unknown account', ip: req.ip });
       return fail(res, 'Invalid organization code, email, or password', 401);
-    }
-    if (user.company_status !== 'active') {
-      await logAudit({ userId: user.id, companyId: user.company_id, action: 'Login failed', recordType: 'user', recordId: user.id, detail: `Organization is ${user.company_status}`, ip: req.ip });
-      return fail(res, "This organization's account is suspended", 403);
     }
     if (user.is_locked) return fail(res, 'Account is locked — contact your System Administrator', 423);
 
@@ -151,14 +133,13 @@ router.post(
       return fail(res, 'Invalid organization code, email, or password', 401);
     }
 
-    const licenseCheck = await checkCompanyLicense(user.company_id, 'login');
+    const licenseCheck = await checkDeploymentLicense('login');
     if (!licenseCheck.ok) {
       await logAudit({ userId: user.id, companyId: user.company_id, action: 'Login failed', recordType: 'user', recordId: user.id, detail: `License check failed: ${licenseCheck.reason}`, ip: req.ip });
-      return fail(res, 'This organization\'s license is not active. Contact your administrator.', 403);
+      return fail(res, 'This deployment\'s license is not active. Contact your administrator.', 403);
     }
 
     await pool.query('UPDATE users SET failed_login_attempts = 0, last_login_at = NOW(), last_login_ip = ? WHERE id = ?', [req.ip, user.id]);
-    await pool.query('UPDATE companies SET last_login_at = NOW() WHERE id = ?', [user.company_id]);
 
     const mfaMandatory = !!user.mfa_required || !!user.mfa_enabled;
     if (mfaMandatory) {
@@ -317,12 +298,10 @@ async function completeFederatedSignIn(req, res, profile, providerName) {
     // First-time sign-in with this provider: link to an existing account
     // by email, or fail closed — new EDMS accounts must be provisioned
     // by an administrator with an explicit role, never auto-created with
-    // a default privileged role. Scoped to the deployment's default
-    // company — see getDefaultCompanyId's doc comment above.
-    const companyId = await getDefaultCompanyId();
+    // a default privileged role.
     const [byEmail] = await pool.query(
-      `SELECT u.*, r.name AS role_name, r.mfa_required FROM users u JOIN roles r ON r.id = u.role_id WHERE u.company_id = ? AND u.email = ? LIMIT 1`,
-      [companyId, profile.email]
+      `SELECT u.*, r.name AS role_name, r.mfa_required FROM users u JOIN roles r ON r.id = u.role_id WHERE u.email = ? LIMIT 1`,
+      [profile.email]
     );
     if (!byEmail[0]) {
       return fail(res, 'No PSPF EDMS account exists for this identity. Ask a System Administrator to provision one.', 403);
@@ -337,10 +316,10 @@ async function completeFederatedSignIn(req, res, profile, providerName) {
 
   if (!user.is_active || user.is_locked) return fail(res, 'Account is not active', 401);
 
-  const licenseCheck = await checkCompanyLicense(user.company_id, 'login');
+  const licenseCheck = await checkDeploymentLicense('login');
   if (!licenseCheck.ok) {
     await logAudit({ userId: user.id, companyId: user.company_id, action: 'Login failed', recordType: 'user', recordId: user.id, detail: `License check failed: ${licenseCheck.reason}`, ip: req.ip });
-    return fail(res, 'This organization\'s license is not active. Contact your administrator.', 403);
+    return fail(res, 'This deployment\'s license is not active. Contact your administrator.', 403);
   }
 
   const mfaMandatory = !!user.mfa_required || !!user.mfa_enabled;
@@ -353,7 +332,6 @@ async function completeFederatedSignIn(req, res, profile, providerName) {
   const accessToken = signAccessToken(user, false);
   const refreshToken = await issueRefreshToken(user.id, user.company_id, req, false);
   await pool.query('UPDATE users SET last_login_at = NOW(), last_login_ip = ? WHERE id = ?', [req.ip, user.id]);
-  await pool.query('UPDATE companies SET last_login_at = NOW() WHERE id = ?', [user.company_id]);
   await logAudit({ userId: user.id, companyId: user.company_id, action: 'Login', recordType: 'user', recordId: user.id, detail: `${providerName} sign-in successful`, ip: req.ip });
 
   return ok(res, {
@@ -366,11 +344,8 @@ async function completeFederatedSignIn(req, res, profile, providerName) {
 router.post(
   '/password-reset/request',
   asyncHandler(async (req, res) => {
-    const { companyCode, email } = req.body;
-    const [rows] = await pool.query(
-      `SELECT u.id FROM users u JOIN companies c ON c.id = u.company_id WHERE c.company_code = ? AND u.email = ? LIMIT 1`,
-      [companyCode, email]
-    );
+    const { email } = req.body;
+    const [rows] = await pool.query(`SELECT id FROM users WHERE email = ? LIMIT 1`, [email]);
     // Always respond 200 to avoid leaking which emails are registered.
     if (rows[0]) {
       const token = jwt.sign({ sub: rows[0].id, purpose: 'password_reset' }, process.env.JWT_ACCESS_SECRET, { expiresIn: '30m' });

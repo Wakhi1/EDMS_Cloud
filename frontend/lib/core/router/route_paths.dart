@@ -3,7 +3,12 @@
 class RoutePaths {
   const RoutePaths._();
 
+  /// Neutral splash — the real [initialLocation], so a fresh app load never
+  /// briefly renders /login (or any other real screen) before the license
+  /// and auth checks have actually resolved. See core/router/app_router.dart.
+  static const bootstrap = '/bootstrap';
   static const login = '/login';
+  static const licenseActivation = '/activate-license';
   static const dashboard = '/dashboard';
   static const repository = '/repository';
   static const viewer = '/viewer/:documentId';
@@ -29,14 +34,7 @@ class RoutePaths {
   static const settings = '/settings';
   static const backup = '/backup';
 
-  // Platform admin (DocSecore staff) — a fully separate route tree/auth
-  // domain from everything above, see core/platform_admin/.
-  static const platformAdminLogin = '/platform-admin/login';
-  static const platformAdminCompanies = '/platform-admin';
-  static const platformAdminCompanyDetail = '/platform-admin/companies/:id';
-
   static String viewerFor(String documentId) => '/viewer/$documentId';
   static String versionsFor(String documentId) => '/versions/$documentId';
   static String permissionsFor(String targetType, String targetId) => '/permissions/$targetType/$targetId';
-  static String platformAdminCompanyFor(String id) => '/platform-admin/companies/$id';
 }

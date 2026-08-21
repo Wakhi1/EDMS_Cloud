@@ -23,7 +23,7 @@ const apiRoutes = require("./routes");
 const { startScheduler } = require("./services/capture/scheduler");
 const { startScheduler: startBackupScheduler } = require("./services/backup/scheduler");
 const { startScheduler: startWorkflowScheduler } = require("./services/workflow/scheduler");
-const { startScheduler: startLicenseScheduler } = require("./services/license/scheduler");
+const { runInitialCheck: runInitialLicenseCheck, startScheduler: startLicenseScheduler } = require("./services/license/scheduler");
 
 const app = express();
 
@@ -81,13 +81,15 @@ const authLimiter = rateLimit({
 });
 app.use("/api/auth", authLimiter);
 
-const platformAdminLimiter = rateLimit({
+// /api/license/activate takes an unauthenticated license key from
+// whoever's typing — same brute-force concern as /api/auth, same limit.
+const licenseLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 20,
   standardHeaders: true,
   legacyHeaders: false,
 });
-app.use("/api/platform-admin", platformAdminLimiter);
+app.use("/api/license", licenseLimiter);
 
 app.get("/health", (req, res) =>
   res.json({
@@ -109,6 +111,13 @@ const PORT = process.env.PORT || 4000;
 (async () => {
   try {
     await testConnection(logger);
+    // Blocking, on purpose: every company's license is checked against
+    // DocSecure's platform-provider before this deployment starts
+    // accepting connections at all — not fired off in the background
+    // after the port is already open. A provider outage doesn't crash
+    // the boot (see runInitialCheck's doc comment), but "the server is
+    // up" and "licenses have been verified" happen in that order, not a race.
+    await runInitialLicenseCheck();
     app.listen(PORT, () =>
       logger.info(`PSPF EDMS API listening on port ${PORT}`, {
         env: process.env.NODE_ENV,

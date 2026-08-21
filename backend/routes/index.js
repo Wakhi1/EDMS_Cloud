@@ -29,6 +29,7 @@ router.use('/capture-batches', require('./capture.routes'));
 router.use('/departments', require('./departments.routes'));
 router.use('/settings', require('./settings.routes'));
 router.use('/backup', require('./backup.routes'));
-router.use('/platform-admin', require('./platform-admin'));
+router.use('/license', require('./license.routes'));
+router.use('/branding', require('./branding.routes'));
 
 module.exports = router;

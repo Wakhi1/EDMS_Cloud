@@ -58,7 +58,6 @@ async function completeMfaLogin(req, res, userId) {
   );
 
   await pool.query('UPDATE users SET last_login_at = NOW(), last_login_ip = ? WHERE id = ?', [req.ip, user.id]);
-  await pool.query('UPDATE companies SET last_login_at = NOW() WHERE id = ?', [user.company_id]);
   await logAudit({ userId: user.id, companyId: user.company_id, action: 'MFA', recordType: 'user', recordId: user.id, detail: 'MFA satisfied, login complete', ip: req.ip });
 
   return ok(res, {

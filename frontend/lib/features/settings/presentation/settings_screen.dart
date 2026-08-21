@@ -5,9 +5,12 @@ import '../../../core/api/api_exception.dart';
 import '../../../core/api/api_providers.dart';
 import '../../../core/auth/auth_providers.dart';
 import '../../../core/auth/auth_state.dart';
+import '../../../core/branding/branding_provider.dart';
+import '../../../core/models/company_branding.dart';
 import '../../../core/models/system_setting_row.dart';
 import '../../../core/theme/pspf_tokens.dart';
 import '../../../core/theme/theme_mode_provider.dart';
+import '../../../core/utils/hex_color.dart';
 import '../../../core/widgets/confirm_dialog.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../providers/settings_providers.dart';
@@ -288,29 +291,150 @@ class _AppearanceTab extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final mode = ref.watch(themeModeProvider);
+    final role = ref.watch(currentUserProvider)?.role;
 
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 460),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('Theme', style: Theme.of(context).textTheme.titleSmall),
-          const SizedBox(height: 8),
-          for (final option in const [
-            (ThemeMode.system, 'Match system'),
-            (ThemeMode.light, 'Light'),
-            (ThemeMode.dark, 'Dark'),
-          ])
-            RadioListTile<ThemeMode>(
-              value: option.$1,
-              groupValue: mode,
-              onChanged: (v) => ref.read(themeModeProvider.notifier).setMode(v ?? ThemeMode.system),
-              title: Text(option.$2),
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-            ),
-        ],
+    return SingleChildScrollView(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 460),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Theme', style: Theme.of(context).textTheme.titleSmall),
+            const SizedBox(height: 8),
+            for (final option in const [
+              (ThemeMode.system, 'Match system'),
+              (ThemeMode.light, 'Light'),
+              (ThemeMode.dark, 'Dark'),
+            ])
+              RadioListTile<ThemeMode>(
+                value: option.$1,
+                groupValue: mode,
+                onChanged: (v) => ref.read(themeModeProvider.notifier).setMode(v ?? ThemeMode.system),
+                title: Text(option.$2),
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+              ),
+            if (role == 'System Administrator') ...[
+              const SizedBox(height: 28),
+              const _BrandColorsSection(),
+            ],
+          ],
+        ),
       ),
+    );
+  }
+}
+
+/// Pushes this deployment's brand colors up to docsecure-platform-provider
+/// (System Administrator only, server-enforced too — see
+/// backend/routes/settings.routes.js's PUT /theme) — the actual owner of
+/// branding, so every other deployment licensed to this company and the
+/// provider's own staff console stay in sync with whatever's set here.
+class _BrandColorsSection extends ConsumerStatefulWidget {
+  const _BrandColorsSection();
+
+  @override
+  ConsumerState<_BrandColorsSection> createState() => _BrandColorsSectionState();
+}
+
+class _BrandColorsSectionState extends ConsumerState<_BrandColorsSection> {
+  late final _primaryController = TextEditingController();
+  late final _secondaryController = TextEditingController();
+  late final _accentController = TextEditingController();
+  bool _initialized = false;
+  bool _saving = false;
+
+  @override
+  void dispose() {
+    _primaryController.dispose();
+    _secondaryController.dispose();
+    _accentController.dispose();
+    super.dispose();
+  }
+
+  void _seedFrom(CompanyBranding branding) {
+    if (_initialized) return;
+    _initialized = true;
+    _primaryController.text = branding.primaryColor ?? '';
+    _secondaryController.text = branding.secondaryColor ?? '';
+    _accentController.text = branding.accentColor ?? '';
+  }
+
+  Future<void> _save() async {
+    for (final controller in [_primaryController, _secondaryController, _accentController]) {
+      final value = controller.text.trim();
+      if (value.isNotEmpty && !RegExp(r'^#[0-9a-fA-F]{6}$').hasMatch(value)) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter colors as #RRGGBB, e.g. #0088B0.')));
+        return;
+      }
+    }
+    setState(() => _saving = true);
+    try {
+      await ref.read(settingsApiProvider).updateTheme(
+            primaryColor: _primaryController.text.trim().isEmpty ? null : _primaryController.text.trim(),
+            secondaryColor: _secondaryController.text.trim().isEmpty ? null : _secondaryController.text.trim(),
+            accentColor: _accentController.text.trim().isEmpty ? null : _accentController.text.trim(),
+          );
+      ref.invalidate(companyBrandingProvider);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Brand colors updated.')));
+    } on ApiException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Widget _colorField(String label, TextEditingController controller) {
+    return Row(
+      children: [
+        Expanded(
+          child: TextField(
+            controller: controller,
+            decoration: InputDecoration(labelText: label, hintText: '#RRGGBB'),
+            onChanged: (_) => setState(() {}),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Container(
+          width: 32,
+          height: 32,
+          decoration: BoxDecoration(
+            color: parseHexColor(controller.text.trim()) ?? Colors.transparent,
+            border: Border.all(color: context.tokens.line2),
+          ),
+        ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final branding = ref.watch(companyBrandingProvider).valueOrNull;
+    if (branding != null) _seedFrom(branding);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Brand colors', style: Theme.of(context).textTheme.titleSmall),
+        const SizedBox(height: 4),
+        Text(
+          'Applied across this deployment\'s buttons, focus states, and app bar accent — synced to DocSecure and any other deployment licensed to your organization.',
+          style: TextStyle(fontSize: 12, color: context.tokens.ink2),
+        ),
+        const SizedBox(height: 12),
+        _colorField('Primary color', _primaryController),
+        const SizedBox(height: 12),
+        _colorField('Secondary color', _secondaryController),
+        const SizedBox(height: 12),
+        _colorField('Accent color', _accentController),
+        const SizedBox(height: 12),
+        ElevatedButton(
+          onPressed: _saving ? null : _save,
+          child: _saving
+              ? const SizedBox(height: 14, width: 14, child: CircularProgressIndicator(strokeWidth: 2))
+              : const Text('Save brand colors'),
+        ),
+      ],
     );
   }
 }

@@ -7,6 +7,8 @@ import '../../features/notifications/presentation/notifications_panel.dart';
 import '../../features/notifications/providers/notifications_providers.dart';
 import '../auth/auth_providers.dart';
 import '../auth/module_access.dart';
+import '../branding/branding_provider.dart';
+import '../models/company_branding.dart';
 import '../navigation/nav_item.dart';
 import '../router/route_paths.dart';
 import '../theme/pspf_tokens.dart';
@@ -93,6 +95,7 @@ class _TopAppBar extends ConsumerWidget implements PreferredSizeWidget {
     final searchController = TextEditingController();
     final unreadCount = ref.watch(notificationsListProvider).valueOrNull?.where((n) => !n.isRead).length ?? 0;
     final backTarget = _backTargetFor(currentPath);
+    final branding = ref.watch(companyBrandingProvider).valueOrNull ?? CompanyBranding.fallback;
 
     return AppBar(
       leading: backTarget != null
@@ -110,7 +113,7 @@ class _TopAppBar extends ConsumerWidget implements PreferredSizeWidget {
       automaticallyImplyLeading: false,
       title: Row(
         children: [
-          const Text('PSPF EDMS', style: TextStyle(fontWeight: FontWeight.w700)),
+          Text(branding.shortLabel, style: const TextStyle(fontWeight: FontWeight.w700)),
           if (showSearch) ...[
             const SizedBox(width: 22),
             SizedBox(
