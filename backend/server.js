@@ -21,9 +21,16 @@ const requestLogger = require("./middleware/requestLogger.middleware");
 const errorHandler = require("./middleware/errorHandler.middleware");
 const apiRoutes = require("./routes");
 const { startScheduler } = require("./services/capture/scheduler");
-const { startScheduler: startBackupScheduler } = require("./services/backup/scheduler");
-const { startScheduler: startWorkflowScheduler } = require("./services/workflow/scheduler");
-const { runInitialCheck: runInitialLicenseCheck, startScheduler: startLicenseScheduler } = require("./services/license/scheduler");
+const {
+  startScheduler: startBackupScheduler,
+} = require("./services/backup/scheduler");
+const {
+  startScheduler: startWorkflowScheduler,
+} = require("./services/workflow/scheduler");
+const {
+  runInitialCheck: runInitialLicenseCheck,
+  startScheduler: startLicenseScheduler,
+} = require("./services/license/scheduler");
 
 const app = express();
 
