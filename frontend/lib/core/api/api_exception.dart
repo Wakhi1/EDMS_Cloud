@@ -21,11 +21,22 @@ class FieldError {
 /// envelope (see backend/utils/apiResponse.js), plus network-level failures
 /// (timeout, no connection) that never reached the server at all.
 class ApiException implements Exception {
-  const ApiException({required this.message, this.statusCode, this.rawErrors});
+  const ApiException({required this.message, this.statusCode, this.rawErrors, this.debugInfo});
 
   final String message;
   final int? statusCode;
   final dynamic rawErrors;
+
+  /// TEMPORARY diagnostic field — the raw [DioExceptionType] plus the
+  /// underlying platform error's toString() (a SocketException,
+  /// HandshakeException, etc.), for the "can't reach the server" case
+  /// where [message] is deliberately a generic, user-facing translation
+  /// that collapses several very different underlying failures into one
+  /// sentence. Surfaced in the login screen's connectivity banner
+  /// (core/diagnostics/connectivity_gate_provider.dart) while tracking
+  /// down why physical devices can't reach a host curl/Chrome/the
+  /// emulator all reach fine. Remove once that's root-caused.
+  final String? debugInfo;
 
   bool get isUnauthorized => statusCode == 401;
   bool get isForbidden => statusCode == 403;
@@ -51,17 +62,22 @@ class ApiException implements Exception {
         rawErrors: data['errors'],
       );
     }
+    final debugInfo = '${e.type}: ${e.error ?? e.message}';
     switch (e.type) {
       case DioExceptionType.connectionTimeout:
       case DioExceptionType.sendTimeout:
       case DioExceptionType.receiveTimeout:
-        return const ApiException(message: 'The connection to the server timed out.');
+        return ApiException(message: 'The connection to the server timed out.', debugInfo: debugInfo);
       case DioExceptionType.connectionError:
-        return const ApiException(message: 'Could not reach the server. Check your network connection.');
+        return ApiException(
+          message: 'Could not reach the server. Check your network connection.',
+          debugInfo: debugInfo,
+        );
       default:
         return ApiException(
           message: e.message ?? 'The request failed.',
           statusCode: e.response?.statusCode,
+          debugInfo: debugInfo,
         );
     }
   }

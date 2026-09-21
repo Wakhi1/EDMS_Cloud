@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/auth/auth_providers.dart';
 import '../../../core/auth/auth_state.dart';
 import '../../../core/branding/branding_provider.dart';
+import '../../../core/diagnostics/connectivity_gate_provider.dart';
+import '../../../core/env/env.dart';
 import '../../../core/license/license_gate_provider.dart';
 import '../../../core/models/company_branding.dart';
 import '../../../core/theme/pspf_tokens.dart';
@@ -42,11 +44,20 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(licenseGateControllerProvider.notifier).recheck();
     });
+    // Checked once per screen visit too, same reasoning as the license
+    // recheck above: this is the first thing that can go wrong (before
+    // credentials are even validated), and its own failure mode — a
+    // captive portal, a WAF page, a stale clock breaking TLS — otherwise
+    // only ever surfaces as login's generic "Request failed".
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(connectivityGateControllerProvider.notifier).recheck();
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authControllerProvider);
+    final connectivity = ref.watch(connectivityGateControllerProvider);
     final tokens = context.tokens;
     final wide = MediaQuery.sizeOf(context).width >= 720;
 
@@ -67,7 +78,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   child: Center(
                     child: ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 380),
-                      child: SingleChildScrollView(child: _stepFor(state)),
+                      child: SingleChildScrollView(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            if (!connectivity.checking && !connectivity.reachable)
+                              _ConnectivityBanner(error: connectivity.error, debugInfo: connectivity.debugInfo),
+                            _stepFor(state),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -90,6 +110,64 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       LoginResetPassword() => ResetPasswordStep(state: state),
       LoginAuthenticated() => const SizedBox.shrink(), // router redirects away immediately
     };
+  }
+}
+
+/// Shown above the current login step when the app can't reach
+/// [Env.apiBaseUrl] at all — surfaces the actual target URL and failure
+/// reason instead of letting the user hit "Sign in" and get login's
+/// generic "Request failed" with no way to tell a network problem apart
+/// from bad credentials.
+class _ConnectivityBanner extends ConsumerWidget {
+  const _ConnectivityBanner({required this.error, this.debugInfo});
+
+  final String? error;
+
+  /// TEMPORARY — see ApiException.debugInfo. Remove once root-caused.
+  final String? debugInfo;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final tokens = context.tokens;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: tokens.surf2,
+        border: Border(left: BorderSide(color: Theme.of(context).colorScheme.error, width: 3)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Can\'t reach ${Env.apiBaseUrl}',
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(color: Theme.of(context).colorScheme.error),
+                ),
+                if (error != null) ...[
+                  const SizedBox(height: 4),
+                  Text(error!, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: tokens.ink2)),
+                ],
+                if (debugInfo != null) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    debugInfo!,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(color: tokens.ink3, fontFamily: 'monospace'),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          TextButton(
+            onPressed: () => ref.read(connectivityGateControllerProvider.notifier).recheck(),
+            child: const Text('Retry'),
+          ),
+        ],
+      ),
+    );
   }
 }
 

@@ -349,7 +349,13 @@ router.post(
     // Always respond 200 to avoid leaking which emails are registered.
     if (rows[0]) {
       const token = jwt.sign({ sub: rows[0].id, purpose: 'password_reset' }, process.env.JWT_ACCESS_SECRET, { expiresIn: '30m' });
-      const link = `${process.env.CLIENT_URL}/reset-password?token=${token}`;
+      // Note: no '/reset-password' screen exists in the frontend router yet
+      // (frontend/lib/core/router/route_paths.dart) — password reset today
+      // is handled as an in-app LoginState on the login screen itself, with
+      // no route that can consume a ?token= query param. This link is
+      // hash-prefixed for when that screen exists, but following it right
+      // now will just land on /login with an ignored query string.
+      const link = `${process.env.CLIENT_URL}/#/reset-password?token=${token}`;
       await sendPasswordResetEmail(email, link);
       logger.info('Password reset link issued', { userId: rows[0].id });
     }

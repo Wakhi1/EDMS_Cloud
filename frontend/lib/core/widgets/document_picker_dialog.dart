@@ -1,27 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/api/api_exception.dart';
-import '../../../core/api/api_providers.dart';
-import '../../../core/models/document_record.dart';
-import '../../../core/models/workflow_row.dart';
-import '../../../core/theme/pspf_tokens.dart';
+import '../api/api_exception.dart';
+import '../api/api_providers.dart';
+import '../models/document_record.dart';
+import '../theme/pspf_tokens.dart';
 
-/// Search-and-pick a document to start [workflow] on. Returns the chosen
-/// document's id, or null if cancelled. Mirrors RouteForApprovalDialog's
-/// role (a pure picker — the caller makes the actual startInstance call)
-/// but searches for a document instead of a workflow, since this dialog is
-/// reached from the Workflow Designer with the workflow already fixed.
-class StartWorkflowDialog extends ConsumerStatefulWidget {
-  const StartWorkflowDialog({super.key, required this.workflow});
+/// Search-and-pick a single document by title/record-no/member. Returns the
+/// chosen [DocumentRecord], or null if cancelled. Used both by Workflow
+/// Designer's "Start now" action and its scheduled-trigger target-document
+/// field — extracted from the workflow-specific StartWorkflowDialog this
+/// originally lived in, since both need the exact same picker.
+class DocumentPickerDialog extends ConsumerStatefulWidget {
+  const DocumentPickerDialog({super.key, required this.title});
 
-  final WorkflowRow workflow;
+  final String title;
 
   @override
-  ConsumerState<StartWorkflowDialog> createState() => _StartWorkflowDialogState();
+  ConsumerState<DocumentPickerDialog> createState() => _DocumentPickerDialogState();
 }
 
-class _StartWorkflowDialogState extends ConsumerState<StartWorkflowDialog> {
+class _DocumentPickerDialogState extends ConsumerState<DocumentPickerDialog> {
   final _queryController = TextEditingController();
   List<DocumentRecord>? _results;
   bool _searching = false;
@@ -55,7 +54,7 @@ class _StartWorkflowDialogState extends ConsumerState<StartWorkflowDialog> {
   Widget build(BuildContext context) {
     final tokens = context.tokens;
     return AlertDialog(
-      title: Text('Start "${widget.workflow.name}"'),
+      title: Text(widget.title),
       content: SizedBox(
         width: 420,
         height: 420,
@@ -103,8 +102,8 @@ class _StartWorkflowDialogState extends ConsumerState<StartWorkflowDialog> {
       actions: [
         TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
         ElevatedButton(
-          onPressed: _selected == null ? null : () => Navigator.of(context).pop(_selected!.id),
-          child: const Text('Start'),
+          onPressed: _selected == null ? null : () => Navigator.of(context).pop(_selected),
+          child: const Text('Choose'),
         ),
       ],
     );

@@ -91,14 +91,22 @@ router.post(
 
     const source = req.body.source === 'device_upload' ? 'device_upload' : 'manual_upload';
     const defaultFolderId = req.body.folderId ? Number(req.body.folderId) : undefined;
+    const documentTypeId = req.body.documentTypeId ? Number(req.body.documentTypeId) : undefined;
 
-    const result = await runBatch({
-      source,
-      files: req.files.map((f) => ({ fileName: f.originalname, buffer: f.buffer, mimeType: f.mimetype })),
-      defaultFolderId,
-      createdBy: req.user.id,
-      ip: req.ip,
-    });
+    let result;
+    try {
+      result = await runBatch({
+        source,
+        files: req.files.map((f) => ({ fileName: f.originalname, buffer: f.buffer, mimeType: f.mimetype })),
+        defaultFolderId,
+        documentTypeId,
+        createdBy: req.user.id,
+        ip: req.ip,
+      });
+    } catch (err) {
+      if (err.message === 'Invalid document type') return fail(res, err.message, 422);
+      throw err;
+    }
     return ok(res, result, 'Batch uploaded', 201);
   })
 );

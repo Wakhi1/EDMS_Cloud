@@ -28,9 +28,13 @@ const {
   startScheduler: startWorkflowScheduler,
 } = require("./services/workflow/scheduler");
 const {
+  startScheduler: startWorkflowScheduleScheduler,
+} = require("./services/workflow/schedule_scheduler");
+const {
   runInitialCheck: runInitialLicenseCheck,
   startScheduler: startLicenseScheduler,
 } = require("./services/license/scheduler");
+const { startPushScheduler } = require("./services/push/scheduler");
 
 const app = express();
 
@@ -133,7 +137,9 @@ const PORT = process.env.PORT || 4000;
     await startScheduler();
     startBackupScheduler();
     startWorkflowScheduler();
+    startWorkflowScheduleScheduler();
     startLicenseScheduler();
+    await startPushScheduler();
   } catch (err) {
     logger.error("Failed to start server — check DB configuration", {
       error: err.message,

@@ -1,6 +1,7 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
+import '../../../../core/models/document_type_row.dart';
 import '../../../../core/models/folder_row.dart';
 import '../../../../core/theme/pspf_tokens.dart';
 import '../../../../core/utils/mime_type.dart';
@@ -12,15 +13,17 @@ import '../../../../core/utils/mime_type.dart';
 /// mobile browser, the same file picker already opens the camera/gallery
 /// natively, so no separate device-capture API is needed.
 class NewBatchDialog extends StatefulWidget {
-  const NewBatchDialog({super.key, required this.folders});
+  const NewBatchDialog({super.key, required this.folders, required this.documentTypes});
 
   final List<FolderRow> folders;
+  final List<DocumentTypeRow> documentTypes;
 
-  static Future<({List<({List<int> bytes, String fileName, String mimeType})> files, String source, int folderId})?> show(
+  static Future<({List<({List<int> bytes, String fileName, String mimeType})> files, String source, int folderId, int? documentTypeId})?> show(
     BuildContext context, {
     required List<FolderRow> folders,
+    required List<DocumentTypeRow> documentTypes,
   }) {
-    return showDialog(context: context, builder: (_) => NewBatchDialog(folders: folders));
+    return showDialog(context: context, builder: (_) => NewBatchDialog(folders: folders, documentTypes: documentTypes));
   }
 
   @override
@@ -31,6 +34,7 @@ class _NewBatchDialogState extends State<NewBatchDialog> {
   List<PlatformFile> _picked = [];
   String _source = 'manual_upload';
   int? _folderId;
+  int? _documentTypeId;
   bool _picking = false;
 
   @override
@@ -55,7 +59,7 @@ class _NewBatchDialogState extends State<NewBatchDialog> {
       for (final f in _picked)
         (bytes: await f.readAsBytes(), fileName: f.name, mimeType: mimeTypeForExtension(extensionOf(f.name))),
     ];
-    if (mounted) Navigator.of(context).pop((files: files, source: _source, folderId: _folderId!));
+    if (mounted) Navigator.of(context).pop((files: files, source: _source, folderId: _folderId!, documentTypeId: _documentTypeId));
   }
 
   @override
@@ -102,9 +106,22 @@ class _NewBatchDialogState extends State<NewBatchDialog> {
               items: [for (final f in widget.folders) DropdownMenuItem(value: f.id, child: Text(f.path, overflow: TextOverflow.ellipsis))],
               onChanged: (v) => setState(() => _folderId = v),
             ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<int?>(
+              initialValue: _documentTypeId,
+              isExpanded: true,
+              decoration: const InputDecoration(labelText: 'Document type', isDense: true),
+              items: [
+                const DropdownMenuItem(value: null, child: Text('Auto-detect per file')),
+                for (final t in widget.documentTypes) DropdownMenuItem(value: t.id, child: Text(t.name, overflow: TextOverflow.ellipsis)),
+              ],
+              onChanged: (v) => setState(() => _documentTypeId = v),
+            ),
             const SizedBox(height: 8),
             Text(
-              'Each file is auto-classified and registered immediately — encrypted, OCR\'d, and indexed the same as any other document.',
+              _documentTypeId == null
+                  ? 'Each file is auto-classified and registered immediately — encrypted, OCR\'d, and indexed the same as any other document.'
+                  : 'Every file in this batch will be registered as the selected type — encrypted, OCR\'d, and indexed the same as any other document.',
               style: TextStyle(fontSize: 11.5, color: tokens.ink2),
             ),
           ],

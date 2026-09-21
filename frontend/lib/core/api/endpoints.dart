@@ -10,6 +10,13 @@ import '../env/env.dart';
 class Endpoints {
   const Endpoints._();
 
+  // server.js — mounted directly, outside the /api prefix.
+  static const health = '/health';
+
+  // apiKeys.routes.js
+  static const apiKeys = '/api/api-keys';
+  static String apiKeyById(String id) => '/api/api-keys/$id';
+
   // sharing.routes.js
   static const sharing = '/api/sharing';
   static String shareLinkById(String id) => '/api/sharing/$id';
@@ -61,6 +68,17 @@ class Endpoints {
   static const documentTypes = '/api/document-types';
   static String documentTypeById(String id) => '/api/document-types/$id';
 
+  // record-indexes.routes.js
+  static const recordIndexes = '/api/record-indexes';
+  static const recordIndexesAvailable = '/api/record-indexes/available';
+  static const recordIndexesGenerate = '/api/record-indexes/generate';
+  static String recordIndexById(String id) => '/api/record-indexes/$id';
+
+  // watermark-templates.routes.js
+  static const watermarkTemplates = '/api/watermark-templates';
+  static const watermarkTemplatesActive = '/api/watermark-templates/active';
+  static String watermarkTemplateById(String id) => '/api/watermark-templates/$id';
+
   // approvals.routes.js
   static const approvals = '/api/approvals';
 
@@ -84,6 +102,10 @@ class Endpoints {
   static const reportsAuditActions = '/api/reports/audit-actions';
   static const reportsOverdueRetention = '/api/reports/overdue-retention';
   static const reportsExport = '/api/reports/export';
+
+  // report-templates.routes.js
+  static const reportTemplates = '/api/report-templates';
+  static String reportTemplateById(String id) => '/api/report-templates/$id';
 
   // audit.routes.js
   static const audit = '/api/audit';
@@ -173,4 +195,8 @@ class Endpoints {
   static const branding = '/api/branding';
   static const brandingLogoUrl = '/api/branding/logo';
   static const brandingFaviconUrl = '/api/branding/favicon';
+
+  // signature.routes.js
+  static const signatureMe = '/api/signature/me';
+  static const signatureMeImage = '/api/signature/me/image';
 }

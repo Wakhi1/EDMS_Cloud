@@ -3,10 +3,10 @@
  * Polls a remote FTP directory for new files via basic-ftp (promise-based,
  * no native bindings). Real connector, same as the AWS S3/SMTP integrations
  * already in this app — will genuinely connect once real credentials are
- * configured, and fail cleanly (not crash) until then. The password is
- * read from FTP_INTAKE_PASSWORD in .env, never from integrations.config_json
- * (non-secret settings only), matching this app's existing secrets
- * convention.
+ * configured, and fail cleanly (not crash) until then. The password is set
+ * via the Integrations screen (config.password), with FTP_INTAKE_PASSWORD
+ * in .env kept as a fallback for existing .env-only deployments — same
+ * precedence as storage.service.js#activeProvider().
  */
 const { Client } = require('basic-ftp');
 const { Writable } = require('stream');
@@ -20,7 +20,7 @@ async function withClient(config, fn) {
       host: config.host,
       port: config.port || 21,
       user: config.user,
-      password: process.env.FTP_INTAKE_PASSWORD || '',
+      password: config.password || process.env.FTP_INTAKE_PASSWORD || '',
       secure: false,
     });
     return await fn(client);

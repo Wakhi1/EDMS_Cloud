@@ -22,6 +22,7 @@ const aclService = require('../services/acl.service');
 const { envelopeDecryptFile } = require('../services/crypto.service');
 const storageService = require('../services/storage/storage.service');
 const { watermarkPdf } = require('../services/watermark.service');
+const { getSettingBool } = require('../services/settings.service');
 
 const router = express.Router();
 
@@ -115,7 +116,7 @@ router.get('/public/:token/content', asyncHandler(async (req, res) => {
   if (!link) return fail(res, { not_found: 'This link is invalid.', revoked: 'This link has been revoked.', expired: 'This link has expired.', unavailable: 'This record is no longer available.' }[reason], 404);
 
   const [[row]] = await pool.query(
-    `SELECT dv.file_name, dv.mime_type, dso.*,
+    `SELECT dv.file_name, dv.mime_type, dso.*, d.watermark_mode,
             dek.wrapped_dek, dek.dek_iv, dek.dek_auth_tag, dek.file_iv, dek.file_auth_tag
      FROM documents d
      JOIN document_versions dv ON dv.id = d.current_version_id
@@ -138,8 +139,10 @@ router.get('/public/:token/content', asyncHandler(async (req, res) => {
       })
     : fetchedFile;
 
-  if (row.mime_type === 'application/pdf') {
-    plaintext = await watermarkPdf(plaintext, { userLabel: `Shared link (${link.record_no})` });
+  const shouldWatermark = row.watermark_mode === 'on'
+    || (row.watermark_mode === 'inherit' && await getSettingBool('watermark_downloads', true));
+  if (row.mime_type === 'application/pdf' && shouldWatermark) {
+    plaintext = await watermarkPdf(plaintext);
   }
 
   await pool.query('UPDATE document_share_links SET access_count = access_count + 1, last_accessed_at = NOW() WHERE id = ?', [link.id]);

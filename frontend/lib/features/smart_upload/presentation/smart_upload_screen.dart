@@ -1,10 +1,10 @@
+import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart' show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../core/api/api_exception.dart';
-import '../../../core/api/api_providers.dart';
 import '../../../core/models/document_type_row.dart';
 import '../../../core/models/folder_row.dart';
 import '../../../core/router/route_paths.dart';
@@ -15,9 +15,24 @@ import '../../integrations/providers/integrations_providers.dart';
 import '../../repository/providers/repository_providers.dart';
 import '../providers/upload_batch_storage_provider.dart';
 import '../providers/upload_queue_provider.dart';
-import 'widgets/create_folder_dialog.dart';
 import 'widgets/storage_location_dialog.dart';
 import 'widgets/upload_file_preview.dart';
+
+/// Whether dragging a file from the OS onto this screen should be
+/// accepted — desktop_drop supports Windows fully and Android as a
+/// (preview) multi-window/split-screen feature; gated to Windows and
+/// tablet-width Android specifically, per the app's other wide-layout
+/// breakpoint (login_screen.dart's `width >= 720`), rather than every
+/// phone-sized Android window.
+bool _dragAndDropEnabled(BuildContext context) {
+  if (defaultTargetPlatform == TargetPlatform.windows) return true;
+  if (defaultTargetPlatform == TargetPlatform.android) {
+    return MediaQuery.sizeOf(context).width >= 720;
+  }
+  return false;
+}
+
+final _draggingOverUploadProvider = StateProvider.autoDispose<bool>((ref) => false);
 
 class SmartUploadScreen extends ConsumerWidget {
   const SmartUploadScreen({super.key});
@@ -32,6 +47,17 @@ class SmartUploadScreen extends ConsumerWidget {
     ref.read(uploadQueueProvider.notifier).addFiles(files);
   }
 
+  Future<void> _handleDroppedFiles(WidgetRef ref, List<DropItem> items) async {
+    // DropItemDirectory (a dropped folder) has no bytes of its own to read —
+    // only individual files are meaningful uploads here.
+    final droppedFiles = items.whereType<DropItem>().where((i) => i is! DropItemDirectory);
+    final files = [
+      for (final f in droppedFiles)
+        (bytes: await f.readAsBytes(), fileName: f.name, mimeType: mimeTypeForExtension(extensionOf(f.name))),
+    ];
+    if (files.isNotEmpty) ref.read(uploadQueueProvider.notifier).addFiles(files);
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final tokens = context.tokens;
@@ -40,8 +66,10 @@ class SmartUploadScreen extends ConsumerWidget {
     final foldersAsync = ref.watch(foldersProvider);
     final needAttention = rows.where((r) => r.needsAttention).length;
     final allCommitted = rows.isNotEmpty && rows.every((r) => r.status == UploadRowStatus.committed);
+    final dragAndDropEnabled = _dragAndDropEnabled(context);
+    final draggingOver = dragAndDropEnabled && ref.watch(_draggingOverUploadProvider);
 
-    return Padding(
+    final body = Padding(
       padding: const EdgeInsets.all(18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -50,6 +78,10 @@ class SmartUploadScreen extends ConsumerWidget {
             children: [
               Text('Records / Smart Upload — recognise & index', style: Theme.of(context).textTheme.titleMedium),
               const Spacer(),
+              if (dragAndDropEnabled) ...[
+                Text('Drag files here, or', style: TextStyle(fontSize: 12, color: tokens.ink2)),
+                const SizedBox(width: 8),
+              ],
               OutlinedButton.icon(
                 onPressed: () => _pickFiles(ref),
                 icon: const Icon(Icons.add, size: 16),
@@ -59,7 +91,7 @@ class SmartUploadScreen extends ConsumerWidget {
               ElevatedButton(
                 onPressed: rows.isEmpty || !typesAsync.hasValue || !foldersAsync.hasValue
                     ? null
-                    : () => ref.read(uploadQueueProvider.notifier).commitAll(typesAsync.value!, foldersAsync.value!),
+                    : () => ref.read(uploadQueueProvider.notifier).commitAll(foldersAsync.value!),
                 child: const Text('Index & register all'),
               ),
             ],
@@ -92,13 +124,19 @@ class SmartUploadScreen extends ConsumerWidget {
           Expanded(
             child: rows.isEmpty
                 ? Center(
-                    child: Text('No files queued. Click "Add files" to begin.', style: TextStyle(color: tokens.ink2)),
+                    child: Text(
+                      dragAndDropEnabled
+                          ? 'No files queued. Drag files here, or click "Add files" to begin.'
+                          : 'No files queued. Click "Add files" to begin.',
+                      style: TextStyle(color: tokens.ink2),
+                    ),
                   )
                 : ListView.separated(
                     itemCount: rows.length,
                     separatorBuilder: (_, _) => const SizedBox(height: 8),
                     itemBuilder: (context, i) => _UploadRowCard(
                       row: rows[i],
+                      allRows: rows,
                       types: typesAsync.valueOrNull ?? const [],
                       folders: foldersAsync.valueOrNull ?? const [],
                     ),
@@ -107,27 +145,53 @@ class SmartUploadScreen extends ConsumerWidget {
         ],
       ),
     );
+
+    if (!dragAndDropEnabled) return body;
+
+    return DropTarget(
+      onDragEntered: (_) => ref.read(_draggingOverUploadProvider.notifier).state = true,
+      onDragExited: (_) => ref.read(_draggingOverUploadProvider.notifier).state = false,
+      onDragDone: (details) {
+        ref.read(_draggingOverUploadProvider.notifier).state = false;
+        _handleDroppedFiles(ref, details.files);
+      },
+      child: Stack(
+        children: [
+          body,
+          if (draggingOver)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: Container(
+                  margin: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: tokens.acc.withValues(alpha: 0.12),
+                    border: Border.all(color: tokens.accD, width: 2),
+                  ),
+                  alignment: Alignment.center,
+                  child: Text(
+                    'Drop to add files',
+                    style: TextStyle(color: tokens.accD, fontWeight: FontWeight.w600, fontSize: 16),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
   }
 }
 
 class _UploadRowCard extends ConsumerWidget {
-  const _UploadRowCard({required this.row, required this.types, required this.folders});
+  const _UploadRowCard({required this.row, required this.allRows, required this.types, required this.folders});
 
   final UploadRow row;
+
+  /// Every row in the queue, including this one — used to exclude record
+  /// indexes already picked by another row from this row's own dropdown
+  /// (one index can only ever go to one document).
+  final List<UploadRow> allRows;
   final List<DocumentTypeRow> types;
   final List<FolderRow> folders;
-
-  Future<void> _createFolder(BuildContext context, WidgetRef ref, String localId, List<FolderRow> folders) async {
-    final result = await CreateFolderDialog.show(context, folders: folders);
-    if (result == null) return;
-    try {
-      final created = await ref.read(foldersApiProvider).create(name: result.name, parentId: result.parentId);
-      ref.invalidate(foldersProvider);
-      ref.read(uploadQueueProvider.notifier).updateField(localId, folderId: () => created.id);
-    } on ApiException catch (e) {
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
-    }
-  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -197,31 +261,19 @@ class _UploadRowCard extends ConsumerWidget {
                         : (v) => notifier.updateField(row.localId, documentTypeId: () => v),
                   ),
                 ),
+                if (row.documentTypeId != null) _RecordIndexPicker(row: row, allRows: allRows),
                 SizedBox(
                   width: 240,
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Expanded(
-                        child: DropdownButtonFormField<int>(
-                          initialValue: row.folderId,
-                          isExpanded: true,
-                          decoration: const InputDecoration(labelText: 'Destination folder', isDense: true),
-                          items: [
-                            for (final f in folders) DropdownMenuItem(value: f.id, child: Text(f.path, overflow: TextOverflow.ellipsis)),
-                          ],
-                          onChanged: row.status == UploadRowStatus.committed
-                              ? null
-                              : (v) => notifier.updateField(row.localId, folderId: () => v),
-                        ),
-                      ),
-                      if (row.status != UploadRowStatus.committed)
-                        IconButton(
-                          icon: const Icon(Icons.create_new_folder_outlined, size: 18),
-                          tooltip: 'New folder',
-                          onPressed: () => _createFolder(context, ref, row.localId, folders),
-                        ),
+                  child: DropdownButtonFormField<int>(
+                    initialValue: row.folderId,
+                    isExpanded: true,
+                    decoration: const InputDecoration(labelText: 'Destination folder', isDense: true),
+                    items: [
+                      for (final f in folders) DropdownMenuItem(value: f.id, child: Text(f.path, overflow: TextOverflow.ellipsis)),
                     ],
+                    onChanged: row.status == UploadRowStatus.committed
+                        ? null
+                        : (v) => notifier.updateField(row.localId, folderId: () => v),
                   ),
                 ),
                 SizedBox(
@@ -313,6 +365,56 @@ class _UploadRowCard extends ConsumerWidget {
       case UploadRowStatus.commitFailed:
         return StatusChip('Failed', tone: StatusTone.bad);
     }
+  }
+}
+
+/// The "select from existing indexes" picker — populated from
+/// GET /api/record-indexes/available for the row's document type, minus
+/// whatever any other row in this same batch has already picked (one index
+/// can only ever go to one document, and the backend would reject a second
+/// claim anyway — filtering client-side avoids that round trip).
+class _RecordIndexPicker extends ConsumerWidget {
+  const _RecordIndexPicker({required this.row, required this.allRows});
+
+  final UploadRow row;
+  final List<UploadRow> allRows;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final tokens = context.tokens;
+    final indexesAsync = ref.watch(availableRecordIndexesProvider(row.documentTypeId!));
+    final notifier = ref.read(uploadQueueProvider.notifier);
+    final pickedByOthers = {
+      for (final r in allRows)
+        if (r.localId != row.localId && r.recordIndexId != null) r.recordIndexId!,
+    };
+
+    return SizedBox(
+      width: 200,
+      child: indexesAsync.when(
+        loading: () => const SizedBox(
+          height: 48,
+          child: Center(child: SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2))),
+        ),
+        error: (e, _) => Text('Couldn\'t load indexes', style: TextStyle(color: tokens.bad, fontSize: 11.5)),
+        data: (indexes) {
+          final options = indexes.where((idx) => idx.id == row.recordIndexId || !pickedByOthers.contains(idx.id)).toList();
+          if (options.isEmpty) {
+            return Text(
+              'No available indexes for this type — add some in Settings → Indexing.',
+              style: TextStyle(color: tokens.warn, fontSize: 11.5),
+            );
+          }
+          return DropdownButtonFormField<int>(
+            initialValue: row.recordIndexId,
+            isExpanded: true,
+            decoration: const InputDecoration(labelText: 'Record index', isDense: true),
+            items: [for (final idx in options) DropdownMenuItem(value: idx.id, child: Text(idx.indexValue, overflow: TextOverflow.ellipsis))],
+            onChanged: row.status == UploadRowStatus.committed ? null : (v) => notifier.setRecordIndex(row.localId, v),
+          );
+        },
+      ),
+    );
   }
 }
 

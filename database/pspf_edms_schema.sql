@@ -251,11 +251,19 @@ CREATE TABLE `folders` (
   `path`               VARCHAR(500) NOT NULL, -- materialised path for fast lookups
   `department_id`      INT UNSIGNED NULL,
   `retention_class_id` INT UNSIGNED NULL,
+  -- Default storage location for documents filed into this folder — used
+  -- by document.service.js's registerDocument as the fallback whenever a
+  -- caller doesn't explicitly override storageProviderId/storagePrefix
+  -- (falling further back to the globally active provider if this is also
+  -- unset). NULL storage_provider_id means "no folder-level default".
+  `storage_provider_id` VARCHAR(30) NULL,
+  `storage_prefix`      VARCHAR(255) NULL,
   `created_by`         INT UNSIGNED NULL,
   `created_at`         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT `fk_folder_parent` FOREIGN KEY (`parent_id`) REFERENCES `folders`(`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_folder_dept`   FOREIGN KEY (`department_id`) REFERENCES `departments`(`id`),
   CONSTRAINT `fk_folder_retention` FOREIGN KEY (`retention_class_id`) REFERENCES `retention_classes`(`id`),
+  CONSTRAINT `fk_folder_storage` FOREIGN KEY (`storage_provider_id`) REFERENCES `integrations`(`id`) ON DELETE SET NULL,
   CONSTRAINT `fk_folder_creator` FOREIGN KEY (`created_by`) REFERENCES `users`(`id`),
   UNIQUE KEY `uq_folder_path` (`company_id`, `path`)
 ) ENGINE=InnoDB;
@@ -271,6 +279,10 @@ CREATE TABLE `documents` (
   `member_number`      VARCHAR(40) NULL,             -- pension scheme member reference
   `member_name`        VARCHAR(150) NULL,
   `classification`     ENUM('public','internal','restricted','confidential') NOT NULL DEFAULT 'internal',
+  -- Per-document override of the global `watermark_downloads` system
+  -- setting: 'inherit' defers to it, 'on'/'off' force the behaviour for
+  -- this document regardless of the global switch.
+  `watermark_mode`     ENUM('inherit','on','off') NOT NULL DEFAULT 'inherit',
   `status`             ENUM('draft','pending_approval','approved','rejected','declared_final','archived','disposed') NOT NULL DEFAULT 'draft',
   `retention_class_id` INT UNSIGNED NULL,
   `retention_start_at` DATETIME NULL,                -- set when declared final
@@ -290,6 +302,26 @@ CREATE TABLE `documents` (
   INDEX `ix_doc_member` (`member_number`),
   INDEX `ix_doc_status` (`status`),
   FULLTEXT KEY `ftx_doc_title` (`title`)
+) ENGINE=InnoDB;
+
+-- Admin-issued index values ("indexing structures"), one per document type,
+-- claimed by exactly one document each. Uploads select from the `available`
+-- pool instead of the system inventing/free-typing a record_no — see
+-- services/recordIndex.service.js.
+CREATE TABLE `record_indexes` (
+  `id`                  INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `company_id`          INT UNSIGNED NOT NULL,
+  `document_type_id`    INT UNSIGNED NOT NULL,
+  `index_value`         VARCHAR(40) NOT NULL,
+  `status`              ENUM('available','used') NOT NULL DEFAULT 'available',
+  `used_by_document_id` INT UNSIGNED NULL,
+  `created_by`          INT UNSIGNED NOT NULL,
+  `created_at`          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `used_at`             DATETIME NULL,
+  UNIQUE KEY `uq_recidx_company_value` (`company_id`, `index_value`),
+  KEY `idx_recidx_lookup` (`company_id`, `document_type_id`, `status`),
+  CONSTRAINT `fk_recidx_type` FOREIGN KEY (`document_type_id`) REFERENCES `document_types`(`id`),
+  CONSTRAINT `fk_recidx_doc`  FOREIGN KEY (`used_by_document_id`) REFERENCES `documents`(`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB;
 
 -- Optional user-defined label:value tags on a document (Smart Upload's
@@ -345,6 +377,8 @@ CREATE TABLE `document_versions` (
   `file_name`         VARCHAR(255) NOT NULL,
   `mime_type`         VARCHAR(120) NOT NULL,
   `size_bytes`        BIGINT UNSIGNED NOT NULL,
+  `page_count`        INT UNSIGNED NULL,             -- NULL = couldn't be determined for this file type (services/pageCount.service.js)
+  `page_count_estimated` TINYINT(1) NOT NULL DEFAULT 0, -- 1 = computed from text length (plain text, metadata-less .docx), not read from the file
   `storage_object_id` BIGINT UNSIGNED NOT NULL,
   `ocr_text`          MEDIUMTEXT NULL,               -- extracted searchable text (from OCR pipeline)
   `is_current`        TINYINT(1) NOT NULL DEFAULT 1,
@@ -456,7 +490,7 @@ CREATE TABLE `access_requests` (
 CREATE TABLE `role_module_permissions` (
   `company_id` INT UNSIGNED NOT NULL,
   `role_id`   INT UNSIGNED NOT NULL,
-  `module`    VARCHAR(60) NOT NULL,   -- dashboard, repository, capture, search, versions, viewer, permissions, security, users, departments, settings, backup, workflow, integrations, reports, audit, retention, approvals
+  `module`    VARCHAR(60) NOT NULL,   -- dashboard, repository, capture, search, versions, viewer, permissions, security, users, departments, settings, backup, workflow, integrations, reports, audit, retention, approvals, indexing
   `can_view`  TINYINT(1) NOT NULL DEFAULT 0,
   `can_edit`  TINYINT(1) NOT NULL DEFAULT 0,
   PRIMARY KEY (`role_id`, `module`),
@@ -474,11 +508,30 @@ CREATE TABLE `workflows` (
   `trigger_doc_type_id` INT UNSIGNED NULL,
   `trigger_folder_id`  INT UNSIGNED NULL,
   `is_active`          TINYINT(1) NOT NULL DEFAULT 1,
+  -- Third trigger mechanism alongside trigger_doc_type_id/trigger_folder_id
+  -- above: fires on a schedule instead of a document-creation event. There
+  -- is no document-templating concept anywhere in this app, so a scheduled
+  -- fire re-routes ONE admin-chosen existing document through the workflow
+  -- again each time (services/workflow/schedule_scheduler.js) rather than
+  -- generating a new one.
+  `schedule_enabled`   TINYINT(1) NOT NULL DEFAULT 0,
+  `schedule_target_document_id` INT UNSIGNED NULL,
+  `schedule_start_at`  DATETIME NULL,
+  `schedule_recurrence` ENUM('once','daily','weekly','monthly','yearly') NULL,
+  -- NULL = repeats forever (until disabled by hand). Set = the loop stops
+  -- once the next computed occurrence would fall after this.
+  `schedule_end_at`    DATETIME NULL,
+  -- The scheduler's poll cursor: next time this workflow should fire.
+  -- Recomputed from schedule_recurrence after every fire; NULL/disabled
+  -- once schedule_recurrence = 'once' has fired or schedule_end_at passes.
+  `schedule_next_run_at` DATETIME NULL,
   `created_by`         INT UNSIGNED NOT NULL,
   `created_at`         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT `fk_wf_doctype` FOREIGN KEY (`trigger_doc_type_id`) REFERENCES `document_types`(`id`),
   CONSTRAINT `fk_wf_folder`  FOREIGN KEY (`trigger_folder_id`) REFERENCES `folders`(`id`),
-  CONSTRAINT `fk_wf_creator` FOREIGN KEY (`created_by`) REFERENCES `users`(`id`)
+  CONSTRAINT `fk_wf_schedule_doc` FOREIGN KEY (`schedule_target_document_id`) REFERENCES `documents`(`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_wf_creator` FOREIGN KEY (`created_by`) REFERENCES `users`(`id`),
+  INDEX `ix_wf_schedule_due` (`schedule_enabled`, `schedule_next_run_at`)
 ) ENGINE=InnoDB;
 
 CREATE TABLE `workflow_steps` (
@@ -488,6 +541,12 @@ CREATE TABLE `workflow_steps` (
   `step_order`  SMALLINT UNSIGNED NOT NULL,
   `step_name`   VARCHAR(150) NOT NULL,
   `role_id`     INT UNSIGNED NOT NULL,
+  -- When set, this step is assigned directly to this person instead of
+  -- "whoever holds role_id" — granular per-user routing rather than only
+  -- unit/department (role) level. role_id is still required (it still
+  -- governs the SLA-escalation pool's meaning) but is skipped for
+  -- resolving the initial approver when assignee_user_id is present.
+  `assignee_user_id` INT UNSIGNED NULL,
   `sla_days`    SMALLINT UNSIGNED NOT NULL DEFAULT 2,
   -- NULL = escalate to Records Manager (the default governance role) once
   -- this step's approval has been pending longer than sla_days.
@@ -498,8 +557,13 @@ CREATE TABLE `workflow_steps` (
   -- child instance to reach a terminal state. `role_id` is still required
   -- by the column above but is ignored for a step configured this way.
   `sub_workflow_id`    INT UNSIGNED NULL,
+  -- When set, approving this step requires the approver to have a saved
+  -- user_signatures row — its ciphertext is snapshotted into
+  -- workflow_approval_signatures at the moment of approval.
+  `requires_signature` TINYINT(1) NOT NULL DEFAULT 0,
   CONSTRAINT `fk_wfs_workflow`   FOREIGN KEY (`workflow_id`) REFERENCES `workflows`(`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_wfs_role`       FOREIGN KEY (`role_id`) REFERENCES `roles`(`id`),
+  CONSTRAINT `fk_wfs_assignee`   FOREIGN KEY (`assignee_user_id`) REFERENCES `users`(`id`),
   CONSTRAINT `fk_wfs_esc_role`   FOREIGN KEY (`escalation_role_id`) REFERENCES `roles`(`id`),
   CONSTRAINT `fk_wfs_subwf`      FOREIGN KEY (`sub_workflow_id`) REFERENCES `workflows`(`id`),
   UNIQUE KEY `uq_wf_step_order` (`workflow_id`, `step_order`)
@@ -620,6 +684,27 @@ CREATE TABLE `integrations` (
   INDEX `ix_integration_company` (`company_id`)
 ) ENGINE=InnoDB;
 
+-- Long-lived bearer credentials for headless callers (today: the local
+-- watched-folder agent's POST /api/agent/upload) that can't hold a normal
+-- 15-minute JWT session. Only the salted hash is stored — the raw key is
+-- shown once, at creation time, same principle as a password. Each key
+-- acts as the `created_by` user for audit/ownership purposes.
+CREATE TABLE `api_keys` (
+  `id`            BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `company_id`    INT UNSIGNED NOT NULL,
+  `name`          VARCHAR(150) NOT NULL,
+  `key_prefix`    VARCHAR(12) NOT NULL,   -- shown alongside `name` so an admin can tell keys apart without the raw value
+  `key_hash`      CHAR(64) NOT NULL,      -- sha256(raw key), hex
+  `scope`         VARCHAR(50) NOT NULL DEFAULT 'capture_upload',
+  `created_by`    INT UNSIGNED NOT NULL,
+  `last_used_at`  DATETIME NULL,
+  `revoked_at`    DATETIME NULL,
+  `created_at`    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY `uq_api_key_hash` (`key_hash`),
+  CONSTRAINT `fk_apikey_creator` FOREIGN KEY (`created_by`) REFERENCES `users`(`id`),
+  INDEX `ix_apikey_company` (`company_id`)
+) ENGINE=InnoDB;
+
 CREATE TABLE `capture_batches` (
   `id`             INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   `company_id`     INT UNSIGNED NOT NULL,
@@ -669,6 +754,20 @@ CREATE TABLE `system_settings` (
   INDEX `ix_setting_company` (`company_id`)
 ) ENGINE=InnoDB;
 
+-- Admin-managed watermark text options — which one is currently "active"
+-- (stamped on every downloaded PDF) lives in system_settings as
+-- 'active_watermark_template_id', same lazily-created-on-first-use pattern
+-- as 'active_storage_provider'. See services/watermark.service.js.
+CREATE TABLE `watermark_templates` (
+  `id`         INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `company_id` INT UNSIGNED NOT NULL,
+  `label`      VARCHAR(100) NOT NULL,
+  `text`       VARCHAR(200) NOT NULL,
+  `created_by` INT UNSIGNED NOT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY `uq_watermark_company_label` (`company_id`, `label`)
+) ENGINE=InnoDB;
+
 -- Per-user appearance/UX preferences — deliberately separate from
 -- system_settings (which is global), so theme etc. is per-person.
 CREATE TABLE `user_preferences` (
@@ -678,6 +777,71 @@ CREATE TABLE `user_preferences` (
   `density`      ENUM('comfortable','compact') NOT NULL DEFAULT 'comfortable',
   `updated_at`   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT `fk_prefs_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- One saved signature per user (drawn or an uploaded transparent PNG),
+-- used to auto-stamp approvals on workflow_steps.requires_signature
+-- steps. Same envelope-encryption shape as document_encryption_keys
+-- (services/crypto.service.js's envelopeEncryptFile/envelopeDecryptFile),
+-- except the ciphertext itself is stored directly here (encrypted_image)
+-- rather than uploaded to cloud storage — deliberate, since this is a
+-- small (<1MB) image, not a full document.
+CREATE TABLE `user_signatures` (
+  `user_id`               INT UNSIGNED PRIMARY KEY,
+  `company_id`            INT UNSIGNED NOT NULL,
+  `encrypted_image`       MEDIUMBLOB NOT NULL,
+  `key_encryption_key_id` INT UNSIGNED NOT NULL,
+  `wrapped_dek`           VARBINARY(512) NOT NULL,
+  `dek_iv`                VARBINARY(32) NOT NULL,
+  `dek_auth_tag`          VARBINARY(32) NOT NULL,
+  `file_iv`               VARBINARY(32) NOT NULL,
+  `file_auth_tag`         VARBINARY(32) NOT NULL,
+  `checksum_sha256`       CHAR(64) NOT NULL,
+  `content_type`          VARCHAR(50) NOT NULL DEFAULT 'image/png',
+  `created_at`            DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`            DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_sig_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_sig_kek`  FOREIGN KEY (`key_encryption_key_id`) REFERENCES `key_encryption_keys`(`id`)
+) ENGINE=InnoDB;
+
+-- Immutable snapshot of the signature actually used to approve one
+-- workflow_approvals row — deliberately NOT a live reference to
+-- user_signatures: a user replacing their saved signature later must
+-- never retroactively change what a past, already-decided approval
+-- appears to have been signed with (same "what happened at time T stays
+-- verifiable as it was at time T" principle as the audit hash-chain).
+-- Insert-only; one row per signed approval.
+CREATE TABLE `workflow_approval_signatures` (
+  `id`                    BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `company_id`            INT UNSIGNED NOT NULL,
+  `approval_id`           BIGINT UNSIGNED NOT NULL UNIQUE,
+  `encrypted_image`       MEDIUMBLOB NOT NULL,
+  `key_encryption_key_id` INT UNSIGNED NOT NULL,
+  `wrapped_dek`           VARBINARY(512) NOT NULL,
+  `dek_iv`                VARBINARY(32) NOT NULL,
+  `dek_auth_tag`          VARBINARY(32) NOT NULL,
+  `file_iv`               VARBINARY(32) NOT NULL,
+  `file_auth_tag`         VARBINARY(32) NOT NULL,
+  `created_at`            DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_wfas_approval` FOREIGN KEY (`approval_id`) REFERENCES `workflow_approvals`(`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_wfas_kek`      FOREIGN KEY (`key_encryption_key_id`) REFERENCES `key_encryption_keys`(`id`)
+) ENGINE=InnoDB;
+
+-- A personal saved "which KPI/graph sections to show" view for the Reports
+-- screen — per-user, not an org-wide admin list like watermark_templates or
+-- record_indexes, since this is "how I like my own report to look."
+-- `sections` is a JSON array of section keys (see
+-- backend/services/reports.service.js's REPORT_SECTIONS), used to filter
+-- both the on-screen card grid and GET /api/reports/export identically.
+CREATE TABLE `report_templates` (
+  `id`         INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `company_id` INT UNSIGNED NOT NULL,
+  `user_id`    INT UNSIGNED NOT NULL,
+  `name`       VARCHAR(100) NOT NULL,
+  `sections`   JSON NOT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_report_template_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,
+  UNIQUE KEY `uq_report_template` (`user_id`, `name`)
 ) ENGINE=InnoDB;
 
 -- ---------------------------------------------------------------------
@@ -776,6 +940,14 @@ INSERT INTO `integrations` (`id`, `company_id`, `name`, `description`, `endpoint
 ('ftp', 1, 'FTP Intake', 'Polls a remote FTP/SFTP directory for new documents', NULL, 'disconnected', '{"host": "", "port": 21, "user": "", "path": "/", "pollIntervalMinutes": 15, "enabled": false}'),
 ('email_intake', 1, 'Email Intake', 'Polls a mailbox for new messages with attachments - also the landing point for a network scanner''s "scan to email" feature', NULL, 'disconnected', '{"host": "", "port": 993, "user": "", "mailbox": "INBOX", "pollIntervalMinutes": 10, "enabled": false}');
 
+-- Outbound webhook: the one push-direction integration in this app (every
+-- other row above pulls data in or stores it). config_json holds the
+-- non-secret poll interval/enabled flag; authToken (if set) lives in
+-- config_json too since it's this connector's only secret and the target
+-- is admin-chosen, not a shared external vendor credential.
+INSERT INTO `integrations` (`id`, `company_id`, `name`, `description`, `endpoint`, `status`, `config_json`) VALUES
+('webhook', 1, 'Outbound Webhook', 'Pushes document counts and recent activity to an external system', NULL, 'disconnected', '{"url": "", "pollIntervalMinutes": 15, "enabled": false}');
+
 INSERT INTO `key_encryption_keys` (`company_id`, `kek_version`, `provider`, `is_active`) VALUES
 (1, 'kek-local-dev-1', 'env', 1);
 
@@ -788,7 +960,8 @@ INSERT INTO `system_settings` (`setting_key`, `company_id`, `setting_value`, `de
 ('backup_schedule_enabled', 1, 'false', 'Run an automatic nightly database backup'),
 ('backup_schedule_hour', 1, '2', 'Hour of day (0-23, server local time) the automatic nightly backup runs'),
 ('storage_capacity_bytes', 1, '107374182400', 'Total provisioned storage capacity in bytes, shown on the Dashboard (default 100 GB)'),
-('license_key', 1, NULL, 'The license key this deployment was activated with — verified live against DocSecure''s licensing platform on every check');
+('license_key', 1, NULL, 'The license key this deployment was activated with — verified live against DocSecure''s licensing platform on every check'),
+('embed_approval_signatures', 1, 'false', 'When a signature-required approval step is approved, stamp the signature directly onto the document (as a new version), not just the approval record');
 
 -- Role x module permission matrix. `module` = dashboard, repository, capture,
 -- search, versions, viewer, permissions, security, users, departments,
@@ -824,6 +997,7 @@ INSERT INTO `role_module_permissions` (`company_id`, `role_id`, `module`, `can_v
 (1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'Records Manager'), 'users', 1, 0),
 (1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'Records Manager'), 'departments', 1, 0),
 (1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'Records Manager'), 'settings', 1, 0),
+(1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'Records Manager'), 'indexing', 1, 1),
 
 (1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'Internal Auditor'), 'audit', 1, 0),
 (1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'Internal Auditor'), 'reports', 1, 0),
@@ -844,6 +1018,7 @@ INSERT INTO `role_module_permissions` (`company_id`, `role_id`, `module`, `can_v
 (1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'System Administrator'), 'users', 1, 1),
 (1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'System Administrator'), 'departments', 1, 1),
 (1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'System Administrator'), 'settings', 1, 1),
-(1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'System Administrator'), 'backup', 1, 1);
+(1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'System Administrator'), 'backup', 1, 1),
+(1, (SELECT id FROM roles WHERE company_id = 1 AND name = 'System Administrator'), 'indexing', 1, 1);
 
 SET FOREIGN_KEY_CHECKS = 1;

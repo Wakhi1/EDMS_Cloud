@@ -15,7 +15,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$WorkflowStepRow {
 
- int get id;@JsonKey(name: 'workflow_id') int get workflowId;@JsonKey(name: 'step_order') int get stepOrder;@JsonKey(name: 'step_name') String get stepName;@JsonKey(name: 'role_id') int get roleId;@JsonKey(name: 'role_name') String? get roleName;@JsonKey(name: 'sla_days') int? get slaDays;@JsonKey(name: 'escalation_role_id') int? get escalationRoleId;@JsonKey(name: 'escalation_role_name') String? get escalationRoleName;@JsonKey(name: 'sub_workflow_id') int? get subWorkflowId;@JsonKey(name: 'sub_workflow_name') String? get subWorkflowName;
+ int get id;@JsonKey(name: 'workflow_id') int get workflowId;@JsonKey(name: 'step_order') int get stepOrder;@JsonKey(name: 'step_name') String get stepName;@JsonKey(name: 'role_id') int get roleId;@JsonKey(name: 'role_name') String? get roleName;@JsonKey(name: 'assignee_user_id') int? get assigneeUserId;@JsonKey(name: 'assignee_name') String? get assigneeName;@JsonKey(name: 'sla_days') int? get slaDays;@JsonKey(name: 'escalation_role_id') int? get escalationRoleId;@JsonKey(name: 'escalation_role_name') String? get escalationRoleName;@JsonKey(name: 'sub_workflow_id') int? get subWorkflowId;@JsonKey(name: 'sub_workflow_name') String? get subWorkflowName;@JsonKey(name: 'requires_signature', fromJson: _boolFromInt) bool get requiresSignature;
 /// Create a copy of WorkflowStepRow
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -28,16 +28,16 @@ $WorkflowStepRowCopyWith<WorkflowStepRow> get copyWith => _$WorkflowStepRowCopyW
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is WorkflowStepRow&&(identical(other.id, id) || other.id == id)&&(identical(other.workflowId, workflowId) || other.workflowId == workflowId)&&(identical(other.stepOrder, stepOrder) || other.stepOrder == stepOrder)&&(identical(other.stepName, stepName) || other.stepName == stepName)&&(identical(other.roleId, roleId) || other.roleId == roleId)&&(identical(other.roleName, roleName) || other.roleName == roleName)&&(identical(other.slaDays, slaDays) || other.slaDays == slaDays)&&(identical(other.escalationRoleId, escalationRoleId) || other.escalationRoleId == escalationRoleId)&&(identical(other.escalationRoleName, escalationRoleName) || other.escalationRoleName == escalationRoleName)&&(identical(other.subWorkflowId, subWorkflowId) || other.subWorkflowId == subWorkflowId)&&(identical(other.subWorkflowName, subWorkflowName) || other.subWorkflowName == subWorkflowName));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is WorkflowStepRow&&(identical(other.id, id) || other.id == id)&&(identical(other.workflowId, workflowId) || other.workflowId == workflowId)&&(identical(other.stepOrder, stepOrder) || other.stepOrder == stepOrder)&&(identical(other.stepName, stepName) || other.stepName == stepName)&&(identical(other.roleId, roleId) || other.roleId == roleId)&&(identical(other.roleName, roleName) || other.roleName == roleName)&&(identical(other.assigneeUserId, assigneeUserId) || other.assigneeUserId == assigneeUserId)&&(identical(other.assigneeName, assigneeName) || other.assigneeName == assigneeName)&&(identical(other.slaDays, slaDays) || other.slaDays == slaDays)&&(identical(other.escalationRoleId, escalationRoleId) || other.escalationRoleId == escalationRoleId)&&(identical(other.escalationRoleName, escalationRoleName) || other.escalationRoleName == escalationRoleName)&&(identical(other.subWorkflowId, subWorkflowId) || other.subWorkflowId == subWorkflowId)&&(identical(other.subWorkflowName, subWorkflowName) || other.subWorkflowName == subWorkflowName)&&(identical(other.requiresSignature, requiresSignature) || other.requiresSignature == requiresSignature));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hash(runtimeType,id,workflowId,stepOrder,stepName,roleId,roleName,slaDays,escalationRoleId,escalationRoleName,subWorkflowId,subWorkflowName);
+int get hashCode => Object.hash(runtimeType,id,workflowId,stepOrder,stepName,roleId,roleName,assigneeUserId,assigneeName,slaDays,escalationRoleId,escalationRoleName,subWorkflowId,subWorkflowName,requiresSignature);
 
 @override
 String toString() {
-  return 'WorkflowStepRow(id: $id, workflowId: $workflowId, stepOrder: $stepOrder, stepName: $stepName, roleId: $roleId, roleName: $roleName, slaDays: $slaDays, escalationRoleId: $escalationRoleId, escalationRoleName: $escalationRoleName, subWorkflowId: $subWorkflowId, subWorkflowName: $subWorkflowName)';
+  return 'WorkflowStepRow(id: $id, workflowId: $workflowId, stepOrder: $stepOrder, stepName: $stepName, roleId: $roleId, roleName: $roleName, assigneeUserId: $assigneeUserId, assigneeName: $assigneeName, slaDays: $slaDays, escalationRoleId: $escalationRoleId, escalationRoleName: $escalationRoleName, subWorkflowId: $subWorkflowId, subWorkflowName: $subWorkflowName, requiresSignature: $requiresSignature)';
 }
 
 
@@ -48,7 +48,7 @@ abstract mixin class $WorkflowStepRowCopyWith<$Res>  {
   factory $WorkflowStepRowCopyWith(WorkflowStepRow value, $Res Function(WorkflowStepRow) _then) = _$WorkflowStepRowCopyWithImpl;
 @useResult
 $Res call({
- int id,@JsonKey(name: 'workflow_id') int workflowId,@JsonKey(name: 'step_order') int stepOrder,@JsonKey(name: 'step_name') String stepName,@JsonKey(name: 'role_id') int roleId,@JsonKey(name: 'role_name') String? roleName,@JsonKey(name: 'sla_days') int? slaDays,@JsonKey(name: 'escalation_role_id') int? escalationRoleId,@JsonKey(name: 'escalation_role_name') String? escalationRoleName,@JsonKey(name: 'sub_workflow_id') int? subWorkflowId,@JsonKey(name: 'sub_workflow_name') String? subWorkflowName
+ int id,@JsonKey(name: 'workflow_id') int workflowId,@JsonKey(name: 'step_order') int stepOrder,@JsonKey(name: 'step_name') String stepName,@JsonKey(name: 'role_id') int roleId,@JsonKey(name: 'role_name') String? roleName,@JsonKey(name: 'assignee_user_id') int? assigneeUserId,@JsonKey(name: 'assignee_name') String? assigneeName,@JsonKey(name: 'sla_days') int? slaDays,@JsonKey(name: 'escalation_role_id') int? escalationRoleId,@JsonKey(name: 'escalation_role_name') String? escalationRoleName,@JsonKey(name: 'sub_workflow_id') int? subWorkflowId,@JsonKey(name: 'sub_workflow_name') String? subWorkflowName,@JsonKey(name: 'requires_signature', fromJson: _boolFromInt) bool requiresSignature
 });
 
 
@@ -65,7 +65,7 @@ class _$WorkflowStepRowCopyWithImpl<$Res>
 
 /// Create a copy of WorkflowStepRow
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? workflowId = null,Object? stepOrder = null,Object? stepName = null,Object? roleId = null,Object? roleName = freezed,Object? slaDays = freezed,Object? escalationRoleId = freezed,Object? escalationRoleName = freezed,Object? subWorkflowId = freezed,Object? subWorkflowName = freezed,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? workflowId = null,Object? stepOrder = null,Object? stepName = null,Object? roleId = null,Object? roleName = freezed,Object? assigneeUserId = freezed,Object? assigneeName = freezed,Object? slaDays = freezed,Object? escalationRoleId = freezed,Object? escalationRoleName = freezed,Object? subWorkflowId = freezed,Object? subWorkflowName = freezed,Object? requiresSignature = null,}) {
   return _then(_self.copyWith(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as int,workflowId: null == workflowId ? _self.workflowId : workflowId // ignore: cast_nullable_to_non_nullable
@@ -73,12 +73,15 @@ as int,stepOrder: null == stepOrder ? _self.stepOrder : stepOrder // ignore: cas
 as int,stepName: null == stepName ? _self.stepName : stepName // ignore: cast_nullable_to_non_nullable
 as String,roleId: null == roleId ? _self.roleId : roleId // ignore: cast_nullable_to_non_nullable
 as int,roleName: freezed == roleName ? _self.roleName : roleName // ignore: cast_nullable_to_non_nullable
+as String?,assigneeUserId: freezed == assigneeUserId ? _self.assigneeUserId : assigneeUserId // ignore: cast_nullable_to_non_nullable
+as int?,assigneeName: freezed == assigneeName ? _self.assigneeName : assigneeName // ignore: cast_nullable_to_non_nullable
 as String?,slaDays: freezed == slaDays ? _self.slaDays : slaDays // ignore: cast_nullable_to_non_nullable
 as int?,escalationRoleId: freezed == escalationRoleId ? _self.escalationRoleId : escalationRoleId // ignore: cast_nullable_to_non_nullable
 as int?,escalationRoleName: freezed == escalationRoleName ? _self.escalationRoleName : escalationRoleName // ignore: cast_nullable_to_non_nullable
 as String?,subWorkflowId: freezed == subWorkflowId ? _self.subWorkflowId : subWorkflowId // ignore: cast_nullable_to_non_nullable
 as int?,subWorkflowName: freezed == subWorkflowName ? _self.subWorkflowName : subWorkflowName // ignore: cast_nullable_to_non_nullable
-as String?,
+as String?,requiresSignature: null == requiresSignature ? _self.requiresSignature : requiresSignature // ignore: cast_nullable_to_non_nullable
+as bool,
   ));
 }
 
@@ -163,10 +166,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( int id, @JsonKey(name: 'workflow_id')  int workflowId, @JsonKey(name: 'step_order')  int stepOrder, @JsonKey(name: 'step_name')  String stepName, @JsonKey(name: 'role_id')  int roleId, @JsonKey(name: 'role_name')  String? roleName, @JsonKey(name: 'sla_days')  int? slaDays, @JsonKey(name: 'escalation_role_id')  int? escalationRoleId, @JsonKey(name: 'escalation_role_name')  String? escalationRoleName, @JsonKey(name: 'sub_workflow_id')  int? subWorkflowId, @JsonKey(name: 'sub_workflow_name')  String? subWorkflowName)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( int id, @JsonKey(name: 'workflow_id')  int workflowId, @JsonKey(name: 'step_order')  int stepOrder, @JsonKey(name: 'step_name')  String stepName, @JsonKey(name: 'role_id')  int roleId, @JsonKey(name: 'role_name')  String? roleName, @JsonKey(name: 'assignee_user_id')  int? assigneeUserId, @JsonKey(name: 'assignee_name')  String? assigneeName, @JsonKey(name: 'sla_days')  int? slaDays, @JsonKey(name: 'escalation_role_id')  int? escalationRoleId, @JsonKey(name: 'escalation_role_name')  String? escalationRoleName, @JsonKey(name: 'sub_workflow_id')  int? subWorkflowId, @JsonKey(name: 'sub_workflow_name')  String? subWorkflowName, @JsonKey(name: 'requires_signature', fromJson: _boolFromInt)  bool requiresSignature)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _WorkflowStepRow() when $default != null:
-return $default(_that.id,_that.workflowId,_that.stepOrder,_that.stepName,_that.roleId,_that.roleName,_that.slaDays,_that.escalationRoleId,_that.escalationRoleName,_that.subWorkflowId,_that.subWorkflowName);case _:
+return $default(_that.id,_that.workflowId,_that.stepOrder,_that.stepName,_that.roleId,_that.roleName,_that.assigneeUserId,_that.assigneeName,_that.slaDays,_that.escalationRoleId,_that.escalationRoleName,_that.subWorkflowId,_that.subWorkflowName,_that.requiresSignature);case _:
   return orElse();
 
 }
@@ -184,10 +187,10 @@ return $default(_that.id,_that.workflowId,_that.stepOrder,_that.stepName,_that.r
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( int id, @JsonKey(name: 'workflow_id')  int workflowId, @JsonKey(name: 'step_order')  int stepOrder, @JsonKey(name: 'step_name')  String stepName, @JsonKey(name: 'role_id')  int roleId, @JsonKey(name: 'role_name')  String? roleName, @JsonKey(name: 'sla_days')  int? slaDays, @JsonKey(name: 'escalation_role_id')  int? escalationRoleId, @JsonKey(name: 'escalation_role_name')  String? escalationRoleName, @JsonKey(name: 'sub_workflow_id')  int? subWorkflowId, @JsonKey(name: 'sub_workflow_name')  String? subWorkflowName)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( int id, @JsonKey(name: 'workflow_id')  int workflowId, @JsonKey(name: 'step_order')  int stepOrder, @JsonKey(name: 'step_name')  String stepName, @JsonKey(name: 'role_id')  int roleId, @JsonKey(name: 'role_name')  String? roleName, @JsonKey(name: 'assignee_user_id')  int? assigneeUserId, @JsonKey(name: 'assignee_name')  String? assigneeName, @JsonKey(name: 'sla_days')  int? slaDays, @JsonKey(name: 'escalation_role_id')  int? escalationRoleId, @JsonKey(name: 'escalation_role_name')  String? escalationRoleName, @JsonKey(name: 'sub_workflow_id')  int? subWorkflowId, @JsonKey(name: 'sub_workflow_name')  String? subWorkflowName, @JsonKey(name: 'requires_signature', fromJson: _boolFromInt)  bool requiresSignature)  $default,) {final _that = this;
 switch (_that) {
 case _WorkflowStepRow():
-return $default(_that.id,_that.workflowId,_that.stepOrder,_that.stepName,_that.roleId,_that.roleName,_that.slaDays,_that.escalationRoleId,_that.escalationRoleName,_that.subWorkflowId,_that.subWorkflowName);case _:
+return $default(_that.id,_that.workflowId,_that.stepOrder,_that.stepName,_that.roleId,_that.roleName,_that.assigneeUserId,_that.assigneeName,_that.slaDays,_that.escalationRoleId,_that.escalationRoleName,_that.subWorkflowId,_that.subWorkflowName,_that.requiresSignature);case _:
   throw StateError('Unexpected subclass');
 
 }
@@ -204,10 +207,10 @@ return $default(_that.id,_that.workflowId,_that.stepOrder,_that.stepName,_that.r
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( int id, @JsonKey(name: 'workflow_id')  int workflowId, @JsonKey(name: 'step_order')  int stepOrder, @JsonKey(name: 'step_name')  String stepName, @JsonKey(name: 'role_id')  int roleId, @JsonKey(name: 'role_name')  String? roleName, @JsonKey(name: 'sla_days')  int? slaDays, @JsonKey(name: 'escalation_role_id')  int? escalationRoleId, @JsonKey(name: 'escalation_role_name')  String? escalationRoleName, @JsonKey(name: 'sub_workflow_id')  int? subWorkflowId, @JsonKey(name: 'sub_workflow_name')  String? subWorkflowName)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( int id, @JsonKey(name: 'workflow_id')  int workflowId, @JsonKey(name: 'step_order')  int stepOrder, @JsonKey(name: 'step_name')  String stepName, @JsonKey(name: 'role_id')  int roleId, @JsonKey(name: 'role_name')  String? roleName, @JsonKey(name: 'assignee_user_id')  int? assigneeUserId, @JsonKey(name: 'assignee_name')  String? assigneeName, @JsonKey(name: 'sla_days')  int? slaDays, @JsonKey(name: 'escalation_role_id')  int? escalationRoleId, @JsonKey(name: 'escalation_role_name')  String? escalationRoleName, @JsonKey(name: 'sub_workflow_id')  int? subWorkflowId, @JsonKey(name: 'sub_workflow_name')  String? subWorkflowName, @JsonKey(name: 'requires_signature', fromJson: _boolFromInt)  bool requiresSignature)?  $default,) {final _that = this;
 switch (_that) {
 case _WorkflowStepRow() when $default != null:
-return $default(_that.id,_that.workflowId,_that.stepOrder,_that.stepName,_that.roleId,_that.roleName,_that.slaDays,_that.escalationRoleId,_that.escalationRoleName,_that.subWorkflowId,_that.subWorkflowName);case _:
+return $default(_that.id,_that.workflowId,_that.stepOrder,_that.stepName,_that.roleId,_that.roleName,_that.assigneeUserId,_that.assigneeName,_that.slaDays,_that.escalationRoleId,_that.escalationRoleName,_that.subWorkflowId,_that.subWorkflowName,_that.requiresSignature);case _:
   return null;
 
 }
@@ -219,7 +222,7 @@ return $default(_that.id,_that.workflowId,_that.stepOrder,_that.stepName,_that.r
 @JsonSerializable()
 
 class _WorkflowStepRow implements WorkflowStepRow {
-  const _WorkflowStepRow({required this.id, @JsonKey(name: 'workflow_id') required this.workflowId, @JsonKey(name: 'step_order') required this.stepOrder, @JsonKey(name: 'step_name') required this.stepName, @JsonKey(name: 'role_id') required this.roleId, @JsonKey(name: 'role_name') this.roleName, @JsonKey(name: 'sla_days') this.slaDays, @JsonKey(name: 'escalation_role_id') this.escalationRoleId, @JsonKey(name: 'escalation_role_name') this.escalationRoleName, @JsonKey(name: 'sub_workflow_id') this.subWorkflowId, @JsonKey(name: 'sub_workflow_name') this.subWorkflowName});
+  const _WorkflowStepRow({required this.id, @JsonKey(name: 'workflow_id') required this.workflowId, @JsonKey(name: 'step_order') required this.stepOrder, @JsonKey(name: 'step_name') required this.stepName, @JsonKey(name: 'role_id') required this.roleId, @JsonKey(name: 'role_name') this.roleName, @JsonKey(name: 'assignee_user_id') this.assigneeUserId, @JsonKey(name: 'assignee_name') this.assigneeName, @JsonKey(name: 'sla_days') this.slaDays, @JsonKey(name: 'escalation_role_id') this.escalationRoleId, @JsonKey(name: 'escalation_role_name') this.escalationRoleName, @JsonKey(name: 'sub_workflow_id') this.subWorkflowId, @JsonKey(name: 'sub_workflow_name') this.subWorkflowName, @JsonKey(name: 'requires_signature', fromJson: _boolFromInt) this.requiresSignature = false});
   factory _WorkflowStepRow.fromJson(Map<String, dynamic> json) => _$WorkflowStepRowFromJson(json);
 
 @override final  int id;
@@ -228,11 +231,14 @@ class _WorkflowStepRow implements WorkflowStepRow {
 @override@JsonKey(name: 'step_name') final  String stepName;
 @override@JsonKey(name: 'role_id') final  int roleId;
 @override@JsonKey(name: 'role_name') final  String? roleName;
+@override@JsonKey(name: 'assignee_user_id') final  int? assigneeUserId;
+@override@JsonKey(name: 'assignee_name') final  String? assigneeName;
 @override@JsonKey(name: 'sla_days') final  int? slaDays;
 @override@JsonKey(name: 'escalation_role_id') final  int? escalationRoleId;
 @override@JsonKey(name: 'escalation_role_name') final  String? escalationRoleName;
 @override@JsonKey(name: 'sub_workflow_id') final  int? subWorkflowId;
 @override@JsonKey(name: 'sub_workflow_name') final  String? subWorkflowName;
+@override@JsonKey(name: 'requires_signature', fromJson: _boolFromInt) final  bool requiresSignature;
 
 /// Create a copy of WorkflowStepRow
 /// with the given fields replaced by the non-null parameter values.
@@ -247,16 +253,16 @@ Map<String, dynamic> toJson() {
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _WorkflowStepRow&&(identical(other.id, id) || other.id == id)&&(identical(other.workflowId, workflowId) || other.workflowId == workflowId)&&(identical(other.stepOrder, stepOrder) || other.stepOrder == stepOrder)&&(identical(other.stepName, stepName) || other.stepName == stepName)&&(identical(other.roleId, roleId) || other.roleId == roleId)&&(identical(other.roleName, roleName) || other.roleName == roleName)&&(identical(other.slaDays, slaDays) || other.slaDays == slaDays)&&(identical(other.escalationRoleId, escalationRoleId) || other.escalationRoleId == escalationRoleId)&&(identical(other.escalationRoleName, escalationRoleName) || other.escalationRoleName == escalationRoleName)&&(identical(other.subWorkflowId, subWorkflowId) || other.subWorkflowId == subWorkflowId)&&(identical(other.subWorkflowName, subWorkflowName) || other.subWorkflowName == subWorkflowName));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is _WorkflowStepRow&&(identical(other.id, id) || other.id == id)&&(identical(other.workflowId, workflowId) || other.workflowId == workflowId)&&(identical(other.stepOrder, stepOrder) || other.stepOrder == stepOrder)&&(identical(other.stepName, stepName) || other.stepName == stepName)&&(identical(other.roleId, roleId) || other.roleId == roleId)&&(identical(other.roleName, roleName) || other.roleName == roleName)&&(identical(other.assigneeUserId, assigneeUserId) || other.assigneeUserId == assigneeUserId)&&(identical(other.assigneeName, assigneeName) || other.assigneeName == assigneeName)&&(identical(other.slaDays, slaDays) || other.slaDays == slaDays)&&(identical(other.escalationRoleId, escalationRoleId) || other.escalationRoleId == escalationRoleId)&&(identical(other.escalationRoleName, escalationRoleName) || other.escalationRoleName == escalationRoleName)&&(identical(other.subWorkflowId, subWorkflowId) || other.subWorkflowId == subWorkflowId)&&(identical(other.subWorkflowName, subWorkflowName) || other.subWorkflowName == subWorkflowName)&&(identical(other.requiresSignature, requiresSignature) || other.requiresSignature == requiresSignature));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hash(runtimeType,id,workflowId,stepOrder,stepName,roleId,roleName,slaDays,escalationRoleId,escalationRoleName,subWorkflowId,subWorkflowName);
+int get hashCode => Object.hash(runtimeType,id,workflowId,stepOrder,stepName,roleId,roleName,assigneeUserId,assigneeName,slaDays,escalationRoleId,escalationRoleName,subWorkflowId,subWorkflowName,requiresSignature);
 
 @override
 String toString() {
-  return 'WorkflowStepRow(id: $id, workflowId: $workflowId, stepOrder: $stepOrder, stepName: $stepName, roleId: $roleId, roleName: $roleName, slaDays: $slaDays, escalationRoleId: $escalationRoleId, escalationRoleName: $escalationRoleName, subWorkflowId: $subWorkflowId, subWorkflowName: $subWorkflowName)';
+  return 'WorkflowStepRow(id: $id, workflowId: $workflowId, stepOrder: $stepOrder, stepName: $stepName, roleId: $roleId, roleName: $roleName, assigneeUserId: $assigneeUserId, assigneeName: $assigneeName, slaDays: $slaDays, escalationRoleId: $escalationRoleId, escalationRoleName: $escalationRoleName, subWorkflowId: $subWorkflowId, subWorkflowName: $subWorkflowName, requiresSignature: $requiresSignature)';
 }
 
 
@@ -267,7 +273,7 @@ abstract mixin class _$WorkflowStepRowCopyWith<$Res> implements $WorkflowStepRow
   factory _$WorkflowStepRowCopyWith(_WorkflowStepRow value, $Res Function(_WorkflowStepRow) _then) = __$WorkflowStepRowCopyWithImpl;
 @override @useResult
 $Res call({
- int id,@JsonKey(name: 'workflow_id') int workflowId,@JsonKey(name: 'step_order') int stepOrder,@JsonKey(name: 'step_name') String stepName,@JsonKey(name: 'role_id') int roleId,@JsonKey(name: 'role_name') String? roleName,@JsonKey(name: 'sla_days') int? slaDays,@JsonKey(name: 'escalation_role_id') int? escalationRoleId,@JsonKey(name: 'escalation_role_name') String? escalationRoleName,@JsonKey(name: 'sub_workflow_id') int? subWorkflowId,@JsonKey(name: 'sub_workflow_name') String? subWorkflowName
+ int id,@JsonKey(name: 'workflow_id') int workflowId,@JsonKey(name: 'step_order') int stepOrder,@JsonKey(name: 'step_name') String stepName,@JsonKey(name: 'role_id') int roleId,@JsonKey(name: 'role_name') String? roleName,@JsonKey(name: 'assignee_user_id') int? assigneeUserId,@JsonKey(name: 'assignee_name') String? assigneeName,@JsonKey(name: 'sla_days') int? slaDays,@JsonKey(name: 'escalation_role_id') int? escalationRoleId,@JsonKey(name: 'escalation_role_name') String? escalationRoleName,@JsonKey(name: 'sub_workflow_id') int? subWorkflowId,@JsonKey(name: 'sub_workflow_name') String? subWorkflowName,@JsonKey(name: 'requires_signature', fromJson: _boolFromInt) bool requiresSignature
 });
 
 
@@ -284,7 +290,7 @@ class __$WorkflowStepRowCopyWithImpl<$Res>
 
 /// Create a copy of WorkflowStepRow
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? workflowId = null,Object? stepOrder = null,Object? stepName = null,Object? roleId = null,Object? roleName = freezed,Object? slaDays = freezed,Object? escalationRoleId = freezed,Object? escalationRoleName = freezed,Object? subWorkflowId = freezed,Object? subWorkflowName = freezed,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? workflowId = null,Object? stepOrder = null,Object? stepName = null,Object? roleId = null,Object? roleName = freezed,Object? assigneeUserId = freezed,Object? assigneeName = freezed,Object? slaDays = freezed,Object? escalationRoleId = freezed,Object? escalationRoleName = freezed,Object? subWorkflowId = freezed,Object? subWorkflowName = freezed,Object? requiresSignature = null,}) {
   return _then(_WorkflowStepRow(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as int,workflowId: null == workflowId ? _self.workflowId : workflowId // ignore: cast_nullable_to_non_nullable
@@ -292,12 +298,15 @@ as int,stepOrder: null == stepOrder ? _self.stepOrder : stepOrder // ignore: cas
 as int,stepName: null == stepName ? _self.stepName : stepName // ignore: cast_nullable_to_non_nullable
 as String,roleId: null == roleId ? _self.roleId : roleId // ignore: cast_nullable_to_non_nullable
 as int,roleName: freezed == roleName ? _self.roleName : roleName // ignore: cast_nullable_to_non_nullable
+as String?,assigneeUserId: freezed == assigneeUserId ? _self.assigneeUserId : assigneeUserId // ignore: cast_nullable_to_non_nullable
+as int?,assigneeName: freezed == assigneeName ? _self.assigneeName : assigneeName // ignore: cast_nullable_to_non_nullable
 as String?,slaDays: freezed == slaDays ? _self.slaDays : slaDays // ignore: cast_nullable_to_non_nullable
 as int?,escalationRoleId: freezed == escalationRoleId ? _self.escalationRoleId : escalationRoleId // ignore: cast_nullable_to_non_nullable
 as int?,escalationRoleName: freezed == escalationRoleName ? _self.escalationRoleName : escalationRoleName // ignore: cast_nullable_to_non_nullable
 as String?,subWorkflowId: freezed == subWorkflowId ? _self.subWorkflowId : subWorkflowId // ignore: cast_nullable_to_non_nullable
 as int?,subWorkflowName: freezed == subWorkflowName ? _self.subWorkflowName : subWorkflowName // ignore: cast_nullable_to_non_nullable
-as String?,
+as String?,requiresSignature: null == requiresSignature ? _self.requiresSignature : requiresSignature // ignore: cast_nullable_to_non_nullable
+as bool,
   ));
 }
 
@@ -308,7 +317,7 @@ as String?,
 /// @nodoc
 mixin _$WorkflowRow {
 
- int get id; String get name;@JsonKey(name: 'trigger_doc_type_id') int? get triggerDocTypeId;@JsonKey(name: 'trigger_folder_id') int? get triggerFolderId;@JsonKey(name: 'is_active', fromJson: _boolFromInt) bool get isActive; List<WorkflowStepRow> get steps;
+ int get id; String get name;@JsonKey(name: 'trigger_doc_type_id') int? get triggerDocTypeId;@JsonKey(name: 'trigger_folder_id') int? get triggerFolderId;@JsonKey(name: 'is_active', fromJson: _boolFromInt) bool get isActive;@JsonKey(name: 'schedule_enabled', fromJson: _boolFromInt) bool get scheduleEnabled;@JsonKey(name: 'schedule_target_document_id') int? get scheduleTargetDocumentId;@JsonKey(name: 'schedule_target_document_record_no') String? get scheduleTargetDocumentRecordNo;@JsonKey(name: 'schedule_target_document_title') String? get scheduleTargetDocumentTitle;@JsonKey(name: 'schedule_start_at') String? get scheduleStartAt;@JsonKey(name: 'schedule_recurrence') String? get scheduleRecurrence;@JsonKey(name: 'schedule_end_at') String? get scheduleEndAt;@JsonKey(name: 'schedule_next_run_at') String? get scheduleNextRunAt; List<WorkflowStepRow> get steps;
 /// Create a copy of WorkflowRow
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -321,16 +330,16 @@ $WorkflowRowCopyWith<WorkflowRow> get copyWith => _$WorkflowRowCopyWithImpl<Work
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is WorkflowRow&&(identical(other.id, id) || other.id == id)&&(identical(other.name, name) || other.name == name)&&(identical(other.triggerDocTypeId, triggerDocTypeId) || other.triggerDocTypeId == triggerDocTypeId)&&(identical(other.triggerFolderId, triggerFolderId) || other.triggerFolderId == triggerFolderId)&&(identical(other.isActive, isActive) || other.isActive == isActive)&&const DeepCollectionEquality().equals(other.steps, steps));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is WorkflowRow&&(identical(other.id, id) || other.id == id)&&(identical(other.name, name) || other.name == name)&&(identical(other.triggerDocTypeId, triggerDocTypeId) || other.triggerDocTypeId == triggerDocTypeId)&&(identical(other.triggerFolderId, triggerFolderId) || other.triggerFolderId == triggerFolderId)&&(identical(other.isActive, isActive) || other.isActive == isActive)&&(identical(other.scheduleEnabled, scheduleEnabled) || other.scheduleEnabled == scheduleEnabled)&&(identical(other.scheduleTargetDocumentId, scheduleTargetDocumentId) || other.scheduleTargetDocumentId == scheduleTargetDocumentId)&&(identical(other.scheduleTargetDocumentRecordNo, scheduleTargetDocumentRecordNo) || other.scheduleTargetDocumentRecordNo == scheduleTargetDocumentRecordNo)&&(identical(other.scheduleTargetDocumentTitle, scheduleTargetDocumentTitle) || other.scheduleTargetDocumentTitle == scheduleTargetDocumentTitle)&&(identical(other.scheduleStartAt, scheduleStartAt) || other.scheduleStartAt == scheduleStartAt)&&(identical(other.scheduleRecurrence, scheduleRecurrence) || other.scheduleRecurrence == scheduleRecurrence)&&(identical(other.scheduleEndAt, scheduleEndAt) || other.scheduleEndAt == scheduleEndAt)&&(identical(other.scheduleNextRunAt, scheduleNextRunAt) || other.scheduleNextRunAt == scheduleNextRunAt)&&const DeepCollectionEquality().equals(other.steps, steps));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hash(runtimeType,id,name,triggerDocTypeId,triggerFolderId,isActive,const DeepCollectionEquality().hash(steps));
+int get hashCode => Object.hash(runtimeType,id,name,triggerDocTypeId,triggerFolderId,isActive,scheduleEnabled,scheduleTargetDocumentId,scheduleTargetDocumentRecordNo,scheduleTargetDocumentTitle,scheduleStartAt,scheduleRecurrence,scheduleEndAt,scheduleNextRunAt,const DeepCollectionEquality().hash(steps));
 
 @override
 String toString() {
-  return 'WorkflowRow(id: $id, name: $name, triggerDocTypeId: $triggerDocTypeId, triggerFolderId: $triggerFolderId, isActive: $isActive, steps: $steps)';
+  return 'WorkflowRow(id: $id, name: $name, triggerDocTypeId: $triggerDocTypeId, triggerFolderId: $triggerFolderId, isActive: $isActive, scheduleEnabled: $scheduleEnabled, scheduleTargetDocumentId: $scheduleTargetDocumentId, scheduleTargetDocumentRecordNo: $scheduleTargetDocumentRecordNo, scheduleTargetDocumentTitle: $scheduleTargetDocumentTitle, scheduleStartAt: $scheduleStartAt, scheduleRecurrence: $scheduleRecurrence, scheduleEndAt: $scheduleEndAt, scheduleNextRunAt: $scheduleNextRunAt, steps: $steps)';
 }
 
 
@@ -341,7 +350,7 @@ abstract mixin class $WorkflowRowCopyWith<$Res>  {
   factory $WorkflowRowCopyWith(WorkflowRow value, $Res Function(WorkflowRow) _then) = _$WorkflowRowCopyWithImpl;
 @useResult
 $Res call({
- int id, String name,@JsonKey(name: 'trigger_doc_type_id') int? triggerDocTypeId,@JsonKey(name: 'trigger_folder_id') int? triggerFolderId,@JsonKey(name: 'is_active', fromJson: _boolFromInt) bool isActive, List<WorkflowStepRow> steps
+ int id, String name,@JsonKey(name: 'trigger_doc_type_id') int? triggerDocTypeId,@JsonKey(name: 'trigger_folder_id') int? triggerFolderId,@JsonKey(name: 'is_active', fromJson: _boolFromInt) bool isActive,@JsonKey(name: 'schedule_enabled', fromJson: _boolFromInt) bool scheduleEnabled,@JsonKey(name: 'schedule_target_document_id') int? scheduleTargetDocumentId,@JsonKey(name: 'schedule_target_document_record_no') String? scheduleTargetDocumentRecordNo,@JsonKey(name: 'schedule_target_document_title') String? scheduleTargetDocumentTitle,@JsonKey(name: 'schedule_start_at') String? scheduleStartAt,@JsonKey(name: 'schedule_recurrence') String? scheduleRecurrence,@JsonKey(name: 'schedule_end_at') String? scheduleEndAt,@JsonKey(name: 'schedule_next_run_at') String? scheduleNextRunAt, List<WorkflowStepRow> steps
 });
 
 
@@ -358,14 +367,22 @@ class _$WorkflowRowCopyWithImpl<$Res>
 
 /// Create a copy of WorkflowRow
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? name = null,Object? triggerDocTypeId = freezed,Object? triggerFolderId = freezed,Object? isActive = null,Object? steps = null,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? name = null,Object? triggerDocTypeId = freezed,Object? triggerFolderId = freezed,Object? isActive = null,Object? scheduleEnabled = null,Object? scheduleTargetDocumentId = freezed,Object? scheduleTargetDocumentRecordNo = freezed,Object? scheduleTargetDocumentTitle = freezed,Object? scheduleStartAt = freezed,Object? scheduleRecurrence = freezed,Object? scheduleEndAt = freezed,Object? scheduleNextRunAt = freezed,Object? steps = null,}) {
   return _then(_self.copyWith(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as int,name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
 as String,triggerDocTypeId: freezed == triggerDocTypeId ? _self.triggerDocTypeId : triggerDocTypeId // ignore: cast_nullable_to_non_nullable
 as int?,triggerFolderId: freezed == triggerFolderId ? _self.triggerFolderId : triggerFolderId // ignore: cast_nullable_to_non_nullable
 as int?,isActive: null == isActive ? _self.isActive : isActive // ignore: cast_nullable_to_non_nullable
-as bool,steps: null == steps ? _self.steps : steps // ignore: cast_nullable_to_non_nullable
+as bool,scheduleEnabled: null == scheduleEnabled ? _self.scheduleEnabled : scheduleEnabled // ignore: cast_nullable_to_non_nullable
+as bool,scheduleTargetDocumentId: freezed == scheduleTargetDocumentId ? _self.scheduleTargetDocumentId : scheduleTargetDocumentId // ignore: cast_nullable_to_non_nullable
+as int?,scheduleTargetDocumentRecordNo: freezed == scheduleTargetDocumentRecordNo ? _self.scheduleTargetDocumentRecordNo : scheduleTargetDocumentRecordNo // ignore: cast_nullable_to_non_nullable
+as String?,scheduleTargetDocumentTitle: freezed == scheduleTargetDocumentTitle ? _self.scheduleTargetDocumentTitle : scheduleTargetDocumentTitle // ignore: cast_nullable_to_non_nullable
+as String?,scheduleStartAt: freezed == scheduleStartAt ? _self.scheduleStartAt : scheduleStartAt // ignore: cast_nullable_to_non_nullable
+as String?,scheduleRecurrence: freezed == scheduleRecurrence ? _self.scheduleRecurrence : scheduleRecurrence // ignore: cast_nullable_to_non_nullable
+as String?,scheduleEndAt: freezed == scheduleEndAt ? _self.scheduleEndAt : scheduleEndAt // ignore: cast_nullable_to_non_nullable
+as String?,scheduleNextRunAt: freezed == scheduleNextRunAt ? _self.scheduleNextRunAt : scheduleNextRunAt // ignore: cast_nullable_to_non_nullable
+as String?,steps: null == steps ? _self.steps : steps // ignore: cast_nullable_to_non_nullable
 as List<WorkflowStepRow>,
   ));
 }
@@ -451,10 +468,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( int id,  String name, @JsonKey(name: 'trigger_doc_type_id')  int? triggerDocTypeId, @JsonKey(name: 'trigger_folder_id')  int? triggerFolderId, @JsonKey(name: 'is_active', fromJson: _boolFromInt)  bool isActive,  List<WorkflowStepRow> steps)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( int id,  String name, @JsonKey(name: 'trigger_doc_type_id')  int? triggerDocTypeId, @JsonKey(name: 'trigger_folder_id')  int? triggerFolderId, @JsonKey(name: 'is_active', fromJson: _boolFromInt)  bool isActive, @JsonKey(name: 'schedule_enabled', fromJson: _boolFromInt)  bool scheduleEnabled, @JsonKey(name: 'schedule_target_document_id')  int? scheduleTargetDocumentId, @JsonKey(name: 'schedule_target_document_record_no')  String? scheduleTargetDocumentRecordNo, @JsonKey(name: 'schedule_target_document_title')  String? scheduleTargetDocumentTitle, @JsonKey(name: 'schedule_start_at')  String? scheduleStartAt, @JsonKey(name: 'schedule_recurrence')  String? scheduleRecurrence, @JsonKey(name: 'schedule_end_at')  String? scheduleEndAt, @JsonKey(name: 'schedule_next_run_at')  String? scheduleNextRunAt,  List<WorkflowStepRow> steps)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _WorkflowRow() when $default != null:
-return $default(_that.id,_that.name,_that.triggerDocTypeId,_that.triggerFolderId,_that.isActive,_that.steps);case _:
+return $default(_that.id,_that.name,_that.triggerDocTypeId,_that.triggerFolderId,_that.isActive,_that.scheduleEnabled,_that.scheduleTargetDocumentId,_that.scheduleTargetDocumentRecordNo,_that.scheduleTargetDocumentTitle,_that.scheduleStartAt,_that.scheduleRecurrence,_that.scheduleEndAt,_that.scheduleNextRunAt,_that.steps);case _:
   return orElse();
 
 }
@@ -472,10 +489,10 @@ return $default(_that.id,_that.name,_that.triggerDocTypeId,_that.triggerFolderId
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( int id,  String name, @JsonKey(name: 'trigger_doc_type_id')  int? triggerDocTypeId, @JsonKey(name: 'trigger_folder_id')  int? triggerFolderId, @JsonKey(name: 'is_active', fromJson: _boolFromInt)  bool isActive,  List<WorkflowStepRow> steps)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( int id,  String name, @JsonKey(name: 'trigger_doc_type_id')  int? triggerDocTypeId, @JsonKey(name: 'trigger_folder_id')  int? triggerFolderId, @JsonKey(name: 'is_active', fromJson: _boolFromInt)  bool isActive, @JsonKey(name: 'schedule_enabled', fromJson: _boolFromInt)  bool scheduleEnabled, @JsonKey(name: 'schedule_target_document_id')  int? scheduleTargetDocumentId, @JsonKey(name: 'schedule_target_document_record_no')  String? scheduleTargetDocumentRecordNo, @JsonKey(name: 'schedule_target_document_title')  String? scheduleTargetDocumentTitle, @JsonKey(name: 'schedule_start_at')  String? scheduleStartAt, @JsonKey(name: 'schedule_recurrence')  String? scheduleRecurrence, @JsonKey(name: 'schedule_end_at')  String? scheduleEndAt, @JsonKey(name: 'schedule_next_run_at')  String? scheduleNextRunAt,  List<WorkflowStepRow> steps)  $default,) {final _that = this;
 switch (_that) {
 case _WorkflowRow():
-return $default(_that.id,_that.name,_that.triggerDocTypeId,_that.triggerFolderId,_that.isActive,_that.steps);case _:
+return $default(_that.id,_that.name,_that.triggerDocTypeId,_that.triggerFolderId,_that.isActive,_that.scheduleEnabled,_that.scheduleTargetDocumentId,_that.scheduleTargetDocumentRecordNo,_that.scheduleTargetDocumentTitle,_that.scheduleStartAt,_that.scheduleRecurrence,_that.scheduleEndAt,_that.scheduleNextRunAt,_that.steps);case _:
   throw StateError('Unexpected subclass');
 
 }
@@ -492,10 +509,10 @@ return $default(_that.id,_that.name,_that.triggerDocTypeId,_that.triggerFolderId
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( int id,  String name, @JsonKey(name: 'trigger_doc_type_id')  int? triggerDocTypeId, @JsonKey(name: 'trigger_folder_id')  int? triggerFolderId, @JsonKey(name: 'is_active', fromJson: _boolFromInt)  bool isActive,  List<WorkflowStepRow> steps)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( int id,  String name, @JsonKey(name: 'trigger_doc_type_id')  int? triggerDocTypeId, @JsonKey(name: 'trigger_folder_id')  int? triggerFolderId, @JsonKey(name: 'is_active', fromJson: _boolFromInt)  bool isActive, @JsonKey(name: 'schedule_enabled', fromJson: _boolFromInt)  bool scheduleEnabled, @JsonKey(name: 'schedule_target_document_id')  int? scheduleTargetDocumentId, @JsonKey(name: 'schedule_target_document_record_no')  String? scheduleTargetDocumentRecordNo, @JsonKey(name: 'schedule_target_document_title')  String? scheduleTargetDocumentTitle, @JsonKey(name: 'schedule_start_at')  String? scheduleStartAt, @JsonKey(name: 'schedule_recurrence')  String? scheduleRecurrence, @JsonKey(name: 'schedule_end_at')  String? scheduleEndAt, @JsonKey(name: 'schedule_next_run_at')  String? scheduleNextRunAt,  List<WorkflowStepRow> steps)?  $default,) {final _that = this;
 switch (_that) {
 case _WorkflowRow() when $default != null:
-return $default(_that.id,_that.name,_that.triggerDocTypeId,_that.triggerFolderId,_that.isActive,_that.steps);case _:
+return $default(_that.id,_that.name,_that.triggerDocTypeId,_that.triggerFolderId,_that.isActive,_that.scheduleEnabled,_that.scheduleTargetDocumentId,_that.scheduleTargetDocumentRecordNo,_that.scheduleTargetDocumentTitle,_that.scheduleStartAt,_that.scheduleRecurrence,_that.scheduleEndAt,_that.scheduleNextRunAt,_that.steps);case _:
   return null;
 
 }
@@ -507,7 +524,7 @@ return $default(_that.id,_that.name,_that.triggerDocTypeId,_that.triggerFolderId
 @JsonSerializable()
 
 class _WorkflowRow implements WorkflowRow {
-  const _WorkflowRow({required this.id, required this.name, @JsonKey(name: 'trigger_doc_type_id') this.triggerDocTypeId, @JsonKey(name: 'trigger_folder_id') this.triggerFolderId, @JsonKey(name: 'is_active', fromJson: _boolFromInt) this.isActive = true, final  List<WorkflowStepRow> steps = const <WorkflowStepRow>[]}): _steps = steps;
+  const _WorkflowRow({required this.id, required this.name, @JsonKey(name: 'trigger_doc_type_id') this.triggerDocTypeId, @JsonKey(name: 'trigger_folder_id') this.triggerFolderId, @JsonKey(name: 'is_active', fromJson: _boolFromInt) this.isActive = true, @JsonKey(name: 'schedule_enabled', fromJson: _boolFromInt) this.scheduleEnabled = false, @JsonKey(name: 'schedule_target_document_id') this.scheduleTargetDocumentId, @JsonKey(name: 'schedule_target_document_record_no') this.scheduleTargetDocumentRecordNo, @JsonKey(name: 'schedule_target_document_title') this.scheduleTargetDocumentTitle, @JsonKey(name: 'schedule_start_at') this.scheduleStartAt, @JsonKey(name: 'schedule_recurrence') this.scheduleRecurrence, @JsonKey(name: 'schedule_end_at') this.scheduleEndAt, @JsonKey(name: 'schedule_next_run_at') this.scheduleNextRunAt, final  List<WorkflowStepRow> steps = const <WorkflowStepRow>[]}): _steps = steps;
   factory _WorkflowRow.fromJson(Map<String, dynamic> json) => _$WorkflowRowFromJson(json);
 
 @override final  int id;
@@ -515,6 +532,14 @@ class _WorkflowRow implements WorkflowRow {
 @override@JsonKey(name: 'trigger_doc_type_id') final  int? triggerDocTypeId;
 @override@JsonKey(name: 'trigger_folder_id') final  int? triggerFolderId;
 @override@JsonKey(name: 'is_active', fromJson: _boolFromInt) final  bool isActive;
+@override@JsonKey(name: 'schedule_enabled', fromJson: _boolFromInt) final  bool scheduleEnabled;
+@override@JsonKey(name: 'schedule_target_document_id') final  int? scheduleTargetDocumentId;
+@override@JsonKey(name: 'schedule_target_document_record_no') final  String? scheduleTargetDocumentRecordNo;
+@override@JsonKey(name: 'schedule_target_document_title') final  String? scheduleTargetDocumentTitle;
+@override@JsonKey(name: 'schedule_start_at') final  String? scheduleStartAt;
+@override@JsonKey(name: 'schedule_recurrence') final  String? scheduleRecurrence;
+@override@JsonKey(name: 'schedule_end_at') final  String? scheduleEndAt;
+@override@JsonKey(name: 'schedule_next_run_at') final  String? scheduleNextRunAt;
  final  List<WorkflowStepRow> _steps;
 @override@JsonKey() List<WorkflowStepRow> get steps {
   if (_steps is EqualUnmodifiableListView) return _steps;
@@ -536,16 +561,16 @@ Map<String, dynamic> toJson() {
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _WorkflowRow&&(identical(other.id, id) || other.id == id)&&(identical(other.name, name) || other.name == name)&&(identical(other.triggerDocTypeId, triggerDocTypeId) || other.triggerDocTypeId == triggerDocTypeId)&&(identical(other.triggerFolderId, triggerFolderId) || other.triggerFolderId == triggerFolderId)&&(identical(other.isActive, isActive) || other.isActive == isActive)&&const DeepCollectionEquality().equals(other._steps, _steps));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is _WorkflowRow&&(identical(other.id, id) || other.id == id)&&(identical(other.name, name) || other.name == name)&&(identical(other.triggerDocTypeId, triggerDocTypeId) || other.triggerDocTypeId == triggerDocTypeId)&&(identical(other.triggerFolderId, triggerFolderId) || other.triggerFolderId == triggerFolderId)&&(identical(other.isActive, isActive) || other.isActive == isActive)&&(identical(other.scheduleEnabled, scheduleEnabled) || other.scheduleEnabled == scheduleEnabled)&&(identical(other.scheduleTargetDocumentId, scheduleTargetDocumentId) || other.scheduleTargetDocumentId == scheduleTargetDocumentId)&&(identical(other.scheduleTargetDocumentRecordNo, scheduleTargetDocumentRecordNo) || other.scheduleTargetDocumentRecordNo == scheduleTargetDocumentRecordNo)&&(identical(other.scheduleTargetDocumentTitle, scheduleTargetDocumentTitle) || other.scheduleTargetDocumentTitle == scheduleTargetDocumentTitle)&&(identical(other.scheduleStartAt, scheduleStartAt) || other.scheduleStartAt == scheduleStartAt)&&(identical(other.scheduleRecurrence, scheduleRecurrence) || other.scheduleRecurrence == scheduleRecurrence)&&(identical(other.scheduleEndAt, scheduleEndAt) || other.scheduleEndAt == scheduleEndAt)&&(identical(other.scheduleNextRunAt, scheduleNextRunAt) || other.scheduleNextRunAt == scheduleNextRunAt)&&const DeepCollectionEquality().equals(other._steps, _steps));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hash(runtimeType,id,name,triggerDocTypeId,triggerFolderId,isActive,const DeepCollectionEquality().hash(_steps));
+int get hashCode => Object.hash(runtimeType,id,name,triggerDocTypeId,triggerFolderId,isActive,scheduleEnabled,scheduleTargetDocumentId,scheduleTargetDocumentRecordNo,scheduleTargetDocumentTitle,scheduleStartAt,scheduleRecurrence,scheduleEndAt,scheduleNextRunAt,const DeepCollectionEquality().hash(_steps));
 
 @override
 String toString() {
-  return 'WorkflowRow(id: $id, name: $name, triggerDocTypeId: $triggerDocTypeId, triggerFolderId: $triggerFolderId, isActive: $isActive, steps: $steps)';
+  return 'WorkflowRow(id: $id, name: $name, triggerDocTypeId: $triggerDocTypeId, triggerFolderId: $triggerFolderId, isActive: $isActive, scheduleEnabled: $scheduleEnabled, scheduleTargetDocumentId: $scheduleTargetDocumentId, scheduleTargetDocumentRecordNo: $scheduleTargetDocumentRecordNo, scheduleTargetDocumentTitle: $scheduleTargetDocumentTitle, scheduleStartAt: $scheduleStartAt, scheduleRecurrence: $scheduleRecurrence, scheduleEndAt: $scheduleEndAt, scheduleNextRunAt: $scheduleNextRunAt, steps: $steps)';
 }
 
 
@@ -556,7 +581,7 @@ abstract mixin class _$WorkflowRowCopyWith<$Res> implements $WorkflowRowCopyWith
   factory _$WorkflowRowCopyWith(_WorkflowRow value, $Res Function(_WorkflowRow) _then) = __$WorkflowRowCopyWithImpl;
 @override @useResult
 $Res call({
- int id, String name,@JsonKey(name: 'trigger_doc_type_id') int? triggerDocTypeId,@JsonKey(name: 'trigger_folder_id') int? triggerFolderId,@JsonKey(name: 'is_active', fromJson: _boolFromInt) bool isActive, List<WorkflowStepRow> steps
+ int id, String name,@JsonKey(name: 'trigger_doc_type_id') int? triggerDocTypeId,@JsonKey(name: 'trigger_folder_id') int? triggerFolderId,@JsonKey(name: 'is_active', fromJson: _boolFromInt) bool isActive,@JsonKey(name: 'schedule_enabled', fromJson: _boolFromInt) bool scheduleEnabled,@JsonKey(name: 'schedule_target_document_id') int? scheduleTargetDocumentId,@JsonKey(name: 'schedule_target_document_record_no') String? scheduleTargetDocumentRecordNo,@JsonKey(name: 'schedule_target_document_title') String? scheduleTargetDocumentTitle,@JsonKey(name: 'schedule_start_at') String? scheduleStartAt,@JsonKey(name: 'schedule_recurrence') String? scheduleRecurrence,@JsonKey(name: 'schedule_end_at') String? scheduleEndAt,@JsonKey(name: 'schedule_next_run_at') String? scheduleNextRunAt, List<WorkflowStepRow> steps
 });
 
 
@@ -573,14 +598,22 @@ class __$WorkflowRowCopyWithImpl<$Res>
 
 /// Create a copy of WorkflowRow
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? name = null,Object? triggerDocTypeId = freezed,Object? triggerFolderId = freezed,Object? isActive = null,Object? steps = null,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? name = null,Object? triggerDocTypeId = freezed,Object? triggerFolderId = freezed,Object? isActive = null,Object? scheduleEnabled = null,Object? scheduleTargetDocumentId = freezed,Object? scheduleTargetDocumentRecordNo = freezed,Object? scheduleTargetDocumentTitle = freezed,Object? scheduleStartAt = freezed,Object? scheduleRecurrence = freezed,Object? scheduleEndAt = freezed,Object? scheduleNextRunAt = freezed,Object? steps = null,}) {
   return _then(_WorkflowRow(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as int,name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
 as String,triggerDocTypeId: freezed == triggerDocTypeId ? _self.triggerDocTypeId : triggerDocTypeId // ignore: cast_nullable_to_non_nullable
 as int?,triggerFolderId: freezed == triggerFolderId ? _self.triggerFolderId : triggerFolderId // ignore: cast_nullable_to_non_nullable
 as int?,isActive: null == isActive ? _self.isActive : isActive // ignore: cast_nullable_to_non_nullable
-as bool,steps: null == steps ? _self._steps : steps // ignore: cast_nullable_to_non_nullable
+as bool,scheduleEnabled: null == scheduleEnabled ? _self.scheduleEnabled : scheduleEnabled // ignore: cast_nullable_to_non_nullable
+as bool,scheduleTargetDocumentId: freezed == scheduleTargetDocumentId ? _self.scheduleTargetDocumentId : scheduleTargetDocumentId // ignore: cast_nullable_to_non_nullable
+as int?,scheduleTargetDocumentRecordNo: freezed == scheduleTargetDocumentRecordNo ? _self.scheduleTargetDocumentRecordNo : scheduleTargetDocumentRecordNo // ignore: cast_nullable_to_non_nullable
+as String?,scheduleTargetDocumentTitle: freezed == scheduleTargetDocumentTitle ? _self.scheduleTargetDocumentTitle : scheduleTargetDocumentTitle // ignore: cast_nullable_to_non_nullable
+as String?,scheduleStartAt: freezed == scheduleStartAt ? _self.scheduleStartAt : scheduleStartAt // ignore: cast_nullable_to_non_nullable
+as String?,scheduleRecurrence: freezed == scheduleRecurrence ? _self.scheduleRecurrence : scheduleRecurrence // ignore: cast_nullable_to_non_nullable
+as String?,scheduleEndAt: freezed == scheduleEndAt ? _self.scheduleEndAt : scheduleEndAt // ignore: cast_nullable_to_non_nullable
+as String?,scheduleNextRunAt: freezed == scheduleNextRunAt ? _self.scheduleNextRunAt : scheduleNextRunAt // ignore: cast_nullable_to_non_nullable
+as String?,steps: null == steps ? _self._steps : steps // ignore: cast_nullable_to_non_nullable
 as List<WorkflowStepRow>,
   ));
 }

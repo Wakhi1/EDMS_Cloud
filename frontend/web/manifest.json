@@ -1,6 +1,6 @@
 {
-    "name": "pspf_edms_app",
-    "short_name": "pspf_edms_app",
+    "name": "Docsecure EDMS",
+    "short_name": "Docsecure EDMS",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#FFFFFF",

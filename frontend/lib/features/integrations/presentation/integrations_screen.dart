@@ -4,6 +4,7 @@ import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 import '../../../core/api/api_exception.dart';
 import '../../../core/api/api_providers.dart';
+import '../../../core/api/resources/api_keys_api.dart';
 import '../../../core/models/integration_row.dart';
 import '../../../core/models/storage_provider_ids.dart';
 import '../../../core/theme/pspf_tokens.dart';
@@ -31,6 +32,7 @@ const _kIntegrationIcons = <String, IconData>{
   'watched_folder': PhosphorIconsDuotone.eye,
   'ftp': PhosphorIconsDuotone.uploadSimple,
   'email_intake': PhosphorIconsDuotone.envelopeSimple,
+  'webhook': PhosphorIconsDuotone.cloudArrowUp,
 };
 
 IconData _iconFor(String id) => _kIntegrationIcons[id] ?? PhosphorIconsDuotone.plugs;
@@ -85,6 +87,8 @@ class IntegrationsScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 16),
             const _StorageLocationCard(),
+            const SizedBox(height: 20),
+            const _ApiKeysCard(),
             const SizedBox(height: 20),
             Text('Connected systems', style: Theme.of(context).textTheme.titleSmall),
             const SizedBox(height: 10),
@@ -167,6 +171,180 @@ class _StorageLocationCard extends ConsumerWidget {
                   ),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Local watched-folder agent credentials: the folder-watching piece that
+/// runs on someone's own PC (see /local-agent at the repo root) can't hold
+/// a normal login session, so it authenticates with one of these long-lived
+/// keys instead (routes/agentUpload.routes.js). The raw key is shown once,
+/// at creation, then never again — only its prefix is kept for reference.
+class _ApiKeysCard extends ConsumerStatefulWidget {
+  const _ApiKeysCard();
+
+  @override
+  ConsumerState<_ApiKeysCard> createState() => _ApiKeysCardState();
+}
+
+class _ApiKeysCardState extends ConsumerState<_ApiKeysCard> {
+  bool _creating = false;
+
+  Future<void> _generate() async {
+    final nameController = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Generate agent API key'),
+        content: TextField(
+          controller: nameController,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'Name (e.g. "Records office PC")'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(nameController.text.trim()),
+            child: const Text('Generate'),
+          ),
+        ],
+      ),
+    );
+    if (name == null || name.isEmpty) return;
+
+    setState(() => _creating = true);
+    try {
+      final rawKey = await ref.read(apiKeysApiProvider).create(name);
+      ref.invalidate(apiKeysListProvider);
+      if (mounted) await _showRawKey(rawKey);
+    } on ApiException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } finally {
+      if (mounted) setState(() => _creating = false);
+    }
+  }
+
+  Future<void> _showRawKey(String rawKey) {
+    return showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        title: const Text('Copy this key now'),
+        content: SizedBox(
+          width: 420,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('This is the only time the full key is shown. Paste it into the local agent\'s config file.'),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(border: Border.all(color: context.tokens.line2)),
+                child: SelectableText(rawKey, style: const TextStyle(fontFamily: 'monospace', fontSize: 12.5)),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          ElevatedButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Done')),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _revoke(ApiKeyRow key) async {
+    final confirmed = await ConfirmDialog.show(
+      context,
+      title: 'Revoke "${key.name}"?',
+      body: 'The local agent using this key will stop being able to upload until it\'s given a new one.',
+      okLabel: 'Revoke',
+      danger: true,
+    );
+    if (confirmed == null) return;
+
+    try {
+      await ref.read(apiKeysApiProvider).revoke(key.id);
+      ref.invalidate(apiKeysListProvider);
+    } on ApiException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.tokens;
+    final keysAsync = ref.watch(apiKeysListProvider);
+
+    return Container(
+      decoration: BoxDecoration(border: Border.all(color: tokens.line), color: tokens.surf),
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text('Local watched-folder agent', style: Theme.of(context).textTheme.titleSmall),
+              ),
+              OutlinedButton.icon(
+                onPressed: _creating ? null : _generate,
+                icon: const Icon(Icons.add, size: 16),
+                label: const Text('Generate key'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'A folder on someone\'s own PC can feed this deployment without the server needing filesystem access to it. '
+            'Generate a key here, then set it in the local agent\'s config — see /local-agent in the project for the script and setup steps.',
+            style: TextStyle(fontSize: 12, color: tokens.ink2),
+          ),
+          const SizedBox(height: 12),
+          keysAsync.when(
+            loading: () => const SizedBox(height: 30, child: LinearProgressIndicator()),
+            error: (error, _) => Text(error is ApiException ? error.message : '$error', style: TextStyle(color: tokens.bad, fontSize: 12)),
+            data: (keys) {
+              if (keys.isEmpty) return Text('No keys generated yet.', style: TextStyle(fontSize: 12, color: tokens.ink3));
+              return Column(
+                children: [
+                  for (final k in keys)
+                    Container(
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      decoration: BoxDecoration(border: Border(top: BorderSide(color: tokens.line2))),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('${k.name} · ${k.keyPrefix}…', style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
+                                Text(
+                                  k.revokedAt != null
+                                      ? 'Revoked'
+                                      : k.lastUsedAt != null
+                                          ? 'Last used ${k.lastUsedAt}'
+                                          : 'Never used yet',
+                                  style: TextStyle(fontSize: 11, color: tokens.ink3),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (k.revokedAt == null)
+                            OutlinedButton(
+                              onPressed: () => _revoke(k),
+                              style: OutlinedButton.styleFrom(foregroundColor: tokens.bad, side: BorderSide(color: tokens.bad)),
+                              child: const Text('Revoke', style: TextStyle(fontSize: 11.5)),
+                            ),
+                        ],
+                      ),
+                    ),
+                ],
+              );
+            },
           ),
         ],
       ),

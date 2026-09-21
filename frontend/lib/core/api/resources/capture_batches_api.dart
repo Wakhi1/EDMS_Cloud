@@ -40,10 +40,12 @@ class CaptureBatchesApi {
     required List<({List<int> bytes, String fileName, String mimeType})> files,
     required String source,
     required int folderId,
+    int? documentTypeId,
   }) async {
     final formData = FormData.fromMap({
       'source': source,
       'folderId': '$folderId',
+      if (documentTypeId != null) 'documentTypeId': '$documentTypeId',
       'files': [for (final f in files) MultipartFile.fromBytes(f.bytes, filename: f.fileName, contentType: DioMediaType.parse(f.mimeType))],
     });
     final response = await _client.post(Endpoints.captureBatchesUpload, data: formData);

@@ -14,8 +14,18 @@ class FoldersApi {
   }
 
   /// POST /api/folders — returns the new folder's id and full display path
-  /// (e.g. "Pension Claims / 2026").
-  Future<({int id, String path})> create({required String name, int? parentId, int? departmentId, int? retentionClassId}) async {
+  /// (e.g. "Pension Claims / 2026"). [storageProviderId]/[storagePrefix]
+  /// set this folder's default upload destination (document.service.js's
+  /// registerDocument falls back to it); null/omitted means "no
+  /// folder-level default, use whatever's globally active".
+  Future<({int id, String path})> create({
+    required String name,
+    int? parentId,
+    int? departmentId,
+    int? retentionClassId,
+    String? storageProviderId,
+    String? storagePrefix,
+  }) async {
     final response = await _client.post(
       Endpoints.folders,
       data: {
@@ -23,6 +33,8 @@ class FoldersApi {
         'parentId': ?parentId,
         'departmentId': ?departmentId,
         'retentionClassId': ?retentionClassId,
+        'storageProviderId': ?storageProviderId,
+        'storagePrefix': ?storagePrefix,
       },
     );
     return _client.unwrap(response, (data) {
@@ -31,8 +43,17 @@ class FoldersApi {
     });
   }
 
-  /// PUT /api/folders/:id — rename/move/reassign department or retention class.
-  Future<void> update(int id, {String? name, int? parentId, int? departmentId, int? retentionClassId}) async {
+  /// PUT /api/folders/:id — rename/move/reassign department, retention
+  /// class, or default storage location.
+  Future<void> update(
+    int id, {
+    String? name,
+    int? parentId,
+    int? departmentId,
+    int? retentionClassId,
+    String? storageProviderId,
+    String? storagePrefix,
+  }) async {
     final response = await _client.put(
       Endpoints.folderById('$id'),
       data: {
@@ -40,6 +61,8 @@ class FoldersApi {
         'parentId': ?parentId,
         'departmentId': ?departmentId,
         'retentionClassId': ?retentionClassId,
+        'storageProviderId': ?storageProviderId,
+        'storagePrefix': ?storagePrefix,
       },
     );
     _client.unwrap(response, (_) => null);

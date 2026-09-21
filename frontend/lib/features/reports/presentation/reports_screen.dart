@@ -16,6 +16,8 @@ import '../../../core/widgets/label_value_line_chart.dart';
 import '../../departments/providers/departments_providers.dart';
 import '../../repository/providers/repository_providers.dart';
 import '../providers/reports_providers.dart';
+import 'widgets/customize_report_dialog.dart';
+import 'widgets/export_report_dialog.dart';
 
 const _kClassifications = <String>['public', 'internal', 'restricted', 'confidential'];
 final _dateFormat = DateFormat('yyyy-MM-dd');
@@ -46,10 +48,24 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     'pdf': 'application/pdf',
   };
 
-  Future<void> _export(String format) async {
+  Future<void> _openExportDialog() async {
+    final result = await showDialog<({String format, bool includeSignature})>(
+      context: context,
+      builder: (_) => const ExportReportDialog(),
+    );
+    if (result == null) return;
+    await _export(result.format, includeSignature: result.includeSignature);
+  }
+
+  Future<void> _openCustomizeDialog() {
+    return showDialog<void>(context: context, builder: (_) => const CustomizeReportDialog());
+  }
+
+  Future<void> _export(String format, {bool includeSignature = false}) async {
     setState(() => _exporting = true);
     try {
       final f = ref.read(reportsFiltersProvider);
+      final sections = ref.read(selectedReportSectionsProvider);
       final result = await ref.read(reportsApiProvider).export(
             format: format,
             from: f.from,
@@ -58,6 +74,8 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
             documentTypeId: f.documentTypeId,
             folderId: f.folderId,
             classification: f.classification,
+            sections: sections.toList(),
+            includeSignature: includeSignature,
           );
       await saveBytes(bytes: result.bytes, fileName: result.fileName, mimeType: _mimeTypes[format]!);
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Downloaded ${result.fileName}')));
@@ -107,28 +125,18 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
             children: [
               Text('Governance / Reports', style: Theme.of(context).textTheme.titleMedium),
               const Spacer(),
-              PopupMenuButton<String>(
-                enabled: !_exporting,
-                onSelected: _export,
-                itemBuilder: (_) => const [
-                  PopupMenuItem(value: 'csv', child: Text('Export as CSV')),
-                  PopupMenuItem(value: 'xlsx', child: Text('Export as Excel')),
-                  PopupMenuItem(value: 'pdf', child: Text('Export as PDF')),
-                ],
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-                  decoration: BoxDecoration(border: Border.all(color: context.tokens.line2)),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _exporting
-                          ? const SizedBox(height: 14, width: 14, child: CircularProgressIndicator(strokeWidth: 2))
-                          : Icon(Icons.download, size: 16, color: context.tokens.ink),
-                      const SizedBox(width: 8),
-                      const Text('Export report'),
-                    ],
-                  ),
-                ),
+              OutlinedButton.icon(
+                onPressed: _openCustomizeDialog,
+                icon: const Icon(Icons.tune, size: 16),
+                label: const Text('Customize'),
+              ),
+              const SizedBox(width: 10),
+              OutlinedButton.icon(
+                onPressed: _exporting ? null : _openExportDialog,
+                icon: _exporting
+                    ? const SizedBox(height: 14, width: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.download, size: 16),
+                label: const Text('Export report'),
               ),
             ],
           ),
@@ -216,19 +224,26 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
               crossAxisSpacing: 14,
               mainAxisSpacing: 14,
             ),
+            // Keyed by the same section keys as kReportSectionDefs (see
+            // reports_providers.dart) and built in that same order, so
+            // "Customize" and GET /export always agree on what a section is.
             children: [
-              _CountChartCard(title: 'Records by status', provider: reportsByStatusProvider, colorKey: _ChartColor.acc),
-              _CountChartCard(title: 'Records by department', provider: reportsByDepartmentProvider, colorKey: _ChartColor.accD),
-              _CountBarListCard(title: 'Records by category', provider: reportsByCategoryProvider, colorKey: _ChartColor.acc2, showSize: true),
-              _CountBarListCard(title: 'Records by folder (top 15) — capacity', provider: reportsByFolderProvider, colorKey: _ChartColor.info, showSize: true),
-              _CountChartCard(title: 'Records by classification', provider: reportsByClassificationProvider, colorKey: _ChartColor.warn),
-              const _CapacityCard(),
-              const _CaptureBySourceCard(),
-              _CountLineChartCard(title: 'Records captured over time', provider: reportsCapturedOverTimeProvider, colorKey: _ChartColor.acc),
-              const _ClaimTurnaroundCard(),
-              const _RetentionStatusCard(),
-              _CountBarListCard(title: 'Audit actions breakdown', provider: reportsAuditActionsProvider, colorKey: _ChartColor.bad),
-              _CountBarListCard(title: 'Top audit actors', provider: reportsTopUsersProvider, colorKey: _ChartColor.accD),
+              for (final entry in {
+                'by-status': _CountChartCard(title: 'Records by status', provider: reportsByStatusProvider, colorKey: _ChartColor.acc),
+                'by-department': _CountChartCard(title: 'Records by department', provider: reportsByDepartmentProvider, colorKey: _ChartColor.accD),
+                'by-category': _CountBarListCard(title: 'Records by category', provider: reportsByCategoryProvider, colorKey: _ChartColor.acc2, showSize: true),
+                'by-folder': _CountBarListCard(title: 'Records by folder (top 15) — capacity', provider: reportsByFolderProvider, colorKey: _ChartColor.info, showSize: true),
+                'by-classification': _CountChartCard(title: 'Records by classification', provider: reportsByClassificationProvider, colorKey: _ChartColor.warn),
+                'capacity': const _CapacityCard(),
+                'captured-over-time': _CountLineChartCard(title: 'Records captured over time', provider: reportsCapturedOverTimeProvider, colorKey: _ChartColor.acc),
+                'capture-by-source': const _CaptureBySourceCard(),
+                'claim-turnaround': const _ClaimTurnaroundCard(),
+                'retention-status': const _RetentionStatusCard(),
+                'overdue-retention': const _OverdueRetentionCard(),
+                'audit-actions': _CountBarListCard(title: 'Audit actions breakdown', provider: reportsAuditActionsProvider, colorKey: _ChartColor.bad),
+                'top-users': _CountBarListCard(title: 'Top audit actors', provider: reportsTopUsersProvider, colorKey: _ChartColor.accD),
+              }.entries)
+                if (ref.watch(selectedReportSectionsProvider).contains(entry.key)) entry.value,
             ],
           ),
         ],
@@ -511,6 +526,40 @@ class _RetentionStatusCard extends ConsumerWidget {
             },
           );
         },
+      ),
+    );
+  }
+}
+
+/// Was previously a Dashboard-only KPI (GET /reports/overdue-retention);
+/// promoted to its own Reports card so it can be included/excluded by the
+/// "Customize" section picker like every other card.
+class _OverdueRetentionCard extends ConsumerWidget {
+  const _OverdueRetentionCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final tokens = context.tokens;
+    final async = ref.watch(reportsOverdueRetentionProvider);
+
+    return _SectionCard(
+      title: 'Overdue for disposal',
+      child: async.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (e, _) => Center(child: Text(e is ApiException ? e.message : '$e', style: TextStyle(color: tokens.ink2), textAlign: TextAlign.center)),
+        data: (count) => Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                '$count',
+                style: Theme.of(context).textTheme.displaySmall?.copyWith(fontSize: 32, color: count > 0 ? tokens.bad : tokens.ink),
+              ),
+              const SizedBox(height: 6),
+              Text('records past their retention due date', style: TextStyle(color: tokens.ink2, fontSize: 11.5), textAlign: TextAlign.center),
+            ],
+          ),
+        ),
       ),
     );
   }

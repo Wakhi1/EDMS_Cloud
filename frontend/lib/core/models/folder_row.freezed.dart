@@ -18,7 +18,11 @@ mixin _$FolderRow {
  int get id;@JsonKey(name: 'parent_id') int? get parentId; String get name; String get path;@JsonKey(name: 'department_id') int? get departmentId;@JsonKey(name: 'retention_class_id') int? get retentionClassId;@JsonKey(name: 'retention_class_name') String? get retentionClassName;// Comma-separated distinct storage providers used by this folder's own
 // (direct, non-recursive) documents — see folders.routes.js. Null if
 // the folder has none.
-@JsonKey(name: 'storage_providers') String? get storageProviders;
+@JsonKey(name: 'storage_providers') String? get storageProviders;// This folder's own DEFAULT storage location for new uploads (distinct
+// from storageProviders above, which reflects where existing documents
+// already ended up) — null means "no folder-level default; fall back
+// to whatever's globally active" (document.service.js's registerDocument).
+@JsonKey(name: 'storage_provider_id') String? get storageProviderId;@JsonKey(name: 'storage_provider_name') String? get storageProviderName;@JsonKey(name: 'storage_prefix') String? get storagePrefix;
 /// Create a copy of FolderRow
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -31,16 +35,16 @@ $FolderRowCopyWith<FolderRow> get copyWith => _$FolderRowCopyWithImpl<FolderRow>
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is FolderRow&&(identical(other.id, id) || other.id == id)&&(identical(other.parentId, parentId) || other.parentId == parentId)&&(identical(other.name, name) || other.name == name)&&(identical(other.path, path) || other.path == path)&&(identical(other.departmentId, departmentId) || other.departmentId == departmentId)&&(identical(other.retentionClassId, retentionClassId) || other.retentionClassId == retentionClassId)&&(identical(other.retentionClassName, retentionClassName) || other.retentionClassName == retentionClassName)&&(identical(other.storageProviders, storageProviders) || other.storageProviders == storageProviders));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is FolderRow&&(identical(other.id, id) || other.id == id)&&(identical(other.parentId, parentId) || other.parentId == parentId)&&(identical(other.name, name) || other.name == name)&&(identical(other.path, path) || other.path == path)&&(identical(other.departmentId, departmentId) || other.departmentId == departmentId)&&(identical(other.retentionClassId, retentionClassId) || other.retentionClassId == retentionClassId)&&(identical(other.retentionClassName, retentionClassName) || other.retentionClassName == retentionClassName)&&(identical(other.storageProviders, storageProviders) || other.storageProviders == storageProviders)&&(identical(other.storageProviderId, storageProviderId) || other.storageProviderId == storageProviderId)&&(identical(other.storageProviderName, storageProviderName) || other.storageProviderName == storageProviderName)&&(identical(other.storagePrefix, storagePrefix) || other.storagePrefix == storagePrefix));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hash(runtimeType,id,parentId,name,path,departmentId,retentionClassId,retentionClassName,storageProviders);
+int get hashCode => Object.hash(runtimeType,id,parentId,name,path,departmentId,retentionClassId,retentionClassName,storageProviders,storageProviderId,storageProviderName,storagePrefix);
 
 @override
 String toString() {
-  return 'FolderRow(id: $id, parentId: $parentId, name: $name, path: $path, departmentId: $departmentId, retentionClassId: $retentionClassId, retentionClassName: $retentionClassName, storageProviders: $storageProviders)';
+  return 'FolderRow(id: $id, parentId: $parentId, name: $name, path: $path, departmentId: $departmentId, retentionClassId: $retentionClassId, retentionClassName: $retentionClassName, storageProviders: $storageProviders, storageProviderId: $storageProviderId, storageProviderName: $storageProviderName, storagePrefix: $storagePrefix)';
 }
 
 
@@ -51,7 +55,7 @@ abstract mixin class $FolderRowCopyWith<$Res>  {
   factory $FolderRowCopyWith(FolderRow value, $Res Function(FolderRow) _then) = _$FolderRowCopyWithImpl;
 @useResult
 $Res call({
- int id,@JsonKey(name: 'parent_id') int? parentId, String name, String path,@JsonKey(name: 'department_id') int? departmentId,@JsonKey(name: 'retention_class_id') int? retentionClassId,@JsonKey(name: 'retention_class_name') String? retentionClassName,@JsonKey(name: 'storage_providers') String? storageProviders
+ int id,@JsonKey(name: 'parent_id') int? parentId, String name, String path,@JsonKey(name: 'department_id') int? departmentId,@JsonKey(name: 'retention_class_id') int? retentionClassId,@JsonKey(name: 'retention_class_name') String? retentionClassName,@JsonKey(name: 'storage_providers') String? storageProviders,@JsonKey(name: 'storage_provider_id') String? storageProviderId,@JsonKey(name: 'storage_provider_name') String? storageProviderName,@JsonKey(name: 'storage_prefix') String? storagePrefix
 });
 
 
@@ -68,7 +72,7 @@ class _$FolderRowCopyWithImpl<$Res>
 
 /// Create a copy of FolderRow
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? parentId = freezed,Object? name = null,Object? path = null,Object? departmentId = freezed,Object? retentionClassId = freezed,Object? retentionClassName = freezed,Object? storageProviders = freezed,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? parentId = freezed,Object? name = null,Object? path = null,Object? departmentId = freezed,Object? retentionClassId = freezed,Object? retentionClassName = freezed,Object? storageProviders = freezed,Object? storageProviderId = freezed,Object? storageProviderName = freezed,Object? storagePrefix = freezed,}) {
   return _then(_self.copyWith(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as int,parentId: freezed == parentId ? _self.parentId : parentId // ignore: cast_nullable_to_non_nullable
@@ -78,6 +82,9 @@ as String,departmentId: freezed == departmentId ? _self.departmentId : departmen
 as int?,retentionClassId: freezed == retentionClassId ? _self.retentionClassId : retentionClassId // ignore: cast_nullable_to_non_nullable
 as int?,retentionClassName: freezed == retentionClassName ? _self.retentionClassName : retentionClassName // ignore: cast_nullable_to_non_nullable
 as String?,storageProviders: freezed == storageProviders ? _self.storageProviders : storageProviders // ignore: cast_nullable_to_non_nullable
+as String?,storageProviderId: freezed == storageProviderId ? _self.storageProviderId : storageProviderId // ignore: cast_nullable_to_non_nullable
+as String?,storageProviderName: freezed == storageProviderName ? _self.storageProviderName : storageProviderName // ignore: cast_nullable_to_non_nullable
+as String?,storagePrefix: freezed == storagePrefix ? _self.storagePrefix : storagePrefix // ignore: cast_nullable_to_non_nullable
 as String?,
   ));
 }
@@ -163,10 +170,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( int id, @JsonKey(name: 'parent_id')  int? parentId,  String name,  String path, @JsonKey(name: 'department_id')  int? departmentId, @JsonKey(name: 'retention_class_id')  int? retentionClassId, @JsonKey(name: 'retention_class_name')  String? retentionClassName, @JsonKey(name: 'storage_providers')  String? storageProviders)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( int id, @JsonKey(name: 'parent_id')  int? parentId,  String name,  String path, @JsonKey(name: 'department_id')  int? departmentId, @JsonKey(name: 'retention_class_id')  int? retentionClassId, @JsonKey(name: 'retention_class_name')  String? retentionClassName, @JsonKey(name: 'storage_providers')  String? storageProviders, @JsonKey(name: 'storage_provider_id')  String? storageProviderId, @JsonKey(name: 'storage_provider_name')  String? storageProviderName, @JsonKey(name: 'storage_prefix')  String? storagePrefix)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _FolderRow() when $default != null:
-return $default(_that.id,_that.parentId,_that.name,_that.path,_that.departmentId,_that.retentionClassId,_that.retentionClassName,_that.storageProviders);case _:
+return $default(_that.id,_that.parentId,_that.name,_that.path,_that.departmentId,_that.retentionClassId,_that.retentionClassName,_that.storageProviders,_that.storageProviderId,_that.storageProviderName,_that.storagePrefix);case _:
   return orElse();
 
 }
@@ -184,10 +191,10 @@ return $default(_that.id,_that.parentId,_that.name,_that.path,_that.departmentId
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( int id, @JsonKey(name: 'parent_id')  int? parentId,  String name,  String path, @JsonKey(name: 'department_id')  int? departmentId, @JsonKey(name: 'retention_class_id')  int? retentionClassId, @JsonKey(name: 'retention_class_name')  String? retentionClassName, @JsonKey(name: 'storage_providers')  String? storageProviders)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( int id, @JsonKey(name: 'parent_id')  int? parentId,  String name,  String path, @JsonKey(name: 'department_id')  int? departmentId, @JsonKey(name: 'retention_class_id')  int? retentionClassId, @JsonKey(name: 'retention_class_name')  String? retentionClassName, @JsonKey(name: 'storage_providers')  String? storageProviders, @JsonKey(name: 'storage_provider_id')  String? storageProviderId, @JsonKey(name: 'storage_provider_name')  String? storageProviderName, @JsonKey(name: 'storage_prefix')  String? storagePrefix)  $default,) {final _that = this;
 switch (_that) {
 case _FolderRow():
-return $default(_that.id,_that.parentId,_that.name,_that.path,_that.departmentId,_that.retentionClassId,_that.retentionClassName,_that.storageProviders);case _:
+return $default(_that.id,_that.parentId,_that.name,_that.path,_that.departmentId,_that.retentionClassId,_that.retentionClassName,_that.storageProviders,_that.storageProviderId,_that.storageProviderName,_that.storagePrefix);case _:
   throw StateError('Unexpected subclass');
 
 }
@@ -204,10 +211,10 @@ return $default(_that.id,_that.parentId,_that.name,_that.path,_that.departmentId
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( int id, @JsonKey(name: 'parent_id')  int? parentId,  String name,  String path, @JsonKey(name: 'department_id')  int? departmentId, @JsonKey(name: 'retention_class_id')  int? retentionClassId, @JsonKey(name: 'retention_class_name')  String? retentionClassName, @JsonKey(name: 'storage_providers')  String? storageProviders)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( int id, @JsonKey(name: 'parent_id')  int? parentId,  String name,  String path, @JsonKey(name: 'department_id')  int? departmentId, @JsonKey(name: 'retention_class_id')  int? retentionClassId, @JsonKey(name: 'retention_class_name')  String? retentionClassName, @JsonKey(name: 'storage_providers')  String? storageProviders, @JsonKey(name: 'storage_provider_id')  String? storageProviderId, @JsonKey(name: 'storage_provider_name')  String? storageProviderName, @JsonKey(name: 'storage_prefix')  String? storagePrefix)?  $default,) {final _that = this;
 switch (_that) {
 case _FolderRow() when $default != null:
-return $default(_that.id,_that.parentId,_that.name,_that.path,_that.departmentId,_that.retentionClassId,_that.retentionClassName,_that.storageProviders);case _:
+return $default(_that.id,_that.parentId,_that.name,_that.path,_that.departmentId,_that.retentionClassId,_that.retentionClassName,_that.storageProviders,_that.storageProviderId,_that.storageProviderName,_that.storagePrefix);case _:
   return null;
 
 }
@@ -219,7 +226,7 @@ return $default(_that.id,_that.parentId,_that.name,_that.path,_that.departmentId
 @JsonSerializable()
 
 class _FolderRow implements FolderRow {
-  const _FolderRow({required this.id, @JsonKey(name: 'parent_id') this.parentId, required this.name, required this.path, @JsonKey(name: 'department_id') this.departmentId, @JsonKey(name: 'retention_class_id') this.retentionClassId, @JsonKey(name: 'retention_class_name') this.retentionClassName, @JsonKey(name: 'storage_providers') this.storageProviders});
+  const _FolderRow({required this.id, @JsonKey(name: 'parent_id') this.parentId, required this.name, required this.path, @JsonKey(name: 'department_id') this.departmentId, @JsonKey(name: 'retention_class_id') this.retentionClassId, @JsonKey(name: 'retention_class_name') this.retentionClassName, @JsonKey(name: 'storage_providers') this.storageProviders, @JsonKey(name: 'storage_provider_id') this.storageProviderId, @JsonKey(name: 'storage_provider_name') this.storageProviderName, @JsonKey(name: 'storage_prefix') this.storagePrefix});
   factory _FolderRow.fromJson(Map<String, dynamic> json) => _$FolderRowFromJson(json);
 
 @override final  int id;
@@ -233,6 +240,13 @@ class _FolderRow implements FolderRow {
 // (direct, non-recursive) documents — see folders.routes.js. Null if
 // the folder has none.
 @override@JsonKey(name: 'storage_providers') final  String? storageProviders;
+// This folder's own DEFAULT storage location for new uploads (distinct
+// from storageProviders above, which reflects where existing documents
+// already ended up) — null means "no folder-level default; fall back
+// to whatever's globally active" (document.service.js's registerDocument).
+@override@JsonKey(name: 'storage_provider_id') final  String? storageProviderId;
+@override@JsonKey(name: 'storage_provider_name') final  String? storageProviderName;
+@override@JsonKey(name: 'storage_prefix') final  String? storagePrefix;
 
 /// Create a copy of FolderRow
 /// with the given fields replaced by the non-null parameter values.
@@ -247,16 +261,16 @@ Map<String, dynamic> toJson() {
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _FolderRow&&(identical(other.id, id) || other.id == id)&&(identical(other.parentId, parentId) || other.parentId == parentId)&&(identical(other.name, name) || other.name == name)&&(identical(other.path, path) || other.path == path)&&(identical(other.departmentId, departmentId) || other.departmentId == departmentId)&&(identical(other.retentionClassId, retentionClassId) || other.retentionClassId == retentionClassId)&&(identical(other.retentionClassName, retentionClassName) || other.retentionClassName == retentionClassName)&&(identical(other.storageProviders, storageProviders) || other.storageProviders == storageProviders));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is _FolderRow&&(identical(other.id, id) || other.id == id)&&(identical(other.parentId, parentId) || other.parentId == parentId)&&(identical(other.name, name) || other.name == name)&&(identical(other.path, path) || other.path == path)&&(identical(other.departmentId, departmentId) || other.departmentId == departmentId)&&(identical(other.retentionClassId, retentionClassId) || other.retentionClassId == retentionClassId)&&(identical(other.retentionClassName, retentionClassName) || other.retentionClassName == retentionClassName)&&(identical(other.storageProviders, storageProviders) || other.storageProviders == storageProviders)&&(identical(other.storageProviderId, storageProviderId) || other.storageProviderId == storageProviderId)&&(identical(other.storageProviderName, storageProviderName) || other.storageProviderName == storageProviderName)&&(identical(other.storagePrefix, storagePrefix) || other.storagePrefix == storagePrefix));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hash(runtimeType,id,parentId,name,path,departmentId,retentionClassId,retentionClassName,storageProviders);
+int get hashCode => Object.hash(runtimeType,id,parentId,name,path,departmentId,retentionClassId,retentionClassName,storageProviders,storageProviderId,storageProviderName,storagePrefix);
 
 @override
 String toString() {
-  return 'FolderRow(id: $id, parentId: $parentId, name: $name, path: $path, departmentId: $departmentId, retentionClassId: $retentionClassId, retentionClassName: $retentionClassName, storageProviders: $storageProviders)';
+  return 'FolderRow(id: $id, parentId: $parentId, name: $name, path: $path, departmentId: $departmentId, retentionClassId: $retentionClassId, retentionClassName: $retentionClassName, storageProviders: $storageProviders, storageProviderId: $storageProviderId, storageProviderName: $storageProviderName, storagePrefix: $storagePrefix)';
 }
 
 
@@ -267,7 +281,7 @@ abstract mixin class _$FolderRowCopyWith<$Res> implements $FolderRowCopyWith<$Re
   factory _$FolderRowCopyWith(_FolderRow value, $Res Function(_FolderRow) _then) = __$FolderRowCopyWithImpl;
 @override @useResult
 $Res call({
- int id,@JsonKey(name: 'parent_id') int? parentId, String name, String path,@JsonKey(name: 'department_id') int? departmentId,@JsonKey(name: 'retention_class_id') int? retentionClassId,@JsonKey(name: 'retention_class_name') String? retentionClassName,@JsonKey(name: 'storage_providers') String? storageProviders
+ int id,@JsonKey(name: 'parent_id') int? parentId, String name, String path,@JsonKey(name: 'department_id') int? departmentId,@JsonKey(name: 'retention_class_id') int? retentionClassId,@JsonKey(name: 'retention_class_name') String? retentionClassName,@JsonKey(name: 'storage_providers') String? storageProviders,@JsonKey(name: 'storage_provider_id') String? storageProviderId,@JsonKey(name: 'storage_provider_name') String? storageProviderName,@JsonKey(name: 'storage_prefix') String? storagePrefix
 });
 
 
@@ -284,7 +298,7 @@ class __$FolderRowCopyWithImpl<$Res>
 
 /// Create a copy of FolderRow
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? parentId = freezed,Object? name = null,Object? path = null,Object? departmentId = freezed,Object? retentionClassId = freezed,Object? retentionClassName = freezed,Object? storageProviders = freezed,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? parentId = freezed,Object? name = null,Object? path = null,Object? departmentId = freezed,Object? retentionClassId = freezed,Object? retentionClassName = freezed,Object? storageProviders = freezed,Object? storageProviderId = freezed,Object? storageProviderName = freezed,Object? storagePrefix = freezed,}) {
   return _then(_FolderRow(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as int,parentId: freezed == parentId ? _self.parentId : parentId // ignore: cast_nullable_to_non_nullable
@@ -294,6 +308,9 @@ as String,departmentId: freezed == departmentId ? _self.departmentId : departmen
 as int?,retentionClassId: freezed == retentionClassId ? _self.retentionClassId : retentionClassId // ignore: cast_nullable_to_non_nullable
 as int?,retentionClassName: freezed == retentionClassName ? _self.retentionClassName : retentionClassName // ignore: cast_nullable_to_non_nullable
 as String?,storageProviders: freezed == storageProviders ? _self.storageProviders : storageProviders // ignore: cast_nullable_to_non_nullable
+as String?,storageProviderId: freezed == storageProviderId ? _self.storageProviderId : storageProviderId // ignore: cast_nullable_to_non_nullable
+as String?,storageProviderName: freezed == storageProviderName ? _self.storageProviderName : storageProviderName // ignore: cast_nullable_to_non_nullable
+as String?,storagePrefix: freezed == storagePrefix ? _self.storagePrefix : storagePrefix // ignore: cast_nullable_to_non_nullable
 as String?,
   ));
 }

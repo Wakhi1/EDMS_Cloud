@@ -73,11 +73,13 @@ class DocumentsApi {
   }
 
   /// POST /api/documents — multipart. Registers a new record: encrypts the
-  /// file, uploads it, writes version 1. [recordNo] must be unique — the
-  /// backend returns 403 with statusCode 409 on a duplicate; callers
-  /// should regenerate and retry (see SmartUpload's commit flow).
+  /// file, uploads it, writes version 1. [recordIndexId] must name an
+  /// available admin-issued index (GET /api/record-indexes/available) — the
+  /// backend claims it atomically and returns 409 if it was just claimed by
+  /// someone else; callers should refresh the available list and let the
+  /// user reselect (see Smart Upload's commit flow).
   Future<({int id, String recordNo, int versionId})> create({
-    required String recordNo,
+    required int recordIndexId,
     required String title,
     required int documentTypeId,
     required int folderId,
@@ -95,7 +97,7 @@ class DocumentsApi {
     required String mimeType,
   }) async {
     final formData = FormData.fromMap({
-      'recordNo': recordNo,
+      'recordIndexId': '$recordIndexId',
       'title': title,
       'documentTypeId': '$documentTypeId',
       'folderId': '$folderId',
@@ -154,6 +156,7 @@ class DocumentsApi {
     String? memberName,
     String? classification,
     int? retentionClassId,
+    String? watermarkMode,
   }) async {
     final response = await _client.put(
       Endpoints.documentById('$id'),
@@ -166,6 +169,7 @@ class DocumentsApi {
         'memberName': ?memberName,
         'classification': ?classification,
         'retentionClassId': ?retentionClassId,
+        'watermarkMode': ?watermarkMode,
       },
     );
     _client.unwrap(response, (_) => null);

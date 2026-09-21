@@ -18,6 +18,9 @@ _ApprovalItem _$ApprovalItemFromJson(Map<String, dynamic> json) =>
       slaDays: (json['sla_days'] as num?)?.toInt(),
       startedAt: json['started_at'] as String?,
       escalatedAt: json['escalated_at'] as String?,
+      requiresSignature: json['requires_signature'] == null
+          ? false
+          : _boolFromInt(json['requires_signature']),
     );
 
 Map<String, dynamic> _$ApprovalItemToJson(_ApprovalItem instance) =>
@@ -32,4 +35,5 @@ Map<String, dynamic> _$ApprovalItemToJson(_ApprovalItem instance) =>
       'sla_days': instance.slaDays,
       'started_at': instance.startedAt,
       'escalated_at': instance.escalatedAt,
+      'requires_signature': instance.requiresSignature,
     };

@@ -17,13 +17,17 @@
 const { ImapFlow } = require('imapflow');
 const { simpleParser } = require('mailparser');
 const { mimeFromExtension } = require('../../utils/mimeType');
+const logger = require('../../config/logger');
 
 function buildClient(config) {
   return new ImapFlow({
     host: config.host,
     port: config.port || 993,
     secure: true,
-    auth: { user: config.user, pass: process.env.IMAP_INTAKE_PASSWORD || '' },
+    // config.password (set via the Integrations screen) wins when present;
+    // IMAP_INTAKE_PASSWORD stays as a fallback for existing .env-only
+    // deployments — same precedence as storage.service.js#activeProvider().
+    auth: { user: config.user, pass: config.password || process.env.IMAP_INTAKE_PASSWORD || '' },
     logger: false,
   });
 }
@@ -50,16 +54,22 @@ async function poll(config) {
     const lock = await client.getMailboxLock(config.mailbox || 'INBOX');
     try {
       for await (const message of client.fetch({ seen: false }, { source: true, uid: true })) {
-        const parsed = await simpleParser(message.source);
-        for (const attachment of parsed.attachments || []) {
-          const fileName = attachment.filename || `email-attachment-${message.uid}`;
-          files.push({
-            fileName,
-            buffer: attachment.content,
-            mimeType: attachment.contentType || mimeFromExtension(fileName),
-          });
+        try {
+          const parsed = await simpleParser(message.source);
+          for (const attachment of parsed.attachments || []) {
+            const fileName = attachment.filename || `email-attachment-${message.uid}`;
+            files.push({
+              fileName,
+              buffer: attachment.content,
+              mimeType: attachment.contentType || mimeFromExtension(fileName),
+            });
+          }
+          await client.messageFlagsAdd(message.uid, ['\\Seen'], { uid: true });
+        } catch (err) {
+          // One malformed/unparseable message must not abort the whole
+          // poll — it stays unseen and is retried next time.
+          logger.warn('Email intake: failed to parse one message, skipping it this poll', { uid: message.uid, error: err.message });
         }
-        await client.messageFlagsAdd(message.uid, ['\\Seen'], { uid: true });
       }
     } finally {
       lock.release();

@@ -15,6 +15,7 @@ abstract class UserRow with _$UserRow {
     @JsonKey(name: 'is_active', fromJson: _boolFromInt) required bool isActive,
     @JsonKey(name: 'is_locked', fromJson: _boolFromInt) required bool isLocked,
     @JsonKey(name: 'mfa_enabled', fromJson: _boolFromInt) required bool mfaEnabled,
+    @JsonKey(name: 'role_id') required int roleId,
     @JsonKey(name: 'role_name') required String roleName,
     @JsonKey(name: 'department_id') int? departmentId,
     @JsonKey(name: 'department_name') String? departmentName,

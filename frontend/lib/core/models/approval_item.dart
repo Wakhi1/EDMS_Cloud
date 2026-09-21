@@ -18,7 +18,14 @@ abstract class ApprovalItem with _$ApprovalItem {
     @JsonKey(name: 'sla_days') int? slaDays,
     @JsonKey(name: 'started_at') String? startedAt,
     @JsonKey(name: 'escalated_at') String? escalatedAt,
+    @JsonKey(name: 'requires_signature', fromJson: _boolFromInt) @Default(false) bool requiresSignature,
   }) = _ApprovalItem;
 
   factory ApprovalItem.fromJson(Map<String, dynamic> json) => _$ApprovalItemFromJson(json);
+}
+
+bool _boolFromInt(dynamic value) {
+  if (value is bool) return value;
+  if (value is num) return value != 0;
+  return false;
 }

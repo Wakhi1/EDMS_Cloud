@@ -17,6 +17,7 @@ abstract class DocumentRecord with _$DocumentRecord {
     required String title,
     required String status,
     required String classification,
+    @JsonKey(name: 'watermark_mode') @Default('inherit') String watermarkMode,
     @JsonKey(name: 'member_number') String? memberNumber,
     @JsonKey(name: 'member_name') String? memberName,
     @JsonKey(name: 'created_at') String? createdAt,
@@ -29,10 +30,26 @@ abstract class DocumentRecord with _$DocumentRecord {
     @JsonKey(name: 'mime_type') String? mimeType,
     @JsonKey(name: 'file_name') String? fileName,
     @JsonKey(name: 'size_bytes', fromJson: _intFromDynamic) int? sizeBytes,
+    // Current version's page count; null when the file type has no
+    // determinable page count (or a pre-migration row not yet backfilled).
+    // pageCountEstimated: computed from text length rather than read from the file.
+    @JsonKey(name: 'page_count', fromJson: _intFromDynamic) int? pageCount,
+    @JsonKey(name: 'page_count_estimated', fromJson: _boolFromDynamic) @Default(false) bool pageCountEstimated,
     @JsonKey(name: 'storage_provider') String? storageProvider,
   }) = _DocumentRecord;
 
   factory DocumentRecord.fromJson(Map<String, dynamic> json) => _$DocumentRecordFromJson(json);
+}
+
+extension DocumentRecordPages on DocumentRecord {
+  /// "12", "~3" (estimated from text length, not read from the file) or "—".
+  String get pagesLabel => pageCount == null ? '—' : '${pageCountEstimated ? '~' : ''}$pageCount';
+}
+
+bool _boolFromDynamic(dynamic value) {
+  if (value is bool) return value;
+  if (value is num) return value != 0;
+  return false;
 }
 
 int? _intFromDynamic(dynamic value) {

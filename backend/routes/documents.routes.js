@@ -27,7 +27,8 @@ const aclService = require('../services/acl.service');
 const { envelopeDecryptFile, sha256 } = require('../services/crypto.service');
 const storageService = require('../services/storage/storage.service');
 const ocrService = require('../services/ocr.service');
-const { registerDocument, DuplicateRecordNoError, DuplicateContentError, findDuplicateByContentHash } = require('../services/document.service');
+const { registerDocument, DuplicateRecordNoError, DuplicateContentError, findDuplicateByContentHash, relocateDocumentStorage } = require('../services/document.service');
+const { claimSpecificIndex, releaseIndex, linkIndexToDocument, IndexUnavailableError } = require('../services/recordIndex.service');
 const { suggestMemberNumber, suggestDocumentTypeCode } = require('../services/classification.service');
 const { getSettingBool } = require('../services/settings.service');
 const { watermarkPdf } = require('../services/watermark.service');
@@ -72,11 +73,11 @@ router.get('/', requireModuleAccess('repository'), asyncHandler(async (req, res)
 
   const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
   const [rows] = await pool.query(
-    `SELECT d.id, d.record_no, d.title, d.status, d.classification, d.member_number,
+    `SELECT d.id, d.record_no, d.title, d.status, d.classification, d.watermark_mode, d.member_number,
             d.member_name, d.created_at, d.updated_at,
             dt.name AS document_type, dep.name AS department, f.path AS folder_path,
             v.version_no AS current_version_no, u.full_name AS owner_name,
-            v.mime_type, v.file_name, v.size_bytes, dso.provider AS storage_provider
+            v.mime_type, v.file_name, v.size_bytes, v.page_count, v.page_count_estimated, dso.provider AS storage_provider
      FROM documents d
      JOIN document_types dt ON dt.id = d.document_type_id
      LEFT JOIN departments dep ON dep.id = d.department_id
@@ -97,7 +98,7 @@ router.get('/', requireModuleAccess('repository'), asyncHandler(async (req, res)
 router.get('/:id', requireModuleAccess('viewer'), asyncHandler(async (req, res) => {
   const [rows] = await pool.query(
     `SELECT d.*, dt.name AS document_type, f.path AS folder_path, u.full_name AS owner_name,
-            dso.provider AS storage_provider
+            v.page_count, v.page_count_estimated, dso.provider AS storage_provider
      FROM documents d
      JOIN document_types dt ON dt.id = d.document_type_id
      JOIN folders f ON f.id = d.folder_id
@@ -118,7 +119,7 @@ router.get('/:id', requireModuleAccess('viewer'), asyncHandler(async (req, res) 
 
 /**
  * POST /api/documents
- * multipart/form-data: file + recordNo, title, documentTypeId, folderId,
+ * multipart/form-data: file + recordIndexId, title, documentTypeId, folderId,
  * departmentId, memberNumber, memberName, classification, retentionClassId,
  * plus two optional Smart Upload extras:
  *   - storageProviderId / storagePrefix: where the encrypted object
@@ -127,6 +128,11 @@ router.get('/:id', requireModuleAccess('viewer'), asyncHandler(async (req, res) 
  *   - customFields: JSON-encoded array of {label, value} — optional
  *     user-defined tags, stored in document_custom_fields and indexed
  *     alongside title/OCR text in GET /'s search.
+ * recordIndexId names an admin-issued record_indexes row (see
+ * services/recordIndex.service.js) — the caller picks one from
+ * GET /api/record-indexes/available rather than typing/generating a
+ * record_no itself. Claimed before registration, released if registration
+ * fails, linked to the new document once it succeeds.
  * Registers the record, encrypts the file, uploads it, and writes version 1.
  */
 router.post(
@@ -134,7 +140,7 @@ router.post(
   requireModuleAccess('capture', true),
   upload.single('file'),
   [
-    body('recordNo').trim().notEmpty(),
+    body('recordIndexId').isInt(),
     body('title').trim().notEmpty(),
     body('documentTypeId').isInt(),
     body('folderId').isInt(),
@@ -145,7 +151,7 @@ router.post(
     if (!req.file) return fail(res, 'A file is required', 400);
 
     const {
-      recordNo, title, documentTypeId, folderId, departmentId,
+      recordIndexId, title, documentTypeId, folderId, departmentId,
       memberNumber, memberName, classification, retentionClassId,
       storageProviderId, storagePrefix, allowDuplicate,
     } = req.body;
@@ -164,15 +170,24 @@ router.post(
       }
     }
 
+    let claimedIndex;
+    try {
+      claimedIndex = await claimSpecificIndex({ recordIndexId: Number(recordIndexId), documentTypeId: Number(documentTypeId), companyId: req.user.companyId });
+    } catch (err) {
+      if (err instanceof IndexUnavailableError) return fail(res, err.message, 409);
+      throw err;
+    }
+
     try {
       const result = await registerDocument({
         buffer: req.file.buffer, originalName: req.file.originalname, mimeType: req.file.mimetype,
-        recordNo, title, documentTypeId, folderId, departmentId,
+        recordNo: claimedIndex.indexValue, title, documentTypeId, folderId, departmentId,
         memberNumber, memberName, classification, retentionClassId,
         storageProviderId, storagePrefix, customFields,
         userId: req.user.id, ip: req.ip,
         allowDuplicate: allowDuplicate === true || allowDuplicate === 'true',
       });
+      await linkIndexToDocument(claimedIndex.id, result.id);
 
       // Auto-route into a matching workflow, if one's configured — never
       // let a routing failure undo a registration that already succeeded.
@@ -182,6 +197,7 @@ router.post(
 
       return ok(res, result, 'Record registered', 201);
     } catch (err) {
+      await releaseIndex(claimedIndex.id);
       if (err instanceof DuplicateRecordNoError) return fail(res, err.message, 409);
       if (err instanceof DuplicateContentError) return fail(res, err.message, 409, { existingDocument: err.existing });
       throw err;
@@ -233,7 +249,7 @@ router.get('/:id/content', requireModuleAccess('viewer'), asyncHandler(async (re
   const [rows] = await pool.query(
     `SELECT dv.id AS version_id, dv.file_name, dv.mime_type, dso.*,
             dek.wrapped_dek, dek.dek_iv, dek.dek_auth_tag, dek.file_iv, dek.file_auth_tag,
-            d.classification, d.status
+            d.classification, d.status, d.watermark_mode
      FROM documents d
      JOIN document_versions dv ON dv.id = d.current_version_id
      JOIN document_storage_objects dso ON dso.id = dv.storage_object_id
@@ -270,8 +286,10 @@ router.get('/:id/content', requireModuleAccess('viewer'), asyncHandler(async (re
     return fail(res, 'Integrity check failed — content does not match the stored checksum', 500);
   }
 
-  if (row.mime_type === 'application/pdf' && await getSettingBool('watermark_downloads', true)) {
-    plaintext = await watermarkPdf(plaintext, { userLabel: `${req.user.fullName || req.user.email} (${req.user.id})` });
+  const shouldWatermark = row.watermark_mode === 'on'
+    || (row.watermark_mode === 'inherit' && await getSettingBool('watermark_downloads', true));
+  if (row.mime_type === 'application/pdf' && shouldWatermark) {
+    plaintext = await watermarkPdf(plaintext);
   }
 
   await logAudit({
@@ -317,13 +335,25 @@ router.put(
     const errors = validationResult(req);
     if (!errors.isEmpty()) return fail(res, 'Validation failed', 422, errors.array());
 
-    const [[doc]] = await pool.query('SELECT id FROM documents WHERE id = ?', [req.params.id]);
+    const [[doc]] = await pool.query('SELECT id, folder_id FROM documents WHERE id = ?', [req.params.id]);
     if (!doc) return fail(res, 'Record not found', 404);
     if (!await aclService.hasAccess(req.user.id, req.user.role, 'document', doc.id, 'edit')) {
       return fail(res, 'You do not have access to this record', 403);
     }
 
-    const { title, documentTypeId, folderId, departmentId, memberNumber, memberName, classification, retentionClassId } = req.body;
+    const { title, documentTypeId, folderId, departmentId, memberNumber, memberName, classification, retentionClassId, watermarkMode } = req.body;
+    if (watermarkMode !== undefined && !['inherit', 'on', 'off'].includes(watermarkMode)) {
+      return fail(res, 'watermarkMode must be one of inherit, on, off', 422);
+    }
+
+    // Move the physical file to the destination folder's storage provider
+    // (if different) before the folder_id column itself changes, so a
+    // storage failure here aborts the whole move instead of leaving the
+    // record pointing at a folder its file was never actually relocated to.
+    if (folderId && Number(folderId) !== doc.folder_id) {
+      await relocateDocumentStorage(req.params.id, Number(folderId), { userId: req.user.id, ip: req.ip });
+    }
+
     await pool.query(
       `UPDATE documents SET
          title = COALESCE(?, title),
@@ -333,10 +363,11 @@ router.put(
          member_number = COALESCE(?, member_number),
          member_name = COALESCE(?, member_name),
          classification = COALESCE(?, classification),
-         retention_class_id = COALESCE(?, retention_class_id)
+         retention_class_id = COALESCE(?, retention_class_id),
+         watermark_mode = COALESCE(?, watermark_mode)
        WHERE id = ?`,
       [title || null, documentTypeId || null, folderId || null, departmentId || null,
-       memberNumber || null, memberName || null, classification || null, retentionClassId || null, req.params.id]
+       memberNumber || null, memberName || null, classification || null, retentionClassId || null, watermarkMode || null, req.params.id]
     );
     await logAudit({ userId: req.user.id, action: 'Edit', recordType: 'document', recordId: req.params.id, ip: req.ip });
     return ok(res, null, 'Record updated');

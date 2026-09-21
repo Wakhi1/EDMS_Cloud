@@ -7,6 +7,7 @@ import '../../../core/api/api_exception.dart';
 import '../../../core/api/api_providers.dart';
 import '../../../core/models/department_row.dart';
 import '../../../core/models/document_record.dart';
+import '../../../core/models/folder_row.dart';
 import '../../../core/router/route_paths.dart';
 import '../../../core/theme/pspf_tokens.dart';
 import '../../../core/widgets/confirm_dialog.dart';
@@ -16,6 +17,7 @@ import '../../../core/widgets/status_chip.dart';
 import '../../../core/widgets/storage_location_icon.dart';
 import '../providers/repository_providers.dart';
 import 'edit_document_dialog.dart';
+import 'widgets/create_folder_dialog.dart';
 
 class RepositoryScreen extends ConsumerWidget {
   const RepositoryScreen({super.key});
@@ -284,6 +286,11 @@ class _ViewModeToggle extends ConsumerWidget {
 
 final _fileplanSearchProvider = StateProvider.autoDispose<String>((ref) => '');
 
+/// Folder ids currently collapsed in the File Plan tree (their descendants
+/// are hidden). Ignored while searching — a search result should never be
+/// hidden by a collapse state the user set up while browsing normally.
+final _collapsedFolderIdsProvider = StateProvider.autoDispose<Set<int>>((ref) => {});
+
 class _FolderTree extends ConsumerWidget {
   const _FolderTree();
 
@@ -304,9 +311,22 @@ class _FolderTree extends ConsumerWidget {
         children: [
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            child: Text(
-              'FILE PLAN',
-              style: Theme.of(context).textTheme.labelSmall,
+            child: Row(
+              children: [
+                Expanded(child: Text('FILE PLAN', style: Theme.of(context).textTheme.labelSmall)),
+                IconButton(
+                  tooltip: 'New folder',
+                  icon: Icon(Icons.create_new_folder_outlined, size: 16, color: tokens.ink2),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+                  onPressed: () => _createFolder(
+                    context,
+                    ref,
+                    folders: foldersAsync.valueOrNull ?? const [],
+                    initialParentId: filters.folderId,
+                  ),
+                ),
+              ],
             ),
           ),
           Padding(
@@ -360,13 +380,34 @@ class _FolderTree extends ConsumerWidget {
                         final q = search.trim().toLowerCase();
                         final sorted = [...folders]
                           ..sort((a, b) => a.path.compareTo(b.path));
-                        final visible = q.isEmpty ? sorted : sorted.where((f) => f.name.toLowerCase().contains(q) || f.path.toLowerCase().contains(q)).toList();
-                        if (q.isNotEmpty && visible.isEmpty) {
+                        final matched = q.isEmpty
+                            ? sorted
+                            : sorted.where((f) => f.name.toLowerCase().contains(q) || f.path.toLowerCase().contains(q)).toList();
+                        if (q.isNotEmpty && matched.isEmpty) {
                           return Padding(
                             padding: const EdgeInsets.all(12),
                             child: Text('No folders match "$search".', style: TextStyle(fontSize: 11.5, color: tokens.ink2)),
                           );
                         }
+
+                        final byId = {for (final f in folders) f.id: f};
+                        final parentsWithChildren = folders.map((f) => f.parentId).whereType<int>().toSet();
+                        final collapsed = ref.watch(_collapsedFolderIdsProvider);
+
+                        bool hasCollapsedAncestor(FolderRow f) {
+                          var current = f.parentId;
+                          while (current != null) {
+                            if (collapsed.contains(current)) return true;
+                            current = byId[current]?.parentId;
+                          }
+                          return false;
+                        }
+
+                        // Collapse state only applies while browsing the full tree —
+                        // a search result must never be hidden by an unrelated
+                        // ancestor's collapsed state.
+                        final visible = q.isEmpty ? matched.where((f) => !hasCollapsedAncestor(f)).toList() : matched;
+
                         return Column(
                           children: [
                             for (final f in visible)
@@ -379,6 +420,13 @@ class _FolderTree extends ConsumerWidget {
                                 selected: filters.folderId == f.id,
                                 folderId: f.id,
                                 storageProviders: f.storageProviders,
+                                hasChildren: q.isEmpty && parentsWithChildren.contains(f.id),
+                                collapsed: collapsed.contains(f.id),
+                                onToggleCollapse: () => ref.read(_collapsedFolderIdsProvider.notifier).update((s) {
+                                  final next = {...s};
+                                  if (!next.remove(f.id)) next.add(f.id);
+                                  return next;
+                                }),
                                 onTap: () {
                                   ref.read(repositoryFiltersProvider.notifier).state =
                                       filters.copyWith(folderId: () => f.id);
@@ -407,6 +455,9 @@ class _FolderRow extends ConsumerWidget {
     this.indent = 0,
     this.folderId,
     this.storageProviders,
+    this.hasChildren = false,
+    this.collapsed = false,
+    this.onToggleCollapse,
   });
 
   final String label;
@@ -415,6 +466,12 @@ class _FolderRow extends ConsumerWidget {
   final int indent;
   final int? folderId;
   final String? storageProviders;
+
+  /// Whether this folder has subfolders — only then is a collapse chevron
+  /// shown at all, to avoid clutter on every leaf folder.
+  final bool hasChildren;
+  final bool collapsed;
+  final VoidCallback? onToggleCollapse;
 
   Future<void> _rename(BuildContext context, WidgetRef ref) async {
     final newName = await ConfirmDialog.show(
@@ -469,6 +526,19 @@ class _FolderRow extends ConsumerWidget {
           ),
           child: Row(
             children: [
+              SizedBox(
+                width: 16,
+                child: hasChildren
+                    ? InkWell(
+                        onTap: onToggleCollapse,
+                        child: Icon(
+                          collapsed ? Icons.chevron_right : Icons.expand_more,
+                          size: 15,
+                          color: tokens.ink2,
+                        ),
+                      )
+                    : null,
+              ),
               Icon(PhosphorIconsDuotone.folder, size: 15, color: tokens.accD),
               const SizedBox(width: 7),
               Expanded(
@@ -521,6 +591,27 @@ class _FolderRow extends ConsumerWidget {
   }
 }
 
+/// Creates a subfolder of [initialParentId] (or a root-level folder if
+/// null), with an optional default storage location — the sole folder-
+/// creation entry point in the app; see CreateFolderDialog's doc comment.
+Future<void> _createFolder(BuildContext context, WidgetRef ref, {required List<FolderRow> folders, int? initialParentId}) async {
+  final result = await CreateFolderDialog.show(context, folders: folders, initialParentId: initialParentId);
+  if (result == null) return;
+
+  try {
+    await ref.read(foldersApiProvider).create(
+          name: result.name,
+          parentId: result.parentId,
+          storageProviderId: result.storageProviderId,
+          storagePrefix: result.storagePrefix,
+        );
+    ref.invalidate(foldersProvider);
+    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Folder created.')));
+  } on ApiException catch (e) {
+    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+  }
+}
+
 Future<void> _editDocument(BuildContext context, WidgetRef ref, DocumentRecord doc) async {
   // Fetched directly (not via the cached providers' .valueOrNull) since
   // neither is necessarily already warm on this screen — Repository never
@@ -546,6 +637,7 @@ Future<void> _editDocument(BuildContext context, WidgetRef ref, DocumentRecord d
         int folderId,
         int? departmentId,
         String classification,
+        String watermarkMode,
         String? memberNumber,
         String? memberName,
       })>(
@@ -562,6 +654,7 @@ Future<void> _editDocument(BuildContext context, WidgetRef ref, DocumentRecord d
           folderId: result.folderId,
           departmentId: result.departmentId,
           classification: result.classification,
+          watermarkMode: result.watermarkMode,
           memberNumber: result.memberNumber,
           memberName: result.memberName,
         );
@@ -679,7 +772,7 @@ class _DocumentList extends ConsumerWidget {
     final tokens = context.tokens;
     final selected = ref.watch(selectedDocumentProvider);
 
-    const flexes = [2, 3, 2, 2, 2, 2];
+    const flexes = [2, 3, 2, 2, 2, 1, 2];
 
     Widget cell(String text, int flex, {Widget? child}) {
       return Expanded(
@@ -704,7 +797,8 @@ class _DocumentList extends ConsumerWidget {
                 cell('Type', flexes[2]),
                 cell('Department', flexes[3]),
                 cell('Status', flexes[4]),
-                cell('Registered', flexes[5]),
+                cell('Pages', flexes[5]),
+                cell('Registered', flexes[6]),
                 const SizedBox(width: 76),
               ],
             ),
@@ -747,7 +841,8 @@ class _DocumentList extends ConsumerWidget {
                         flexes[4],
                         child: StatusChip.forDocumentStatus(d.status),
                       ),
-                      cell(d.createdAt?.split('T').first ?? '—', flexes[5]),
+                      cell(d.pagesLabel, flexes[5]),
+                      cell(d.createdAt?.split('T').first ?? '—', flexes[6]),
                       SizedBox(width: 76, child: _DocumentActionsButton(doc: d, recycleBin: recycleBin)),
                     ],
                   ),
@@ -943,6 +1038,7 @@ class _PropertiesPanel extends ConsumerWidget {
         'Version',
         doc.currentVersionNo != null ? 'v${doc.currentVersionNo}' : '—',
       ),
+      ('Pages', doc.pagesLabel),
       ('Classification', doc.classification),
       ('File plan', doc.folderPath ?? '—'),
       ('Storage', doc.storageProvider != null ? storageProviderIconAndLabel(doc.storageProvider!).$2 : '—'),

@@ -13,6 +13,7 @@ _DocumentRecord _$DocumentRecordFromJson(Map<String, dynamic> json) =>
       title: json['title'] as String,
       status: json['status'] as String,
       classification: json['classification'] as String,
+      watermarkMode: json['watermark_mode'] as String? ?? 'inherit',
       memberNumber: json['member_number'] as String?,
       memberName: json['member_name'] as String?,
       createdAt: json['created_at'] as String?,
@@ -25,6 +26,10 @@ _DocumentRecord _$DocumentRecordFromJson(Map<String, dynamic> json) =>
       mimeType: json['mime_type'] as String?,
       fileName: json['file_name'] as String?,
       sizeBytes: _intFromDynamic(json['size_bytes']),
+      pageCount: _intFromDynamic(json['page_count']),
+      pageCountEstimated: json['page_count_estimated'] == null
+          ? false
+          : _boolFromDynamic(json['page_count_estimated']),
       storageProvider: json['storage_provider'] as String?,
     );
 
@@ -35,6 +40,7 @@ Map<String, dynamic> _$DocumentRecordToJson(_DocumentRecord instance) =>
       'title': instance.title,
       'status': instance.status,
       'classification': instance.classification,
+      'watermark_mode': instance.watermarkMode,
       'member_number': instance.memberNumber,
       'member_name': instance.memberName,
       'created_at': instance.createdAt,
@@ -47,5 +53,7 @@ Map<String, dynamic> _$DocumentRecordToJson(_DocumentRecord instance) =>
       'mime_type': instance.mimeType,
       'file_name': instance.fileName,
       'size_bytes': instance.sizeBytes,
+      'page_count': instance.pageCount,
+      'page_count_estimated': instance.pageCountEstimated,
       'storage_provider': instance.storageProvider,
     };

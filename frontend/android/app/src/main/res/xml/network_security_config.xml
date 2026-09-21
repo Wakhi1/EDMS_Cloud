@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Diagnostic-only addition: trusts SSL.com's "TLS RSA Root CA 2022" (the
+  root behind edms.docsecuresd.com's certificate, res/raw/sslcom_root.pem)
+  in ADDITION to the device's normal system trust store. Testing whether
+  physical devices reporting "Can't reach edms.docsecuresd.com" (while
+  Chrome on those same devices reaches it fine, and while curl and the
+  emulator both already trust it) are failing because their OS-level CA
+  bundle hasn't yet picked up this relatively new (2022) root — Chrome
+  ships its own root store and isn't affected by that gap the way a plain
+  Android app is. If this fixes it, the real fix belongs on the server
+  (reissue from a CA with older/broader device trust); this file is a
+  workaround to confirm the diagnosis, not a permanent substitute for that.
+-->
+<network-security-config>
+    <base-config>
+        <trust-anchors>
+            <certificates src="system"/>
+            <certificates src="@raw/sslcom_root"/>
+        </trust-anchors>
+    </base-config>
+</network-security-config>

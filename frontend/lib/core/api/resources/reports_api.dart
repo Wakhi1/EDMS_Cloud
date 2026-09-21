@@ -210,9 +210,12 @@ class ReportsApi {
     return _client.unwrapList(response, CountItem.fromUserJson);
   }
 
-  /// GET /api/reports/export?format=csv|xlsx|pdf — every card on the
-  /// Reports screen, respecting the same filters, as one document. Raw
-  /// bytes (not the {success,data} envelope), same as AuditApi's exports.
+  /// GET /api/reports/export?format=csv|xlsx|pdf&sections=key,key&includeSignature=true
+  /// — the currently selected cards on the Reports screen, respecting the
+  /// same filters, as one document. Raw bytes (not the {success,data}
+  /// envelope), same as AuditApi's exports. [sections] omitted/empty means
+  /// every section (server-side default); [includeSignature] only takes
+  /// effect for PDF and only if the requesting user has a saved signature.
   Future<({List<int> bytes, String fileName})> export({
     required String format,
     String? from,
@@ -221,10 +224,17 @@ class ReportsApi {
     int? documentTypeId,
     int? folderId,
     String? classification,
+    List<String>? sections,
+    bool includeSignature = false,
   }) async {
     final response = await _client.get(
       Endpoints.reportsExport,
-      queryParameters: {'format': format, ..._documentFilterParams(from: from, to: to, departmentId: departmentId, documentTypeId: documentTypeId, folderId: folderId, classification: classification)},
+      queryParameters: {
+        'format': format,
+        ..._documentFilterParams(from: from, to: to, departmentId: departmentId, documentTypeId: documentTypeId, folderId: folderId, classification: classification),
+        if (sections != null && sections.isNotEmpty) 'sections': sections.join(','),
+        if (includeSignature) 'includeSignature': 'true',
+      },
       options: Options(responseType: ResponseType.bytes),
     );
     return (bytes: (response.data as List<int>?) ?? const [], fileName: 'reports-export.$format');

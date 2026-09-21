@@ -25,6 +25,7 @@ const emailService = require('../services/email.service');
 const adService = require('../services/ad.service');
 const smsService = require('../services/sms.service');
 const { CONNECTORS: INTAKE_CONNECTORS, rescheduleConnector, parseConfig } = require('../services/capture/scheduler');
+const { PUSH_CONNECTORS, reschedulePushConnector } = require('../services/push/scheduler');
 const { importFromStorage } = require('../services/import.service');
 const { PERMISSION_LEVELS, PRINCIPAL_TYPES } = require('../config/constants');
 
@@ -33,9 +34,21 @@ router.use(authenticate);
 
 const STORAGE_IDS = Object.keys(STORAGE_PROVIDERS);
 
+/** Which config_json field(s) each integration treats as secret — see PUT /:id's blank-preserves-current merge below. */
+const SECRET_FIELDS = {
+  ftp: ['password'],
+  email_intake: ['password'],
+  smtp: ['password'],
+  aws_s3: ['secretAccessKey'],
+  azure_blob: ['connectionString'],
+  gcp_storage: ['serviceAccountJson'],
+  webhook: ['authToken'],
+};
+
 function testerFor(id) {
   if (STORAGE_PROVIDERS[id]) return () => STORAGE_PROVIDERS[id].testConnection();
   if (INTAKE_CONNECTORS[id]) return (config) => INTAKE_CONNECTORS[id].testConnection(config || {});
+  if (PUSH_CONNECTORS[id]) return (config) => PUSH_CONNECTORS[id].testConnection(config || {});
   if (id === 'smtp') return emailService.verifyTransport;
   if (id === 'ad') return (config) => adService.testConnection(config || {});
   if (id === 'sms') return smsService.testConnection;
@@ -109,7 +122,33 @@ router.post('/', allowRoles('System Administrator'), asyncHandler(async (req, re
  * settings/interval/enabled flag — no server restart needed.
  */
 router.put('/:id', allowRoles('System Administrator'), asyncHandler(async (req, res) => {
-  const { name, description, status, endpoint, configJson } = req.body;
+  const { name, description, status, endpoint } = req.body;
+  let { configJson } = req.body;
+
+  // Every secret-bearing field across these integrations is edited via a
+  // blank-by-default "leave blank to keep the current value" TextField, and
+  // the client OMITS that key entirely from configJson when the field was
+  // left untouched (see edit_integration_dialog.dart's _buildXConfigJson
+  // methods) — so the merge below only fires when the key is genuinely
+  // *absent*. Checking falsiness instead of absence was a real bug: a
+  // caller that explicitly sends an empty string meaning "clear this
+  // secret" would have had the old value silently re-merged back in,
+  // making a stored secret permanently un-clearable through this route —
+  // confirmed live when a placeholder AWS secretAccessKey survived an
+  // explicit clear attempt and broke the real (env-configured) S3 access
+  // until fixed directly in the DB. Every other configJson key still gets
+  // a full replace, same as before.
+  const secretFields = SECRET_FIELDS[req.params.id] || [];
+  if (configJson && secretFields.some((field) => configJson[field] === undefined)) {
+    const [[existing]] = await pool.query('SELECT config_json FROM integrations WHERE id = ?', [req.params.id]);
+    if (existing && existing.config_json) {
+      const existingConfig = typeof existing.config_json === 'object' ? existing.config_json : JSON.parse(existing.config_json);
+      for (const field of secretFields) {
+        if (configJson[field] === undefined && existingConfig[field]) configJson = { ...configJson, [field]: existingConfig[field] };
+      }
+    }
+  }
+
   const [result] = await pool.query(
     `UPDATE integrations SET
        name = COALESCE(?, name), description = COALESCE(?, description),
@@ -122,6 +161,9 @@ router.put('/:id', allowRoles('System Administrator'), asyncHandler(async (req, 
 
   if (configJson && INTAKE_CONNECTORS[req.params.id]) {
     await rescheduleConnector(req.params.id);
+  }
+  if (configJson && PUSH_CONNECTORS[req.params.id]) {
+    await reschedulePushConnector(req.params.id);
   }
 
   await logAudit({ userId: req.user.id, action: 'Integration', recordType: 'integration', recordId: req.params.id, detail: status, ip: req.ip });

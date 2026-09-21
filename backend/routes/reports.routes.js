@@ -15,10 +15,12 @@ const asyncHandler = require('../utils/asyncHandler');
 const { authenticate } = require('../middleware/auth.middleware');
 const { requireModuleAccess } = require('../middleware/rbac.middleware');
 const { getSettingInt } = require('../services/settings.service');
-const { buildDocumentFilters } = require('../services/reports.service');
+const { buildDocumentFilters, REPORT_SECTION_KEYS } = require('../services/reports.service');
 const { toCsv, toXlsxBuffer, toPdfBuffer } = require('../utils/exportTable');
 const { logAudit } = require('../services/audit.service');
 const aclService = require('../services/acl.service');
+const { getHomeBrandingWithLogo } = require('../services/branding.service');
+const signatureService = require('../services/signature.service');
 
 const router = express.Router();
 router.use(authenticate);
@@ -219,12 +221,13 @@ router.get('/top-users', asyncHandler(async (req, res) => {
 }));
 
 /**
- * Runs every section this screen shows, respecting the same document
- * filters as the on-screen cards, so the export can never drift from what
- * "Reports" is currently displaying. Shared by GET /export's csv/xlsx/pdf
- * branches below.
+ * Runs only the requested sections (default: all of them), respecting the
+ * same document filters as the on-screen cards, so the export can never
+ * drift from whichever sections "Reports" is currently showing. Shared by
+ * GET /export's csv/xlsx/pdf branches below.
  */
-async function buildReportSections(query) {
+async function buildReportSections(query, sectionKeys = REPORT_SECTION_KEYS) {
+  const want = (key) => sectionKeys.includes(key);
   const { where, params } = buildDocumentFilters(query);
   const dateWhere = [];
   const dateParams = [];
@@ -232,85 +235,143 @@ async function buildReportSections(query) {
   if (query.to) { dateWhere.push('created_at <= ?'); dateParams.push(query.to); }
   const dateClause = dateWhere.length ? `WHERE ${dateWhere.join(' AND ')}` : '';
 
-  const [byStatus] = await pool.query(`SELECT d.status, COUNT(*) AS total FROM documents d ${where} GROUP BY d.status`, params);
-  const [byDepartment] = await pool.query(
-    `SELECT dep.name AS department, COUNT(*) AS total FROM documents d LEFT JOIN departments dep ON dep.id = d.department_id ${where} GROUP BY dep.name`,
-    params
-  );
-  const [byCategory] = await pool.query(
-    `SELECT dt.name AS category, COUNT(*) AS total, COALESCE(SUM(v.size_bytes), 0) AS totalBytes
-     FROM documents d JOIN document_types dt ON dt.id = d.document_type_id LEFT JOIN document_versions v ON v.id = d.current_version_id
-     ${where} GROUP BY dt.name`,
-    params
-  );
-  const [byFolder] = await pool.query(
-    `SELECT f.path AS folder, COUNT(*) AS total, COALESCE(SUM(v.size_bytes), 0) AS totalBytes
-     FROM documents d JOIN folders f ON f.id = d.folder_id LEFT JOIN document_versions v ON v.id = d.current_version_id
-     ${where} GROUP BY f.path ORDER BY total DESC LIMIT 15`,
-    params
-  );
-  const [byClassification] = await pool.query(`SELECT d.classification, COUNT(*) AS total FROM documents d ${where} GROUP BY d.classification`, params);
-  const [[capacity]] = await pool.query('SELECT COALESCE(SUM(size_bytes), 0) AS usedBytes, COUNT(*) AS objectCount FROM document_storage_objects');
-  const [[{ documentCount }]] = await pool.query('SELECT COUNT(*) AS documentCount FROM documents');
-  const capacityBytes = await getSettingInt('storage_capacity_bytes', 107374182400);
-  const [capturedOverTime] = await pool.query(
-    `SELECT DATE_FORMAT(d.created_at, '%Y-%m') AS month, COUNT(*) AS total FROM documents d ${where} GROUP BY month ORDER BY month`,
-    params
-  );
-  const [captureBySource] = await pool.query(
-    `SELECT source, COUNT(*) AS total, ROUND(AVG(success_rate), 1) AS avgSuccessRate FROM capture_batches ${dateClause} GROUP BY source ORDER BY total DESC`,
-    dateParams
-  );
-  const [retentionStatus] = await pool.query(
-    `SELECT COALESCE(rc.name, 'No retention class') AS retentionClass, COUNT(*) AS total, SUM(d.status = 'disposed') AS disposed
-     FROM documents d LEFT JOIN retention_classes rc ON rc.id = d.retention_class_id ${where} GROUP BY rc.name`,
-    params
-  );
-  const [[overdue]] = await pool.query(
-    `SELECT COUNT(*) AS count FROM documents WHERE status = 'declared_final' AND retention_due_at IS NOT NULL AND retention_due_at < NOW()`
-  );
-  const [auditActions] = await pool.query(`SELECT action, COUNT(*) AS total FROM audit_log ${dateClause} GROUP BY action ORDER BY total DESC`, dateParams);
-  const [topUsers] = await pool.query(
-    `SELECT COALESCE(u.full_name, 'System') AS userName, COUNT(*) AS total FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
-     ${dateClause.replace(/created_at/g, 'a.created_at')} GROUP BY userName ORDER BY total DESC LIMIT 10`,
-    dateParams
-  );
+  const sections = [];
 
-  return [
-    { name: 'Records by status', title: 'Records by status', headers: ['status', 'total'], rows: byStatus },
-    { name: 'Records by department', title: 'Records by department', headers: ['department', 'total'], rows: byDepartment },
-    { name: 'Records by category', title: 'Records by category', headers: ['category', 'total', 'totalBytes'], rows: byCategory },
-    { name: 'Records by folder', title: 'Records by folder (top 15)', headers: ['folder', 'total', 'totalBytes'], rows: byFolder },
-    { name: 'Records by classification', title: 'Records by classification', headers: ['classification', 'total'], rows: byClassification },
-    { name: 'Storage capacity', title: 'Storage capacity', headers: ['usedBytes', 'objectCount', 'documentCount', 'capacityBytes'], rows: [{ ...capacity, documentCount, capacityBytes }] },
-    { name: 'Captured over time', title: 'Records captured over time', headers: ['month', 'total'], rows: capturedOverTime },
-    { name: 'Capture by source', title: 'Capture success by source', headers: ['source', 'total', 'avgSuccessRate'], rows: captureBySource },
-    { name: 'Retention status', title: 'Retention & disposal status', headers: ['retentionClass', 'total', 'disposed'], rows: retentionStatus },
-    { name: 'Overdue retention', title: 'Overdue for disposal', headers: ['count'], rows: [overdue] },
-    { name: 'Audit actions', title: 'Audit actions breakdown', headers: ['action', 'total'], rows: auditActions },
-    { name: 'Top audit actors', title: 'Top audit actors', headers: ['userName', 'total'], rows: topUsers },
-  ];
+  if (want('by-status')) {
+    const [rows] = await pool.query(`SELECT d.status, COUNT(*) AS total FROM documents d ${where} GROUP BY d.status`, params);
+    sections.push({ name: 'Records by status', title: 'Records by status', headers: ['status', 'total'], rows });
+  }
+  if (want('by-department')) {
+    const [rows] = await pool.query(
+      `SELECT dep.name AS department, COUNT(*) AS total FROM documents d LEFT JOIN departments dep ON dep.id = d.department_id ${where} GROUP BY dep.name`,
+      params
+    );
+    sections.push({ name: 'Records by department', title: 'Records by department', headers: ['department', 'total'], rows });
+  }
+  if (want('by-category')) {
+    const [rows] = await pool.query(
+      `SELECT dt.name AS category, COUNT(*) AS total, COALESCE(SUM(v.size_bytes), 0) AS totalBytes
+       FROM documents d JOIN document_types dt ON dt.id = d.document_type_id LEFT JOIN document_versions v ON v.id = d.current_version_id
+       ${where} GROUP BY dt.name`,
+      params
+    );
+    sections.push({ name: 'Records by category', title: 'Records by category', headers: ['category', 'total', 'totalBytes'], rows });
+  }
+  if (want('by-folder')) {
+    const [rows] = await pool.query(
+      `SELECT f.path AS folder, COUNT(*) AS total, COALESCE(SUM(v.size_bytes), 0) AS totalBytes
+       FROM documents d JOIN folders f ON f.id = d.folder_id LEFT JOIN document_versions v ON v.id = d.current_version_id
+       ${where} GROUP BY f.path ORDER BY total DESC LIMIT 15`,
+      params
+    );
+    sections.push({ name: 'Records by folder', title: 'Records by folder (top 15)', headers: ['folder', 'total', 'totalBytes'], rows });
+  }
+  if (want('by-classification')) {
+    const [rows] = await pool.query(`SELECT d.classification, COUNT(*) AS total FROM documents d ${where} GROUP BY d.classification`, params);
+    sections.push({ name: 'Records by classification', title: 'Records by classification', headers: ['classification', 'total'], rows });
+  }
+  if (want('capacity')) {
+    const [[capacity]] = await pool.query('SELECT COALESCE(SUM(size_bytes), 0) AS usedBytes, COUNT(*) AS objectCount FROM document_storage_objects');
+    const [[{ documentCount }]] = await pool.query('SELECT COUNT(*) AS documentCount FROM documents');
+    const capacityBytes = await getSettingInt('storage_capacity_bytes', 107374182400);
+    sections.push({ name: 'Storage capacity', title: 'Storage capacity', headers: ['usedBytes', 'objectCount', 'documentCount', 'capacityBytes'], rows: [{ ...capacity, documentCount, capacityBytes }] });
+  }
+  if (want('captured-over-time')) {
+    const [rows] = await pool.query(
+      `SELECT DATE_FORMAT(d.created_at, '%Y-%m') AS month, COUNT(*) AS total FROM documents d ${where} GROUP BY month ORDER BY month`,
+      params
+    );
+    sections.push({ name: 'Captured over time', title: 'Records captured over time', headers: ['month', 'total'], rows });
+  }
+  if (want('capture-by-source')) {
+    const [rows] = await pool.query(
+      `SELECT source, COUNT(*) AS total, ROUND(AVG(success_rate), 1) AS avgSuccessRate FROM capture_batches ${dateClause} GROUP BY source ORDER BY total DESC`,
+      dateParams
+    );
+    sections.push({ name: 'Capture by source', title: 'Capture success by source', headers: ['source', 'total', 'avgSuccessRate'], rows });
+  }
+  if (want('claim-turnaround')) {
+    const [rows] = await pool.query(
+      `SELECT DATE_FORMAT(d.created_at, '%Y-%m') AS month,
+              ROUND(AVG(DATEDIFF(wa.decided_at, dwi.started_at)), 1) AS avgDaysToFirstDecision
+       FROM documents d
+       JOIN document_workflow_instances dwi ON dwi.document_id = d.id
+       JOIN workflow_approvals wa ON wa.instance_id = dwi.id AND wa.decision <> 'pending'
+       ${where}
+       GROUP BY month ORDER BY month`,
+      params
+    );
+    sections.push({ name: 'Claim turnaround', title: 'Claim turnaround (avg days)', headers: ['month', 'avgDaysToFirstDecision'], rows });
+  }
+  if (want('retention-status')) {
+    const [rows] = await pool.query(
+      `SELECT COALESCE(rc.name, 'No retention class') AS retentionClass, COUNT(*) AS total, SUM(d.status = 'disposed') AS disposed
+       FROM documents d LEFT JOIN retention_classes rc ON rc.id = d.retention_class_id ${where} GROUP BY rc.name`,
+      params
+    );
+    sections.push({ name: 'Retention status', title: 'Retention & disposal status', headers: ['retentionClass', 'total', 'disposed'], rows });
+  }
+  if (want('overdue-retention')) {
+    const [[overdue]] = await pool.query(
+      `SELECT COUNT(*) AS count FROM documents WHERE status = 'declared_final' AND retention_due_at IS NOT NULL AND retention_due_at < NOW()`
+    );
+    sections.push({ name: 'Overdue retention', title: 'Overdue for disposal', headers: ['count'], rows: [overdue] });
+  }
+  if (want('audit-actions')) {
+    const [rows] = await pool.query(`SELECT action, COUNT(*) AS total FROM audit_log ${dateClause} GROUP BY action ORDER BY total DESC`, dateParams);
+    sections.push({ name: 'Audit actions', title: 'Audit actions breakdown', headers: ['action', 'total'], rows });
+  }
+  if (want('top-users')) {
+    const [rows] = await pool.query(
+      `SELECT COALESCE(u.full_name, 'System') AS userName, COUNT(*) AS total FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
+       ${dateClause.replace(/created_at/g, 'a.created_at')} GROUP BY userName ORDER BY total DESC LIMIT 10`,
+      dateParams
+    );
+    sections.push({ name: 'Top audit actors', title: 'Top audit actors', headers: ['userName', 'total'], rows });
+  }
+
+  return sections;
 }
 
 /** GET /api/reports/export?format=csv|xlsx|pdf — every card on this screen, respecting the same filters, as one document. */
+/**
+ * GET /api/reports/export?format=csv|xlsx|pdf&sections=key,key&includeSignature=true
+ * `sections`: comma-separated keys from REPORT_SECTION_KEYS — same set the
+ * on-screen "Customize" picker offers; unknown keys are dropped, and an
+ * empty/omitted list falls back to every section (today's behavior).
+ * `includeSignature`: PDF only — appends the requesting user's saved
+ * signature (Settings -> My Signature) as an attestation page; silently
+ * ignored if they have none saved, since the frontend disables that
+ * checkbox in that case and this is just a defensive fallback.
+ */
 router.get('/export', asyncHandler(async (req, res) => {
   const format = ['csv', 'xlsx', 'pdf'].includes(req.query.format) ? req.query.format : 'csv';
-  const sections = await buildReportSections(req.query);
+  const requestedKeys = req.query.sections
+    ? String(req.query.sections).split(',').map((s) => s.trim()).filter((s) => REPORT_SECTION_KEYS.includes(s))
+    : [];
+  const sections = await buildReportSections(req.query, requestedKeys.length ? requestedKeys : REPORT_SECTION_KEYS);
+  const { branding, logo } = await getHomeBrandingWithLogo();
 
   await logAudit({ userId: req.user.id, action: 'Download', recordType: 'report', recordId: 'export', detail: `format=${format}`, ip: req.ip });
 
   if (format === 'xlsx') {
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', 'attachment; filename="reports-export.xlsx"');
-    return res.send(toXlsxBuffer(sections));
+    return res.send(toXlsxBuffer(sections, { companyName: branding?.name }));
   }
   if (format === 'pdf') {
+    let signature = null;
+    if (req.query.includeSignature === 'true') {
+      const sig = await signatureService.getSignatureImage(req.user.id);
+      if (sig) signature = { ...sig, signedBy: req.user.fullName };
+    }
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'attachment; filename="reports-export.pdf"');
-    return res.send(await toPdfBuffer('Reports Export', sections));
+    return res.send(await toPdfBuffer('Reports Export', sections, { branding, logo, signature }));
   }
   // csv: one section per block, separated by a blank line and its own header row — a single flat CSV can't represent multiple differently-shaped tables otherwise.
-  const csv = sections.map((s) => `${s.name}\n${toCsv(s.headers, s.rows)}`).join('\n\n');
+  const header = branding?.name ? `${branding.name} — Reports Export — Generated ${new Date().toISOString()}\n\n` : '';
+  const csv = header + sections.map((s) => `${s.name}\n${toCsv(s.headers, s.rows)}`).join('\n\n');
   res.setHeader('Content-Type', 'text/csv');
   res.setHeader('Content-Disposition', 'attachment; filename="reports-export.csv"');
   return res.send(csv);

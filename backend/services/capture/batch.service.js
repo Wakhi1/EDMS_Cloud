@@ -8,17 +8,12 @@
  * neither path talks to document.service.js directly.
  */
 const { pool } = require('../../config/db');
-const { registerDocument, DuplicateRecordNoError, DuplicateContentError } = require('../document.service');
+const { registerDocument, DuplicateContentError } = require('../document.service');
 const { suggestDocumentTypeCode, suggestMemberNumber, resolveDocumentTypeId } = require('../classification.service');
+const { claimNextAvailable, releaseIndex, linkIndexToDocument } = require('../recordIndex.service');
 const { logAudit } = require('../audit.service');
 const { autoTriggerWorkflow } = require('../workflow.service');
 const logger = require('../../config/logger');
-
-function generateRecordNo(typeCode) {
-  const year = new Date().getFullYear();
-  const suffix = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
-  return `${typeCode}-${year}-${suffix}`;
-}
 
 async function createBatch({ source, createdBy }) {
   const batchNo = `BATCH-${Date.now()}`;
@@ -48,38 +43,39 @@ async function createBatch({ source, createdBy }) {
  * Never throws — always resolves, recording success/failure as a
  * capture_batch_items row either way.
  */
-async function processFile(batchId, { buffer, fileName, mimeType, defaultFolderId, createdBy, companyId, ip }) {
+async function processFile(batchId, { buffer, fileName, mimeType, defaultFolderId, createdBy, companyId, ip, overrideDocumentTypeId }) {
+  let claimedIndex;
   try {
     // Peek at extracted text via a throwaway OCR pass is wasteful (registerDocument
     // already runs it) — classify from the file name as a cheap first guess instead;
     // registerDocument's own OCR result isn't available until after registration, so
     // batch items are classified best-effort up front, same spirit as Smart Upload's
-    // suggestion (not a human-verified guarantee).
-    const suggestedCode = suggestDocumentTypeCode(fileName) || suggestDocumentTypeCode(mimeType);
-    const documentTypeId = await resolveDocumentTypeId(suggestedCode);
+    // suggestion (not a human-verified guarantee). A caller-supplied
+    // [overrideDocumentTypeId] (e.g. the operator picking a type for the whole
+    // batch in NewBatchDialog) skips this guess entirely.
+    let documentTypeId;
+    if (overrideDocumentTypeId) {
+      documentTypeId = overrideDocumentTypeId;
+    } else {
+      const suggestedCode = suggestDocumentTypeCode(fileName) || suggestDocumentTypeCode(mimeType);
+      documentTypeId = await resolveDocumentTypeId(suggestedCode);
+    }
     if (!documentTypeId) throw new Error('No document types configured — cannot auto-classify batch intake');
     if (!defaultFolderId) throw new Error('No default folder configured for this batch/connector');
 
-    const typeCode = suggestedCode || 'CS';
-    let attempt = 0;
-    let result;
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      attempt += 1;
-      const recordNo = generateRecordNo(typeCode);
-      try {
-        result = await registerDocument({
-          buffer, originalName: fileName, mimeType,
-          recordNo, title: fileName, documentTypeId, folderId: defaultFolderId,
-          memberNumber: suggestMemberNumber(fileName), classification: 'internal',
-          userId: createdBy, ip,
-        });
-        break;
-      } catch (err) {
-        if (err instanceof DuplicateRecordNoError && attempt < 5) continue;
-        throw err;
-      }
-    }
+    // No human reviews automated/bulk intake, so there's no picker here —
+    // just claim the oldest available index for the resolved type (see
+    // services/recordIndex.service.js). Throws NoAvailableIndexError,
+    // caught below like any other per-file failure, if the pool is empty.
+    claimedIndex = await claimNextAvailable({ documentTypeId, companyId });
+
+    const result = await registerDocument({
+      buffer, originalName: fileName, mimeType,
+      recordNo: claimedIndex.indexValue, title: fileName, documentTypeId, folderId: defaultFolderId,
+      memberNumber: suggestMemberNumber(fileName), classification: 'internal',
+      userId: createdBy, ip,
+    });
+    await linkIndexToDocument(claimedIndex.id, result.id);
 
     await pool.query(
       `INSERT INTO capture_batch_items (company_id, batch_id, source_file_name, status, document_id) VALUES (?, ?, ?, 'succeeded', ?)`,
@@ -93,6 +89,11 @@ async function processFile(batchId, { buffer, fileName, mimeType, defaultFolderI
 
     return { ok: true, documentId: result.id, recordNo: result.recordNo };
   } catch (err) {
+    // A claim only ever needs releasing here if registerDocument itself
+    // threw after a successful claim — claimNextAvailable's own failure
+    // (NoAvailableIndexError) never sets claimedIndex in the first place.
+    if (claimedIndex) await releaseIndex(claimedIndex.id);
+
     if (err instanceof DuplicateContentError) {
       logger.info('Batch item is a duplicate', { batchId, fileName, existing: err.existing });
       await pool.query(
@@ -123,9 +124,21 @@ async function completeBatch(batchId) {
   const status = total === 0 ? 'completed' : succeeded === total ? 'completed' : succeeded === 0 ? 'failed' : 'completed_with_errors';
   const successRate = total === 0 ? 0 : (succeeded / total) * 100;
 
+  // Real page total of what was filed — documents whose type has no
+  // determinable page count (page_count NULL) simply contribute nothing.
+  const [[pageRow]] = await pool.query(
+    `SELECT COALESCE(SUM(dv.page_count), 0) AS pages
+     FROM capture_batch_items cbi
+     JOIN documents d ON d.id = cbi.document_id
+     JOIN document_versions dv ON dv.id = d.current_version_id
+     WHERE cbi.batch_id = ? AND cbi.status = 'succeeded'`,
+    [batchId]
+  );
+  const pages = Number(pageRow.pages) || 0;
+
   await pool.query(
     `UPDATE capture_batches SET status = ?, documents = ?, pages = ?, success_rate = ?, completed_at = NOW() WHERE id = ?`,
-    [status, succeeded, total, successRate.toFixed(2), batchId]
+    [status, succeeded, pages, successRate.toFixed(2), batchId]
   );
   return { total, succeeded, status };
 }
@@ -137,13 +150,29 @@ async function completeBatch(batchId) {
  * service account) and manual "run now"/bulk-upload triggers (a real
  * signed-in user).
  */
-async function runBatch({ source, files, defaultFolderId, createdBy, ip }) {
+async function runBatch({ source, files, defaultFolderId, documentTypeId, createdBy, ip }) {
   const effectiveCreatedBy = createdBy || Number(process.env.SYSTEM_INTAKE_USER_ID);
   const effectiveFolderId = defaultFolderId || Number(process.env.CAPTURE_DEFAULT_FOLDER_ID);
+
+  // Validate the operator-chosen document type (if any) once, up front —
+  // before creating the batch row, so a bad id never leaves behind an
+  // orphan "running" batch with nothing captured.
+  if (documentTypeId) {
+    const [[type]] = await pool.query('SELECT id FROM document_types WHERE id = ?', [documentTypeId]);
+    if (!type) throw new Error('Invalid document type');
+  }
+
   const batch = await createBatch({ source, createdBy: effectiveCreatedBy });
   for (const file of files) {
     // eslint-disable-next-line no-await-in-loop
-    await processFile(batch.id, { ...file, defaultFolderId: effectiveFolderId, createdBy: effectiveCreatedBy, companyId: batch.companyId, ip });
+    await processFile(batch.id, {
+      ...file,
+      defaultFolderId: effectiveFolderId,
+      createdBy: effectiveCreatedBy,
+      companyId: batch.companyId,
+      ip,
+      overrideDocumentTypeId: documentTypeId,
+    });
   }
   const summary = await completeBatch(batch.id);
   await logAudit({

@@ -15,7 +15,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$DocumentVersionRow {
 
- int get id;@JsonKey(name: 'version_no') int get versionNo;@JsonKey(name: 'file_name') String get fileName;@JsonKey(name: 'size_bytes') int? get sizeBytes;@JsonKey(name: 'is_current', fromJson: _boolFromInt) bool get isCurrent;@JsonKey(name: 'created_at') String? get createdAt;@JsonKey(name: 'created_by') String? get createdBy;
+ int get id;@JsonKey(name: 'version_no') int get versionNo;@JsonKey(name: 'file_name') String get fileName;@JsonKey(name: 'size_bytes') int? get sizeBytes;@JsonKey(name: 'page_count') int? get pageCount;@JsonKey(name: 'page_count_estimated', fromJson: _boolFromInt) bool get pageCountEstimated;@JsonKey(name: 'is_current', fromJson: _boolFromInt) bool get isCurrent;@JsonKey(name: 'created_at') String? get createdAt;@JsonKey(name: 'created_by') String? get createdBy;
 /// Create a copy of DocumentVersionRow
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -28,16 +28,16 @@ $DocumentVersionRowCopyWith<DocumentVersionRow> get copyWith => _$DocumentVersio
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is DocumentVersionRow&&(identical(other.id, id) || other.id == id)&&(identical(other.versionNo, versionNo) || other.versionNo == versionNo)&&(identical(other.fileName, fileName) || other.fileName == fileName)&&(identical(other.sizeBytes, sizeBytes) || other.sizeBytes == sizeBytes)&&(identical(other.isCurrent, isCurrent) || other.isCurrent == isCurrent)&&(identical(other.createdAt, createdAt) || other.createdAt == createdAt)&&(identical(other.createdBy, createdBy) || other.createdBy == createdBy));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is DocumentVersionRow&&(identical(other.id, id) || other.id == id)&&(identical(other.versionNo, versionNo) || other.versionNo == versionNo)&&(identical(other.fileName, fileName) || other.fileName == fileName)&&(identical(other.sizeBytes, sizeBytes) || other.sizeBytes == sizeBytes)&&(identical(other.pageCount, pageCount) || other.pageCount == pageCount)&&(identical(other.pageCountEstimated, pageCountEstimated) || other.pageCountEstimated == pageCountEstimated)&&(identical(other.isCurrent, isCurrent) || other.isCurrent == isCurrent)&&(identical(other.createdAt, createdAt) || other.createdAt == createdAt)&&(identical(other.createdBy, createdBy) || other.createdBy == createdBy));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hash(runtimeType,id,versionNo,fileName,sizeBytes,isCurrent,createdAt,createdBy);
+int get hashCode => Object.hash(runtimeType,id,versionNo,fileName,sizeBytes,pageCount,pageCountEstimated,isCurrent,createdAt,createdBy);
 
 @override
 String toString() {
-  return 'DocumentVersionRow(id: $id, versionNo: $versionNo, fileName: $fileName, sizeBytes: $sizeBytes, isCurrent: $isCurrent, createdAt: $createdAt, createdBy: $createdBy)';
+  return 'DocumentVersionRow(id: $id, versionNo: $versionNo, fileName: $fileName, sizeBytes: $sizeBytes, pageCount: $pageCount, pageCountEstimated: $pageCountEstimated, isCurrent: $isCurrent, createdAt: $createdAt, createdBy: $createdBy)';
 }
 
 
@@ -48,7 +48,7 @@ abstract mixin class $DocumentVersionRowCopyWith<$Res>  {
   factory $DocumentVersionRowCopyWith(DocumentVersionRow value, $Res Function(DocumentVersionRow) _then) = _$DocumentVersionRowCopyWithImpl;
 @useResult
 $Res call({
- int id,@JsonKey(name: 'version_no') int versionNo,@JsonKey(name: 'file_name') String fileName,@JsonKey(name: 'size_bytes') int? sizeBytes,@JsonKey(name: 'is_current', fromJson: _boolFromInt) bool isCurrent,@JsonKey(name: 'created_at') String? createdAt,@JsonKey(name: 'created_by') String? createdBy
+ int id,@JsonKey(name: 'version_no') int versionNo,@JsonKey(name: 'file_name') String fileName,@JsonKey(name: 'size_bytes') int? sizeBytes,@JsonKey(name: 'page_count') int? pageCount,@JsonKey(name: 'page_count_estimated', fromJson: _boolFromInt) bool pageCountEstimated,@JsonKey(name: 'is_current', fromJson: _boolFromInt) bool isCurrent,@JsonKey(name: 'created_at') String? createdAt,@JsonKey(name: 'created_by') String? createdBy
 });
 
 
@@ -65,13 +65,15 @@ class _$DocumentVersionRowCopyWithImpl<$Res>
 
 /// Create a copy of DocumentVersionRow
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? versionNo = null,Object? fileName = null,Object? sizeBytes = freezed,Object? isCurrent = null,Object? createdAt = freezed,Object? createdBy = freezed,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? versionNo = null,Object? fileName = null,Object? sizeBytes = freezed,Object? pageCount = freezed,Object? pageCountEstimated = null,Object? isCurrent = null,Object? createdAt = freezed,Object? createdBy = freezed,}) {
   return _then(_self.copyWith(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as int,versionNo: null == versionNo ? _self.versionNo : versionNo // ignore: cast_nullable_to_non_nullable
 as int,fileName: null == fileName ? _self.fileName : fileName // ignore: cast_nullable_to_non_nullable
 as String,sizeBytes: freezed == sizeBytes ? _self.sizeBytes : sizeBytes // ignore: cast_nullable_to_non_nullable
-as int?,isCurrent: null == isCurrent ? _self.isCurrent : isCurrent // ignore: cast_nullable_to_non_nullable
+as int?,pageCount: freezed == pageCount ? _self.pageCount : pageCount // ignore: cast_nullable_to_non_nullable
+as int?,pageCountEstimated: null == pageCountEstimated ? _self.pageCountEstimated : pageCountEstimated // ignore: cast_nullable_to_non_nullable
+as bool,isCurrent: null == isCurrent ? _self.isCurrent : isCurrent // ignore: cast_nullable_to_non_nullable
 as bool,createdAt: freezed == createdAt ? _self.createdAt : createdAt // ignore: cast_nullable_to_non_nullable
 as String?,createdBy: freezed == createdBy ? _self.createdBy : createdBy // ignore: cast_nullable_to_non_nullable
 as String?,
@@ -159,10 +161,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( int id, @JsonKey(name: 'version_no')  int versionNo, @JsonKey(name: 'file_name')  String fileName, @JsonKey(name: 'size_bytes')  int? sizeBytes, @JsonKey(name: 'is_current', fromJson: _boolFromInt)  bool isCurrent, @JsonKey(name: 'created_at')  String? createdAt, @JsonKey(name: 'created_by')  String? createdBy)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( int id, @JsonKey(name: 'version_no')  int versionNo, @JsonKey(name: 'file_name')  String fileName, @JsonKey(name: 'size_bytes')  int? sizeBytes, @JsonKey(name: 'page_count')  int? pageCount, @JsonKey(name: 'page_count_estimated', fromJson: _boolFromInt)  bool pageCountEstimated, @JsonKey(name: 'is_current', fromJson: _boolFromInt)  bool isCurrent, @JsonKey(name: 'created_at')  String? createdAt, @JsonKey(name: 'created_by')  String? createdBy)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _DocumentVersionRow() when $default != null:
-return $default(_that.id,_that.versionNo,_that.fileName,_that.sizeBytes,_that.isCurrent,_that.createdAt,_that.createdBy);case _:
+return $default(_that.id,_that.versionNo,_that.fileName,_that.sizeBytes,_that.pageCount,_that.pageCountEstimated,_that.isCurrent,_that.createdAt,_that.createdBy);case _:
   return orElse();
 
 }
@@ -180,10 +182,10 @@ return $default(_that.id,_that.versionNo,_that.fileName,_that.sizeBytes,_that.is
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( int id, @JsonKey(name: 'version_no')  int versionNo, @JsonKey(name: 'file_name')  String fileName, @JsonKey(name: 'size_bytes')  int? sizeBytes, @JsonKey(name: 'is_current', fromJson: _boolFromInt)  bool isCurrent, @JsonKey(name: 'created_at')  String? createdAt, @JsonKey(name: 'created_by')  String? createdBy)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( int id, @JsonKey(name: 'version_no')  int versionNo, @JsonKey(name: 'file_name')  String fileName, @JsonKey(name: 'size_bytes')  int? sizeBytes, @JsonKey(name: 'page_count')  int? pageCount, @JsonKey(name: 'page_count_estimated', fromJson: _boolFromInt)  bool pageCountEstimated, @JsonKey(name: 'is_current', fromJson: _boolFromInt)  bool isCurrent, @JsonKey(name: 'created_at')  String? createdAt, @JsonKey(name: 'created_by')  String? createdBy)  $default,) {final _that = this;
 switch (_that) {
 case _DocumentVersionRow():
-return $default(_that.id,_that.versionNo,_that.fileName,_that.sizeBytes,_that.isCurrent,_that.createdAt,_that.createdBy);case _:
+return $default(_that.id,_that.versionNo,_that.fileName,_that.sizeBytes,_that.pageCount,_that.pageCountEstimated,_that.isCurrent,_that.createdAt,_that.createdBy);case _:
   throw StateError('Unexpected subclass');
 
 }
@@ -200,10 +202,10 @@ return $default(_that.id,_that.versionNo,_that.fileName,_that.sizeBytes,_that.is
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( int id, @JsonKey(name: 'version_no')  int versionNo, @JsonKey(name: 'file_name')  String fileName, @JsonKey(name: 'size_bytes')  int? sizeBytes, @JsonKey(name: 'is_current', fromJson: _boolFromInt)  bool isCurrent, @JsonKey(name: 'created_at')  String? createdAt, @JsonKey(name: 'created_by')  String? createdBy)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( int id, @JsonKey(name: 'version_no')  int versionNo, @JsonKey(name: 'file_name')  String fileName, @JsonKey(name: 'size_bytes')  int? sizeBytes, @JsonKey(name: 'page_count')  int? pageCount, @JsonKey(name: 'page_count_estimated', fromJson: _boolFromInt)  bool pageCountEstimated, @JsonKey(name: 'is_current', fromJson: _boolFromInt)  bool isCurrent, @JsonKey(name: 'created_at')  String? createdAt, @JsonKey(name: 'created_by')  String? createdBy)?  $default,) {final _that = this;
 switch (_that) {
 case _DocumentVersionRow() when $default != null:
-return $default(_that.id,_that.versionNo,_that.fileName,_that.sizeBytes,_that.isCurrent,_that.createdAt,_that.createdBy);case _:
+return $default(_that.id,_that.versionNo,_that.fileName,_that.sizeBytes,_that.pageCount,_that.pageCountEstimated,_that.isCurrent,_that.createdAt,_that.createdBy);case _:
   return null;
 
 }
@@ -215,13 +217,15 @@ return $default(_that.id,_that.versionNo,_that.fileName,_that.sizeBytes,_that.is
 @JsonSerializable()
 
 class _DocumentVersionRow implements DocumentVersionRow {
-  const _DocumentVersionRow({required this.id, @JsonKey(name: 'version_no') required this.versionNo, @JsonKey(name: 'file_name') required this.fileName, @JsonKey(name: 'size_bytes') this.sizeBytes, @JsonKey(name: 'is_current', fromJson: _boolFromInt) required this.isCurrent, @JsonKey(name: 'created_at') this.createdAt, @JsonKey(name: 'created_by') this.createdBy});
+  const _DocumentVersionRow({required this.id, @JsonKey(name: 'version_no') required this.versionNo, @JsonKey(name: 'file_name') required this.fileName, @JsonKey(name: 'size_bytes') this.sizeBytes, @JsonKey(name: 'page_count') this.pageCount, @JsonKey(name: 'page_count_estimated', fromJson: _boolFromInt) this.pageCountEstimated = false, @JsonKey(name: 'is_current', fromJson: _boolFromInt) required this.isCurrent, @JsonKey(name: 'created_at') this.createdAt, @JsonKey(name: 'created_by') this.createdBy});
   factory _DocumentVersionRow.fromJson(Map<String, dynamic> json) => _$DocumentVersionRowFromJson(json);
 
 @override final  int id;
 @override@JsonKey(name: 'version_no') final  int versionNo;
 @override@JsonKey(name: 'file_name') final  String fileName;
 @override@JsonKey(name: 'size_bytes') final  int? sizeBytes;
+@override@JsonKey(name: 'page_count') final  int? pageCount;
+@override@JsonKey(name: 'page_count_estimated', fromJson: _boolFromInt) final  bool pageCountEstimated;
 @override@JsonKey(name: 'is_current', fromJson: _boolFromInt) final  bool isCurrent;
 @override@JsonKey(name: 'created_at') final  String? createdAt;
 @override@JsonKey(name: 'created_by') final  String? createdBy;
@@ -239,16 +243,16 @@ Map<String, dynamic> toJson() {
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _DocumentVersionRow&&(identical(other.id, id) || other.id == id)&&(identical(other.versionNo, versionNo) || other.versionNo == versionNo)&&(identical(other.fileName, fileName) || other.fileName == fileName)&&(identical(other.sizeBytes, sizeBytes) || other.sizeBytes == sizeBytes)&&(identical(other.isCurrent, isCurrent) || other.isCurrent == isCurrent)&&(identical(other.createdAt, createdAt) || other.createdAt == createdAt)&&(identical(other.createdBy, createdBy) || other.createdBy == createdBy));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is _DocumentVersionRow&&(identical(other.id, id) || other.id == id)&&(identical(other.versionNo, versionNo) || other.versionNo == versionNo)&&(identical(other.fileName, fileName) || other.fileName == fileName)&&(identical(other.sizeBytes, sizeBytes) || other.sizeBytes == sizeBytes)&&(identical(other.pageCount, pageCount) || other.pageCount == pageCount)&&(identical(other.pageCountEstimated, pageCountEstimated) || other.pageCountEstimated == pageCountEstimated)&&(identical(other.isCurrent, isCurrent) || other.isCurrent == isCurrent)&&(identical(other.createdAt, createdAt) || other.createdAt == createdAt)&&(identical(other.createdBy, createdBy) || other.createdBy == createdBy));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hash(runtimeType,id,versionNo,fileName,sizeBytes,isCurrent,createdAt,createdBy);
+int get hashCode => Object.hash(runtimeType,id,versionNo,fileName,sizeBytes,pageCount,pageCountEstimated,isCurrent,createdAt,createdBy);
 
 @override
 String toString() {
-  return 'DocumentVersionRow(id: $id, versionNo: $versionNo, fileName: $fileName, sizeBytes: $sizeBytes, isCurrent: $isCurrent, createdAt: $createdAt, createdBy: $createdBy)';
+  return 'DocumentVersionRow(id: $id, versionNo: $versionNo, fileName: $fileName, sizeBytes: $sizeBytes, pageCount: $pageCount, pageCountEstimated: $pageCountEstimated, isCurrent: $isCurrent, createdAt: $createdAt, createdBy: $createdBy)';
 }
 
 
@@ -259,7 +263,7 @@ abstract mixin class _$DocumentVersionRowCopyWith<$Res> implements $DocumentVers
   factory _$DocumentVersionRowCopyWith(_DocumentVersionRow value, $Res Function(_DocumentVersionRow) _then) = __$DocumentVersionRowCopyWithImpl;
 @override @useResult
 $Res call({
- int id,@JsonKey(name: 'version_no') int versionNo,@JsonKey(name: 'file_name') String fileName,@JsonKey(name: 'size_bytes') int? sizeBytes,@JsonKey(name: 'is_current', fromJson: _boolFromInt) bool isCurrent,@JsonKey(name: 'created_at') String? createdAt,@JsonKey(name: 'created_by') String? createdBy
+ int id,@JsonKey(name: 'version_no') int versionNo,@JsonKey(name: 'file_name') String fileName,@JsonKey(name: 'size_bytes') int? sizeBytes,@JsonKey(name: 'page_count') int? pageCount,@JsonKey(name: 'page_count_estimated', fromJson: _boolFromInt) bool pageCountEstimated,@JsonKey(name: 'is_current', fromJson: _boolFromInt) bool isCurrent,@JsonKey(name: 'created_at') String? createdAt,@JsonKey(name: 'created_by') String? createdBy
 });
 
 
@@ -276,13 +280,15 @@ class __$DocumentVersionRowCopyWithImpl<$Res>
 
 /// Create a copy of DocumentVersionRow
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? versionNo = null,Object? fileName = null,Object? sizeBytes = freezed,Object? isCurrent = null,Object? createdAt = freezed,Object? createdBy = freezed,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? versionNo = null,Object? fileName = null,Object? sizeBytes = freezed,Object? pageCount = freezed,Object? pageCountEstimated = null,Object? isCurrent = null,Object? createdAt = freezed,Object? createdBy = freezed,}) {
   return _then(_DocumentVersionRow(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as int,versionNo: null == versionNo ? _self.versionNo : versionNo // ignore: cast_nullable_to_non_nullable
 as int,fileName: null == fileName ? _self.fileName : fileName // ignore: cast_nullable_to_non_nullable
 as String,sizeBytes: freezed == sizeBytes ? _self.sizeBytes : sizeBytes // ignore: cast_nullable_to_non_nullable
-as int?,isCurrent: null == isCurrent ? _self.isCurrent : isCurrent // ignore: cast_nullable_to_non_nullable
+as int?,pageCount: freezed == pageCount ? _self.pageCount : pageCount // ignore: cast_nullable_to_non_nullable
+as int?,pageCountEstimated: null == pageCountEstimated ? _self.pageCountEstimated : pageCountEstimated // ignore: cast_nullable_to_non_nullable
+as bool,isCurrent: null == isCurrent ? _self.isCurrent : isCurrent // ignore: cast_nullable_to_non_nullable
 as bool,createdAt: freezed == createdAt ? _self.createdAt : createdAt // ignore: cast_nullable_to_non_nullable
 as String?,createdBy: freezed == createdBy ? _self.createdBy : createdBy // ignore: cast_nullable_to_non_nullable
 as String?,

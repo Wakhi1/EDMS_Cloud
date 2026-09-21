@@ -6,6 +6,12 @@ import '../../../core/models/document_type_row.dart';
 import '../../../core/models/folder_row.dart';
 
 const _kClassifications = <String>['public', 'internal', 'restricted', 'confidential'];
+const _kWatermarkModes = <String>['inherit', 'on', 'off'];
+const _kWatermarkModeLabels = <String, String>{
+  'inherit': 'Use system default',
+  'on': 'Always watermark',
+  'off': 'Never watermark',
+};
 
 /// Metadata-only editor for an existing document — mirrors what
 /// PUT /api/documents/:id actually accepts (title/type/folder/department/
@@ -37,6 +43,7 @@ class _EditDocumentDialogState extends State<EditDocumentDialog> {
   late int? _folderId = widget.folders.where((f) => f.path == widget.doc.folderPath).firstOrNull?.id;
   late int? _departmentId = widget.departments.where((d) => d.name == widget.doc.department).firstOrNull?.id;
   late String _classification = widget.doc.classification;
+  late String _watermarkMode = widget.doc.watermarkMode;
 
   @override
   void dispose() {
@@ -96,6 +103,14 @@ class _EditDocumentDialogState extends State<EditDocumentDialog> {
                 onChanged: (v) => setState(() => _classification = v ?? _classification),
               ),
               const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                initialValue: _watermarkMode,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'Watermark on download'),
+                items: [for (final m in _kWatermarkModes) DropdownMenuItem(value: m, child: Text(_kWatermarkModeLabels[m]!))],
+                onChanged: (v) => setState(() => _watermarkMode = v ?? _watermarkMode),
+              ),
+              const SizedBox(height: 12),
               TextField(controller: _memberNumberController, decoration: const InputDecoration(labelText: 'Member number (optional)')),
               const SizedBox(height: 12),
               TextField(controller: _memberNameController, decoration: const InputDecoration(labelText: 'Member name (optional)')),
@@ -114,6 +129,7 @@ class _EditDocumentDialogState extends State<EditDocumentDialog> {
               folderId: _folderId!,
               departmentId: _departmentId,
               classification: _classification,
+              watermarkMode: _watermarkMode,
               memberNumber: _memberNumberController.text.trim().isEmpty ? null : _memberNumberController.text.trim(),
               memberName: _memberNameController.text.trim().isEmpty ? null : _memberNameController.text.trim(),
             ));

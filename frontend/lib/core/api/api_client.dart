@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 
 import '../env/env.dart';
 import 'api_exception.dart';
+import 'dio_trust_anchor.dart';
 
 /// Thin wrapper around a configured [Dio] instance. Resource classes call
 /// [get]/[post]/[put]/[delete] (not `dio.get` etc directly) so that every
@@ -29,7 +30,7 @@ class ApiClient {
   void Function(ApiException)? onForbidden;
 
   static Dio _buildDio() {
-    return Dio(
+    final dio = Dio(
       BaseOptions(
         baseUrl: Env.apiBaseUrl,
         connectTimeout: const Duration(seconds: 15),
@@ -37,6 +38,8 @@ class ApiClient {
         contentType: 'application/json',
       ),
     );
+    applyTrustAnchors(dio);
+    return dio;
   }
 
   /// [silent403]: when true, a 403 on this call does NOT trigger the

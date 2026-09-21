@@ -3,17 +3,20 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/api_exception.dart';
 import '../../../core/api/api_providers.dart';
+import '../../../core/api/resources/workflow_api.dart';
+import '../../../core/models/document_record.dart';
 import '../../../core/models/role_row.dart';
+import '../../../core/models/user_row.dart';
 import '../../../core/models/workflow_row.dart';
 import '../../../core/theme/pspf_tokens.dart';
 import '../../../core/widgets/confirm_dialog.dart';
+import '../../../core/widgets/document_picker_dialog.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/result_dialog.dart';
 import '../../../core/widgets/status_chip.dart';
 import '../../repository/providers/repository_providers.dart';
 import '../../users/providers/users_providers.dart';
 import '../providers/workflow_providers.dart';
-import 'start_workflow_dialog.dart';
 
 class WorkflowDesignerScreen extends ConsumerWidget {
   const WorkflowDesignerScreen({super.key});
@@ -112,12 +115,15 @@ class _WorkflowTileState extends ConsumerState<_WorkflowTile> {
   bool _busy = false;
 
   Future<void> _start(BuildContext context) async {
-    final documentId = await showDialog<int>(context: context, builder: (_) => StartWorkflowDialog(workflow: widget.workflow));
-    if (documentId == null) return;
+    final document = await showDialog<DocumentRecord>(
+      context: context,
+      builder: (_) => DocumentPickerDialog(title: 'Start "${widget.workflow.name}"'),
+    );
+    if (document == null) return;
 
     setState(() => _busy = true);
     try {
-      await ref.read(workflowApiProvider).startInstance(workflowId: widget.workflow.id, documentId: documentId);
+      await ref.read(workflowApiProvider).startInstance(workflowId: widget.workflow.id, documentId: document.id);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Started "${widget.workflow.name}" on the selected record.')));
       }
@@ -205,7 +211,7 @@ class _WorkflowTileState extends ConsumerState<_WorkflowTile> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      '${s.stepName} · ${s.roleName ?? 'role #${s.roleId}'} · SLA ${s.slaDays ?? '—'}d'
+                      '${s.stepName} · ${s.assigneeUserId != null ? (s.assigneeName ?? 'user #${s.assigneeUserId}') : (s.roleName ?? 'role #${s.roleId}')} · SLA ${s.slaDays ?? '—'}d'
                       '${s.subWorkflowId != null ? ' · sub-workflow: ${s.subWorkflowName ?? '#${s.subWorkflowId}'}' : ''}'
                       '${s.escalationRoleId != null ? ' · escalates to ${s.escalationRoleName ?? '#${s.escalationRoleId}'}' : ''}',
                       style: TextStyle(fontSize: 12, color: tokens.ink2),
@@ -253,9 +259,15 @@ class _StepDraft {
   // different company's role, for anyone else. Left unset until the user
   // actually picks one; validated in _WorkflowFormState._submit().
   int? roleId;
+  // When set, this step routes directly to this person instead of
+  // resolving `roleId` at assignment time — granular per-user targeting,
+  // not just unit/department. `roleId` is still required (it still governs
+  // the step's SLA-escalation pool).
+  int? assigneeUserId;
   int slaDays = 2;
   int? escalationRoleId;
   int? subWorkflowId;
+  bool requiresSignature = false;
 }
 
 class _WorkflowForm extends ConsumerStatefulWidget {
@@ -281,11 +293,66 @@ class _WorkflowFormState extends ConsumerState<_WorkflowForm> {
             _StepDraft()
               ..stepName = s.stepName
               ..roleId = s.roleId
+              ..assigneeUserId = s.assigneeUserId
               ..slaDays = s.slaDays ?? 2
               ..escalationRoleId = s.escalationRoleId
-              ..subWorkflowId = s.subWorkflowId,
+              ..subWorkflowId = s.subWorkflowId
+              ..requiresSignature = s.requiresSignature,
         ];
   bool _submitting = false;
+
+  // Schedule: a third trigger mechanism (backend/services/workflow/
+  // schedule_scheduler.js) alongside trigger doc-type/folder above — fires
+  // on a schedule instead of a document event, re-routing one chosen
+  // target document through the workflow again each occurrence. Unlike
+  // the trigger fields, these stay editable after creation.
+  late bool _scheduleEnabled = widget.editing?.scheduleEnabled ?? false;
+  late int? _scheduleTargetDocumentId = widget.editing?.scheduleTargetDocumentId;
+  late String? _scheduleTargetDocumentLabel = widget.editing?.scheduleTargetDocumentRecordNo != null
+      ? '${widget.editing!.scheduleTargetDocumentRecordNo} — ${widget.editing!.scheduleTargetDocumentTitle}'
+      : null;
+  late DateTime? _scheduleStartAt = widget.editing?.scheduleStartAt != null ? DateTime.tryParse(widget.editing!.scheduleStartAt!) : null;
+  late String? _scheduleRecurrence = widget.editing?.scheduleRecurrence;
+  late DateTime? _scheduleEndAt = widget.editing?.scheduleEndAt != null ? DateTime.tryParse(widget.editing!.scheduleEndAt!) : null;
+
+  Future<void> _pickScheduleTargetDocument() async {
+    final document = await showDialog<DocumentRecord>(
+      context: context,
+      builder: (_) => const DocumentPickerDialog(title: 'Document to re-route on each occurrence'),
+    );
+    if (document == null) return;
+    setState(() {
+      _scheduleTargetDocumentId = document.id;
+      _scheduleTargetDocumentLabel = '${document.recordNo} — ${document.title}';
+    });
+  }
+
+  Future<void> _pickScheduleStartAt() async {
+    final date = await showDatePicker(
+      context: context,
+      initialDate: _scheduleStartAt ?? DateTime.now(),
+      firstDate: DateTime.now().subtract(const Duration(days: 365)),
+      lastDate: DateTime.now().add(const Duration(days: 365 * 5)),
+    );
+    if (date == null || !mounted) return;
+    final time = await showTimePicker(
+      context: context,
+      initialTime: _scheduleStartAt != null ? TimeOfDay.fromDateTime(_scheduleStartAt!) : TimeOfDay.now(),
+    );
+    if (time == null) return;
+    setState(() => _scheduleStartAt = DateTime(date.year, date.month, date.day, time.hour, time.minute));
+  }
+
+  Future<void> _pickScheduleEndAt() async {
+    final date = await showDatePicker(
+      context: context,
+      initialDate: _scheduleEndAt ?? (_scheduleStartAt ?? DateTime.now()),
+      firstDate: DateTime.now().subtract(const Duration(days: 365)),
+      lastDate: DateTime.now().add(const Duration(days: 365 * 10)),
+    );
+    if (date == null) return;
+    setState(() => _scheduleEndAt = DateTime(date.year, date.month, date.day, 23, 59));
+  }
 
   bool get _isEditing => widget.editing != null;
 
@@ -310,21 +377,38 @@ class _WorkflowFormState extends ConsumerState<_WorkflowForm> {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pick an assigned role for every step.')));
       return;
     }
-    final stepTuples = [
+    if (_scheduleEnabled && (_scheduleTargetDocumentId == null || _scheduleStartAt == null || _scheduleRecurrence == null)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('A scheduled workflow needs a target document, a start date/time, and a recurrence.')),
+      );
+      return;
+    }
+    final stepTuples = <WorkflowStepInput>[
       for (final s in steps)
         (
           stepName: s.stepName.trim(),
           roleId: s.roleId!,
+          assigneeUserId: s.assigneeUserId,
           slaDays: s.slaDays,
           escalationRoleId: s.escalationRoleId,
           subWorkflowId: s.subWorkflowId,
+          requiresSignature: s.requiresSignature,
         ),
     ];
 
     setState(() => _submitting = true);
     try {
       if (_isEditing) {
-        await ref.read(workflowApiProvider).update(widget.editing!.id, name: name, steps: stepTuples);
+        await ref.read(workflowApiProvider).update(
+              widget.editing!.id,
+              name: name,
+              steps: stepTuples,
+              scheduleEnabled: _scheduleEnabled,
+              scheduleTargetDocumentId: _scheduleTargetDocumentId,
+              scheduleStartAt: _scheduleStartAt?.toIso8601String(),
+              scheduleRecurrence: _scheduleRecurrence,
+              scheduleEndAt: _scheduleEndAt?.toIso8601String(),
+            );
         ref.read(editingWorkflowIdProvider.notifier).state = null;
       } else {
         await ref.read(workflowApiProvider).create(
@@ -332,6 +416,11 @@ class _WorkflowFormState extends ConsumerState<_WorkflowForm> {
               triggerDocTypeId: _triggerDocTypeId,
               triggerFolderId: _triggerFolderId,
               steps: stepTuples,
+              scheduleEnabled: _scheduleEnabled,
+              scheduleTargetDocumentId: _scheduleTargetDocumentId,
+              scheduleStartAt: _scheduleStartAt?.toIso8601String(),
+              scheduleRecurrence: _scheduleRecurrence,
+              scheduleEndAt: _scheduleEndAt?.toIso8601String(),
             );
       }
       ref.invalidate(workflowsProvider);
@@ -344,6 +433,12 @@ class _WorkflowFormState extends ConsumerState<_WorkflowForm> {
             _steps
               ..clear()
               ..add(_StepDraft());
+            _scheduleEnabled = false;
+            _scheduleTargetDocumentId = null;
+            _scheduleTargetDocumentLabel = null;
+            _scheduleStartAt = null;
+            _scheduleRecurrence = null;
+            _scheduleEndAt = null;
           });
         }
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_isEditing ? 'Workflow updated.' : 'Workflow saved.')));
@@ -363,6 +458,7 @@ class _WorkflowFormState extends ConsumerState<_WorkflowForm> {
     final foldersAsync = ref.watch(foldersProvider);
     final availableWorkflows = ref.watch(workflowsProvider).valueOrNull ?? const <WorkflowRow>[];
     final roles = ref.watch(rolesProvider).valueOrNull ?? const <RoleRow>[];
+    final users = ref.watch(usersListProvider).valueOrNull ?? const <UserRow>[];
 
     return Container(
       decoration: BoxDecoration(border: Border.all(color: tokens.line), color: tokens.surf),
@@ -427,6 +523,20 @@ class _WorkflowFormState extends ConsumerState<_WorkflowForm> {
             ],
           ),
           const SizedBox(height: 14),
+          _ScheduleSection(
+            enabled: _scheduleEnabled,
+            targetDocumentLabel: _scheduleTargetDocumentLabel,
+            startAt: _scheduleStartAt,
+            recurrence: _scheduleRecurrence,
+            endAt: _scheduleEndAt,
+            onEnabledChanged: (v) => setState(() => _scheduleEnabled = v),
+            onPickTargetDocument: _pickScheduleTargetDocument,
+            onPickStartAt: _pickScheduleStartAt,
+            onRecurrenceChanged: (v) => setState(() => _scheduleRecurrence = v),
+            onPickEndAt: _pickScheduleEndAt,
+            onClearEndAt: () => setState(() => _scheduleEndAt = null),
+          ),
+          const SizedBox(height: 14),
           Text('STEPS', style: textTheme.labelSmall),
           const SizedBox(height: 6),
           for (var i = 0; i < _steps.length; i++) _StepEditor(
@@ -437,6 +547,7 @@ class _WorkflowFormState extends ConsumerState<_WorkflowForm> {
                 canRemove: _steps.length > 1,
                 availableWorkflows: availableWorkflows,
                 roles: roles,
+                users: users,
                 onChanged: () => setState(() {}),
                 onMoveUp: () => setState(() {
                   final s = _steps.removeAt(i);
@@ -476,6 +587,7 @@ class _StepEditor extends StatelessWidget {
     required this.canRemove,
     required this.availableWorkflows,
     required this.roles,
+    required this.users,
     required this.onChanged,
     required this.onMoveUp,
     required this.onMoveDown,
@@ -489,6 +601,7 @@ class _StepEditor extends StatelessWidget {
   final bool canRemove;
   final List<WorkflowRow> availableWorkflows;
   final List<RoleRow> roles;
+  final List<UserRow> users;
   final VoidCallback onChanged;
   final VoidCallback onMoveUp;
   final VoidCallback onMoveDown;
@@ -540,6 +653,36 @@ class _StepEditor extends StatelessWidget {
                     ],
                     onChanged: (v) {
                       step.roleId = v;
+                      // The previously assigned person may not hold the newly
+                      // picked role — clear rather than silently keep a
+                      // mismatched assignee.
+                      step.assigneeUserId = null;
+                      onChanged();
+                    },
+                  ),
+                ),
+                SizedBox(
+                  width: 260,
+                  child: DropdownMenu<int?>(
+                    // Keyed on roleId so the field's displayed text resets
+                    // when the role above changes and clears assigneeUserId
+                    // (DropdownMenu, like DropdownButtonFormField, only
+                    // consults initialSelection once per widget lifetime —
+                    // a new key forces a fresh one reflecting the reset).
+                    key: ValueKey(step.roleId),
+                    initialSelection: step.assigneeUserId,
+                    enableFilter: true,
+                    requestFocusOnTap: true,
+                    width: 260,
+                    label: const Text('Assign to person (optional)'),
+                    dropdownMenuEntries: [
+                      const DropdownMenuEntry(value: null, label: 'Whoever holds the role above'),
+                      for (final u in users)
+                        if (step.roleId == null || u.roleId == step.roleId)
+                          DropdownMenuEntry(value: u.id, label: '${u.fullName} (${u.roleName})'),
+                    ],
+                    onSelected: (v) {
+                      step.assigneeUserId = v;
                       onChanged();
                     },
                   ),
@@ -588,6 +731,20 @@ class _StepEditor extends StatelessWidget {
                     },
                   ),
                 ),
+                SizedBox(
+                  width: 200,
+                  child: CheckboxListTile(
+                    value: step.requiresSignature,
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    controlAffinity: ListTileControlAffinity.leading,
+                    title: const Text('Requires signature', style: TextStyle(fontSize: 12.5)),
+                    onChanged: (v) {
+                      step.requiresSignature = v ?? false;
+                      onChanged();
+                    },
+                  ),
+                ),
               ],
             ),
           ),
@@ -601,6 +758,111 @@ class _StepEditor extends StatelessWidget {
               ),
             ],
           ),
+        ],
+      ),
+    );
+  }
+}
+
+const _kRecurrenceOptions = [
+  ('once', 'Once'),
+  ('daily', 'Daily'),
+  ('weekly', 'Weekly'),
+  ('monthly', 'Monthly'),
+  ('yearly', 'Yearly'),
+];
+
+/// A workflow's third trigger mechanism — fires on a schedule instead of a
+/// document event, re-routing [targetDocumentLabel] through the workflow
+/// again on each occurrence (backend/services/workflow/
+/// schedule_scheduler.js). Unlike trigger doc-type/folder, this stays
+/// editable after creation, so it's shown for both new and existing
+/// workflows.
+class _ScheduleSection extends StatelessWidget {
+  const _ScheduleSection({
+    required this.enabled,
+    required this.targetDocumentLabel,
+    required this.startAt,
+    required this.recurrence,
+    required this.endAt,
+    required this.onEnabledChanged,
+    required this.onPickTargetDocument,
+    required this.onPickStartAt,
+    required this.onRecurrenceChanged,
+    required this.onPickEndAt,
+    required this.onClearEndAt,
+  });
+
+  final bool enabled;
+  final String? targetDocumentLabel;
+  final DateTime? startAt;
+  final String? recurrence;
+  final DateTime? endAt;
+  final ValueChanged<bool> onEnabledChanged;
+  final VoidCallback onPickTargetDocument;
+  final VoidCallback onPickStartAt;
+  final ValueChanged<String?> onRecurrenceChanged;
+  final VoidCallback onPickEndAt;
+  final VoidCallback onClearEndAt;
+
+  String _formatDateTime(DateTime dt) =>
+      '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')} '
+      '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+
+  String _formatDate(DateTime dt) => '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.tokens;
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(border: Border.all(color: tokens.line2)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SwitchListTile(
+            value: enabled,
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Run on a schedule', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600)),
+            subtitle: const Text('Re-routes a chosen document through this workflow again on each occurrence.', style: TextStyle(fontSize: 11.5)),
+            onChanged: onEnabledChanged,
+          ),
+          if (enabled) ...[
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 10,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                OutlinedButton(
+                  onPressed: onPickTargetDocument,
+                  child: Text(targetDocumentLabel ?? 'Choose target document'),
+                ),
+                OutlinedButton(
+                  onPressed: onPickStartAt,
+                  child: Text(startAt != null ? 'Starts ${_formatDateTime(startAt!)}' : 'Choose start date/time'),
+                ),
+                SizedBox(
+                  width: 160,
+                  child: DropdownButtonFormField<String>(
+                    initialValue: recurrence,
+                    isExpanded: true,
+                    decoration: const InputDecoration(labelText: 'Recurrence', isDense: true),
+                    items: [
+                      for (final o in _kRecurrenceOptions) DropdownMenuItem(value: o.$1, child: Text(o.$2)),
+                    ],
+                    onChanged: onRecurrenceChanged,
+                  ),
+                ),
+                OutlinedButton(
+                  onPressed: onPickEndAt,
+                  child: Text(endAt != null ? 'Ends ${_formatDate(endAt!)}' : 'No end date (optional)'),
+                ),
+                if (endAt != null) IconButton(icon: const Icon(Icons.close, size: 16), onPressed: onClearEndAt),
+              ],
+            ),
+          ],
         ],
       ),
     );

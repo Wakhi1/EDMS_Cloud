@@ -20,6 +20,13 @@ abstract class FolderRow with _$FolderRow {
     // (direct, non-recursive) documents — see folders.routes.js. Null if
     // the folder has none.
     @JsonKey(name: 'storage_providers') String? storageProviders,
+    // This folder's own DEFAULT storage location for new uploads (distinct
+    // from storageProviders above, which reflects where existing documents
+    // already ended up) — null means "no folder-level default; fall back
+    // to whatever's globally active" (document.service.js's registerDocument).
+    @JsonKey(name: 'storage_provider_id') String? storageProviderId,
+    @JsonKey(name: 'storage_provider_name') String? storageProviderName,
+    @JsonKey(name: 'storage_prefix') String? storagePrefix,
   }) = _FolderRow;
 
   factory FolderRow.fromJson(Map<String, dynamic> json) => _$FolderRowFromJson(json);

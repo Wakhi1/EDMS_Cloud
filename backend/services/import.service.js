@@ -16,7 +16,9 @@ const { logAudit } = require('./audit.service');
 const { sha256 } = require('./crypto.service');
 const storageService = require('./storage/storage.service');
 const ocrService = require('./ocr.service');
+const { countPages } = require('./pageCount.service');
 const { findDuplicateByContentHash } = require('./document.service');
+const { claimNextAvailable, releaseIndex, linkIndexToDocument } = require('./recordIndex.service');
 
 function guessMimeType(filename) {
   const ext = (filename.split('.').pop() || '').toLowerCase();
@@ -26,17 +28,6 @@ function guessMimeType(filename) {
     xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   };
   return map[ext] || 'application/octet-stream';
-}
-
-async function nextRecordNo(conn, typeCode) {
-  const year = new Date().getFullYear();
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    const suffix = String(Math.floor(Math.random() * 10000)).padStart(4, '0');
-    const candidate = `${typeCode}-${year}-${suffix}`;
-    const [rows] = await conn.query('SELECT id FROM documents WHERE record_no = ?', [candidate]);
-    if (!rows.length) return candidate;
-  }
-  throw new Error('Could not generate a unique record number after 20 attempts');
 }
 
 /**
@@ -52,7 +43,7 @@ async function importFromStorage({
   const provider = storageService.providers[providerId];
   if (!provider) throw new Error(`"${providerId}" is not a known storage provider`);
 
-  const [[docType]] = await pool.query('SELECT code FROM document_types WHERE id = ?', [documentTypeId]);
+  const [[docType]] = await pool.query('SELECT id FROM document_types WHERE id = ?', [documentTypeId]);
   if (!docType) throw new Error('Unknown document type');
 
   const [[actingUser]] = await pool.query('SELECT company_id FROM users WHERE id = ?', [userId]);
@@ -79,13 +70,21 @@ async function importFromStorage({
 
     // eslint-disable-next-line no-await-in-loop
     const ocrResult = await ocrService.extractText(buffer, mimeType, fileName);
+    // eslint-disable-next-line no-await-in-loop
+    const pages = await countPages(buffer, mimeType, fileName);
+
+    // No human reviews an import run, so claim the oldest available index
+    // for this type rather than presenting a picker (same as Capture &
+    // Scan's automated paths) — claimed outside conn's transaction below,
+    // so a rollback there must explicitly release it too (see catch).
+    // eslint-disable-next-line no-await-in-loop
+    const claimedIndex = await claimNextAvailable({ documentTypeId, companyId });
+    const recordNo = claimedIndex.indexValue;
 
     // eslint-disable-next-line no-await-in-loop
     const conn = await pool.getConnection();
     try {
       await conn.beginTransaction();
-
-      const recordNo = await nextRecordNo(conn, docType.code);
 
       // Reading in place (never uploading/moving the original object), so
       // there's no upload() response to pull the exact bucket/container
@@ -107,13 +106,14 @@ async function importFromStorage({
 
       const [version] = await conn.query(
         `INSERT INTO document_versions
-           (company_id, document_id, version_no, file_name, mime_type, size_bytes, storage_object_id, ocr_text, is_current, created_by)
-         VALUES (?, ?, 1, ?, ?, ?, ?, ?, 1, ?)`,
-        [companyId, doc.insertId, fileName, mimeType, buffer.length, storageRow.insertId, ocrResult.text, userId]
+           (company_id, document_id, version_no, file_name, mime_type, size_bytes, page_count, page_count_estimated, storage_object_id, ocr_text, is_current, created_by)
+         VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+        [companyId, doc.insertId, fileName, mimeType, buffer.length, pages.count, pages.estimated ? 1 : 0, storageRow.insertId, ocrResult.text, userId]
       );
 
       await conn.query('UPDATE documents SET current_version_id = ? WHERE id = ?', [version.insertId, doc.insertId]);
       await conn.commit();
+      await linkIndexToDocument(claimedIndex.id, doc.insertId);
 
       await logAudit({
         userId, action: 'Create', recordType: 'document', recordId: doc.insertId,
@@ -123,6 +123,7 @@ async function importFromStorage({
       imported.push({ id: doc.insertId, recordNo, fileName });
     } catch (err) {
       await conn.rollback();
+      await releaseIndex(claimedIndex.id);
       throw err;
     } finally {
       conn.release();

@@ -32,7 +32,7 @@ router.get('/', requireModuleAccess('users'), asyncHandler(async (req, res) => {
 
   const [rows] = await pool.query(
     `SELECT u.id, u.full_name, u.email, u.phone_number, u.is_active, u.is_locked, u.mfa_enabled,
-            u.department_id, r.name AS role_name, dep.name AS department_name,
+            u.department_id, u.role_id, r.name AS role_name, dep.name AS department_name,
             EXISTS(SELECT 1 FROM user_social_identities si WHERE si.user_id = u.id AND si.provider = 'active_directory') AS ad_linked
      FROM users u JOIN roles r ON r.id = u.role_id LEFT JOIN departments dep ON dep.id = u.department_id
      ${where} ORDER BY u.full_name`,

@@ -13,12 +13,9 @@ const express = require("express");
 const { ok } = require("../utils/apiResponse");
 const asyncHandler = require("../utils/asyncHandler");
 const {
-  getStoredLicenseKey,
-  verifyLicenseKeyWithProvider,
-} = require("../services/license.service");
-const {
   fetchCompanyBranding,
   fetchCompanyBrandingAsset,
+  homeCompanyCode,
 } = require("../services/branding.service");
 
 const router = express.Router();
@@ -31,14 +28,6 @@ const FALLBACK = {
   hasFavicon: false,
   customDomain: null,
 };
-
-/** No local companies table anymore — the company this deployment brands as is whichever one its stored license key verifies to, live. */
-async function homeCompanyCode() {
-  const licenseKey = await getStoredLicenseKey();
-  if (!licenseKey) return null;
-  const verification = await verifyLicenseKeyWithProvider(licenseKey);
-  return verification.valid ? verification.companyCode : null;
-}
 
 /** GET /api/branding — name, theme colors, and whether a logo/favicon exist (image bytes are separate proxied requests below). */
 router.get(

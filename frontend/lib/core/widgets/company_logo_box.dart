@@ -19,15 +19,10 @@ class CompanyLogoBox extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final branding = ref.watch(companyBrandingProvider).valueOrNull ?? CompanyBranding.fallback;
     final tokens = context.tokens;
+    final logoBytes = ref.watch(companyLogoBytesProvider).valueOrNull;
 
-    if (branding.hasLogo) {
-      return Image.network(
-        brandingLogoUrl(),
-        width: size,
-        height: size,
-        fit: BoxFit.contain,
-        errorBuilder: (context, error, stackTrace) => _FallbackBox(branding: branding, tokens: tokens, size: size),
-      );
+    if (branding.hasLogo && logoBytes != null) {
+      return Image.memory(logoBytes, width: size, height: size, fit: BoxFit.contain);
     }
     return _FallbackBox(branding: branding, tokens: tokens, size: size);
   }

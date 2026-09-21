@@ -5,6 +5,7 @@
  * only this file.
  */
 const logger = require('../config/logger');
+const { getIntegrationConfig } = require('../utils/integrationConfig');
 
 const SMS_ENDPOINT = 'https://rest.nexmo.com/sms/json';
 const BALANCE_ENDPOINT = 'https://rest.nexmo.com/account/get-balance';
@@ -21,6 +22,17 @@ function isConfigured() {
   return Boolean(process.env.VONAGE_API_KEY && process.env.VONAGE_API_SECRET);
 }
 
+/**
+ * Reads the 'sms' integration's own config_json for its "from" sender ID —
+ * the API key/secret stay env-only (unchanged convention), but the sender
+ * ID is admin-editable via the Integrations screen and was previously
+ * silently ignored here.
+ */
+async function getSmsFrom() {
+  const config = await getIntegrationConfig('sms');
+  return config.from || null;
+}
+
 async function sendSms(toE164, body) {
   if (!isValidE164(toE164)) {
     logger.warn('SMS not sent — phone number is not in E.164 format', { to: toE164 });
@@ -31,11 +43,12 @@ async function sendSms(toE164, body) {
     return { skipped: true };
   }
 
+  const from = (await getSmsFrom()) || process.env.VONAGE_FROM || 'PSPFEDMS';
   const params = new URLSearchParams({
     api_key: process.env.VONAGE_API_KEY,
     api_secret: process.env.VONAGE_API_SECRET,
     to: toE164.replace('+', ''),
-    from: process.env.VONAGE_FROM || 'PSPFEDMS',
+    from,
     text: body,
   });
 

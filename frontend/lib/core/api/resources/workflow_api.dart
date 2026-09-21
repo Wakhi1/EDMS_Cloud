@@ -1,6 +1,16 @@
 import '../../models/workflow_row.dart';
 import '../api_client.dart';
 
+typedef WorkflowStepInput = ({
+  String stepName,
+  int roleId,
+  int? assigneeUserId,
+  int slaDays,
+  int? escalationRoleId,
+  int? subWorkflowId,
+  bool requiresSignature,
+});
+
 /// Mirrors backend/routes/workflow.routes.js.
 class WorkflowApi {
   WorkflowApi(this._client);
@@ -16,7 +26,12 @@ class WorkflowApi {
     required String name,
     int? triggerDocTypeId,
     int? triggerFolderId,
-    required List<({String stepName, int roleId, int slaDays, int? escalationRoleId, int? subWorkflowId})> steps,
+    required List<WorkflowStepInput> steps,
+    bool? scheduleEnabled,
+    int? scheduleTargetDocumentId,
+    String? scheduleStartAt,
+    String? scheduleRecurrence,
+    String? scheduleEndAt,
   }) async {
     final response = await _client.post(
       '/api/workflow',
@@ -24,14 +39,21 @@ class WorkflowApi {
         'name': name,
         'triggerDocTypeId': ?triggerDocTypeId,
         'triggerFolderId': ?triggerFolderId,
+        'scheduleEnabled': ?scheduleEnabled,
+        'scheduleTargetDocumentId': ?scheduleTargetDocumentId,
+        'scheduleStartAt': ?scheduleStartAt,
+        'scheduleRecurrence': ?scheduleRecurrence,
+        'scheduleEndAt': ?scheduleEndAt,
         'steps': [
           for (final s in steps)
             {
               'stepName': s.stepName,
               'roleId': s.roleId,
+              'assigneeUserId': ?s.assigneeUserId,
               'slaDays': s.slaDays,
               'escalationRoleId': ?s.escalationRoleId,
               'subWorkflowId': ?s.subWorkflowId,
+              'requiresSignature': s.requiresSignature,
             },
         ],
       },
@@ -40,28 +62,40 @@ class WorkflowApi {
   }
 
   /// PUT /api/workflow/:id — trigger doc-type/folder aren't editable here
-  /// (backend only accepts name/isActive/steps); passing [steps] replaces
-  /// the whole step list (drop-and-reinsert server-side).
+  /// (backend only accepts name/isActive/steps/schedule); passing [steps]
+  /// replaces the whole step list (drop-and-reinsert server-side).
   Future<void> update(
     int id, {
     String? name,
     bool? isActive,
-    List<({String stepName, int roleId, int slaDays, int? escalationRoleId, int? subWorkflowId})>? steps,
+    List<WorkflowStepInput>? steps,
+    bool? scheduleEnabled,
+    int? scheduleTargetDocumentId,
+    String? scheduleStartAt,
+    String? scheduleRecurrence,
+    String? scheduleEndAt,
   }) async {
     final response = await _client.put(
       '/api/workflow/$id',
       data: {
         'name': ?name,
         'isActive': ?isActive,
+        'scheduleEnabled': ?scheduleEnabled,
+        'scheduleTargetDocumentId': ?scheduleTargetDocumentId,
+        'scheduleStartAt': ?scheduleStartAt,
+        'scheduleRecurrence': ?scheduleRecurrence,
+        'scheduleEndAt': ?scheduleEndAt,
         if (steps != null)
           'steps': [
             for (final s in steps)
               {
                 'stepName': s.stepName,
                 'roleId': s.roleId,
+                'assigneeUserId': ?s.assigneeUserId,
                 'slaDays': s.slaDays,
                 'escalationRoleId': ?s.escalationRoleId,
                 'subWorkflowId': ?s.subWorkflowId,
+                'requiresSignature': s.requiresSignature,
               },
           ],
       },

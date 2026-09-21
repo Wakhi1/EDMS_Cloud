@@ -12,12 +12,21 @@ abstract class DocumentVersionRow with _$DocumentVersionRow {
     @JsonKey(name: 'version_no') required int versionNo,
     @JsonKey(name: 'file_name') required String fileName,
     @JsonKey(name: 'size_bytes') int? sizeBytes,
+    @JsonKey(name: 'page_count') int? pageCount,
+    @JsonKey(name: 'page_count_estimated', fromJson: _boolFromInt) @Default(false) bool pageCountEstimated,
     @JsonKey(name: 'is_current', fromJson: _boolFromInt) required bool isCurrent,
     @JsonKey(name: 'created_at') String? createdAt,
     @JsonKey(name: 'created_by') String? createdBy,
   }) = _DocumentVersionRow;
 
   factory DocumentVersionRow.fromJson(Map<String, dynamic> json) => _$DocumentVersionRowFromJson(json);
+}
+
+extension DocumentVersionRowPages on DocumentVersionRow {
+  /// "12 pages", "~3 pages" (estimated from text length) or "— pages".
+  String get pagesLabel => pageCount == null
+      ? '— pages'
+      : '${pageCountEstimated ? '~' : ''}$pageCount ${pageCount == 1 ? 'page' : 'pages'}';
 }
 
 bool _boolFromInt(dynamic value) {

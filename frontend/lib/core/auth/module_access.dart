@@ -41,6 +41,7 @@ const kModuleAllowedRoles = <String, List<String>>{
   'users': ['Records Manager', 'System Administrator'],
   'departments': ['Records Manager', 'System Administrator'],
   'settings': ['Records Manager', 'System Administrator'],
+  'indexing': ['Records Manager', 'System Administrator'],
   // NOTE: 'backup' is deliberately NOT listed here. Unlike every module
   // above, backup/restore access is hard-gated server-side via allowRoles
   // (see backend/routes/backup.routes.js), not the configurable

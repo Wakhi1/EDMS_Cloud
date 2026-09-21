@@ -11,18 +11,23 @@
 const { pool } = require('../config/db');
 const { logAudit } = require('./audit.service');
 const { createNotification } = require('./notifications.service');
-const { sendApprovalAlertEmail } = require('./email.service');
+const { sendApprovalAlertEmail, sendApprovalRejectedEmail, sendApprovalCompletedEmail } = require('./email.service');
 
 /**
  * Assigns a step's approval. If the step has sub_workflow_id set, starts a
  * nested instance of that workflow against the same document instead of a
  * human approval — the nested instance's own completion later resumes this
- * step via resumeParent(). Otherwise resolves an active user of the step's
- * role and creates a workflow_approvals row + notification.
+ * step via resumeParent(). Otherwise resolves the step's approver and
+ * creates a workflow_approvals row + notification.
  *
- * No-op (silently) if no active user holds the step's role — a
- * pre-existing limitation of this app (a role with zero active users
- * strands the document with nothing actionable), not introduced here.
+ * Approver resolution: a step with assignee_user_id set routes directly to
+ * that person — granular per-user targeting, not just role/department —
+ * provided they're still active; otherwise (or when unset) it falls back
+ * to the first active user holding the step's role.
+ *
+ * No-op (silently) if neither resolves to an active user — a pre-existing
+ * limitation of this app (nothing actionable strands the document), not
+ * introduced here.
  */
 async function assignStep({ conn, instanceId, step, documentId, companyId, ip }) {
   if (step.sub_workflow_id) {
@@ -32,7 +37,13 @@ async function assignStep({ conn, instanceId, step, documentId, companyId, ip })
     return;
   }
 
-  const [[approver]] = await conn.query('SELECT id, email FROM users WHERE role_id = ? AND is_active = 1 LIMIT 1', [step.role_id]);
+  let approver = null;
+  if (step.assignee_user_id) {
+    [[approver]] = await conn.query('SELECT id, email FROM users WHERE id = ? AND is_active = 1 LIMIT 1', [step.assignee_user_id]);
+  }
+  if (!approver) {
+    [[approver]] = await conn.query('SELECT id, email FROM users WHERE role_id = ? AND is_active = 1 LIMIT 1', [step.role_id]);
+  }
   if (!approver) return;
 
   await conn.query(
@@ -159,12 +170,16 @@ async function advanceInstance({ conn, instanceId, stepId, workflowId, documentI
     if (instance.parent_instance_id) {
       await resumeParent({ conn, parentInstanceId: instance.parent_instance_id, decision: 'rejected', comment, ip });
     } else {
-      const [[doc]] = await conn.query('SELECT owner_id, record_no, title FROM documents WHERE id = ?', [documentId]);
+      const [[doc]] = await conn.query(
+        'SELECT d.owner_id, d.record_no, d.title, u.email AS owner_email FROM documents d JOIN users u ON u.id = d.owner_id WHERE d.id = ?',
+        [documentId]
+      );
       await conn.query('UPDATE documents SET status = "rejected" WHERE id = ?', [documentId]);
       await createNotification({
         userId: doc.owner_id, type: 'approval_rejected', title: `Returned: ${doc.record_no}`,
         body: `"${doc.title}" was rejected${comment ? `: ${comment}` : '.'}`, relatedRecordType: 'document', relatedRecordId: documentId,
       });
+      sendApprovalRejectedEmail(doc.owner_email, doc.record_no, doc.title, comment, documentId).catch(() => {});
     }
     return;
   }
@@ -186,12 +201,16 @@ async function advanceInstance({ conn, instanceId, stepId, workflowId, documentI
   if (instance.parent_instance_id) {
     await resumeParent({ conn, parentInstanceId: instance.parent_instance_id, decision: 'approved', ip });
   } else {
-    const [[doc]] = await conn.query('SELECT owner_id, record_no, title FROM documents WHERE id = ?', [documentId]);
+    const [[doc]] = await conn.query(
+      'SELECT d.owner_id, d.record_no, d.title, u.email AS owner_email FROM documents d JOIN users u ON u.id = d.owner_id WHERE d.id = ?',
+      [documentId]
+    );
     await conn.query('UPDATE documents SET status = "approved" WHERE id = ?', [documentId]);
     await createNotification({
       userId: doc.owner_id, type: 'approval_completed', title: `Approved: ${doc.record_no}`,
       body: `"${doc.title}" has completed its approval workflow.`, relatedRecordType: 'document', relatedRecordId: documentId,
     });
+    sendApprovalCompletedEmail(doc.owner_email, doc.record_no, doc.title, documentId).catch(() => {});
   }
 }
 

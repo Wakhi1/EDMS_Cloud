@@ -15,7 +15,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$UserRow {
 
- int get id;@JsonKey(name: 'full_name') String get fullName; String get email;@JsonKey(name: 'phone_number') String? get phoneNumber;@JsonKey(name: 'is_active', fromJson: _boolFromInt) bool get isActive;@JsonKey(name: 'is_locked', fromJson: _boolFromInt) bool get isLocked;@JsonKey(name: 'mfa_enabled', fromJson: _boolFromInt) bool get mfaEnabled;@JsonKey(name: 'role_name') String get roleName;@JsonKey(name: 'department_id') int? get departmentId;@JsonKey(name: 'department_name') String? get departmentName;@JsonKey(name: 'ad_linked', fromJson: _boolFromInt) bool get adLinked;
+ int get id;@JsonKey(name: 'full_name') String get fullName; String get email;@JsonKey(name: 'phone_number') String? get phoneNumber;@JsonKey(name: 'is_active', fromJson: _boolFromInt) bool get isActive;@JsonKey(name: 'is_locked', fromJson: _boolFromInt) bool get isLocked;@JsonKey(name: 'mfa_enabled', fromJson: _boolFromInt) bool get mfaEnabled;@JsonKey(name: 'role_id') int get roleId;@JsonKey(name: 'role_name') String get roleName;@JsonKey(name: 'department_id') int? get departmentId;@JsonKey(name: 'department_name') String? get departmentName;@JsonKey(name: 'ad_linked', fromJson: _boolFromInt) bool get adLinked;
 /// Create a copy of UserRow
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -28,16 +28,16 @@ $UserRowCopyWith<UserRow> get copyWith => _$UserRowCopyWithImpl<UserRow>(this as
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is UserRow&&(identical(other.id, id) || other.id == id)&&(identical(other.fullName, fullName) || other.fullName == fullName)&&(identical(other.email, email) || other.email == email)&&(identical(other.phoneNumber, phoneNumber) || other.phoneNumber == phoneNumber)&&(identical(other.isActive, isActive) || other.isActive == isActive)&&(identical(other.isLocked, isLocked) || other.isLocked == isLocked)&&(identical(other.mfaEnabled, mfaEnabled) || other.mfaEnabled == mfaEnabled)&&(identical(other.roleName, roleName) || other.roleName == roleName)&&(identical(other.departmentId, departmentId) || other.departmentId == departmentId)&&(identical(other.departmentName, departmentName) || other.departmentName == departmentName)&&(identical(other.adLinked, adLinked) || other.adLinked == adLinked));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is UserRow&&(identical(other.id, id) || other.id == id)&&(identical(other.fullName, fullName) || other.fullName == fullName)&&(identical(other.email, email) || other.email == email)&&(identical(other.phoneNumber, phoneNumber) || other.phoneNumber == phoneNumber)&&(identical(other.isActive, isActive) || other.isActive == isActive)&&(identical(other.isLocked, isLocked) || other.isLocked == isLocked)&&(identical(other.mfaEnabled, mfaEnabled) || other.mfaEnabled == mfaEnabled)&&(identical(other.roleId, roleId) || other.roleId == roleId)&&(identical(other.roleName, roleName) || other.roleName == roleName)&&(identical(other.departmentId, departmentId) || other.departmentId == departmentId)&&(identical(other.departmentName, departmentName) || other.departmentName == departmentName)&&(identical(other.adLinked, adLinked) || other.adLinked == adLinked));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hash(runtimeType,id,fullName,email,phoneNumber,isActive,isLocked,mfaEnabled,roleName,departmentId,departmentName,adLinked);
+int get hashCode => Object.hash(runtimeType,id,fullName,email,phoneNumber,isActive,isLocked,mfaEnabled,roleId,roleName,departmentId,departmentName,adLinked);
 
 @override
 String toString() {
-  return 'UserRow(id: $id, fullName: $fullName, email: $email, phoneNumber: $phoneNumber, isActive: $isActive, isLocked: $isLocked, mfaEnabled: $mfaEnabled, roleName: $roleName, departmentId: $departmentId, departmentName: $departmentName, adLinked: $adLinked)';
+  return 'UserRow(id: $id, fullName: $fullName, email: $email, phoneNumber: $phoneNumber, isActive: $isActive, isLocked: $isLocked, mfaEnabled: $mfaEnabled, roleId: $roleId, roleName: $roleName, departmentId: $departmentId, departmentName: $departmentName, adLinked: $adLinked)';
 }
 
 
@@ -48,7 +48,7 @@ abstract mixin class $UserRowCopyWith<$Res>  {
   factory $UserRowCopyWith(UserRow value, $Res Function(UserRow) _then) = _$UserRowCopyWithImpl;
 @useResult
 $Res call({
- int id,@JsonKey(name: 'full_name') String fullName, String email,@JsonKey(name: 'phone_number') String? phoneNumber,@JsonKey(name: 'is_active', fromJson: _boolFromInt) bool isActive,@JsonKey(name: 'is_locked', fromJson: _boolFromInt) bool isLocked,@JsonKey(name: 'mfa_enabled', fromJson: _boolFromInt) bool mfaEnabled,@JsonKey(name: 'role_name') String roleName,@JsonKey(name: 'department_id') int? departmentId,@JsonKey(name: 'department_name') String? departmentName,@JsonKey(name: 'ad_linked', fromJson: _boolFromInt) bool adLinked
+ int id,@JsonKey(name: 'full_name') String fullName, String email,@JsonKey(name: 'phone_number') String? phoneNumber,@JsonKey(name: 'is_active', fromJson: _boolFromInt) bool isActive,@JsonKey(name: 'is_locked', fromJson: _boolFromInt) bool isLocked,@JsonKey(name: 'mfa_enabled', fromJson: _boolFromInt) bool mfaEnabled,@JsonKey(name: 'role_id') int roleId,@JsonKey(name: 'role_name') String roleName,@JsonKey(name: 'department_id') int? departmentId,@JsonKey(name: 'department_name') String? departmentName,@JsonKey(name: 'ad_linked', fromJson: _boolFromInt) bool adLinked
 });
 
 
@@ -65,7 +65,7 @@ class _$UserRowCopyWithImpl<$Res>
 
 /// Create a copy of UserRow
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? fullName = null,Object? email = null,Object? phoneNumber = freezed,Object? isActive = null,Object? isLocked = null,Object? mfaEnabled = null,Object? roleName = null,Object? departmentId = freezed,Object? departmentName = freezed,Object? adLinked = null,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? fullName = null,Object? email = null,Object? phoneNumber = freezed,Object? isActive = null,Object? isLocked = null,Object? mfaEnabled = null,Object? roleId = null,Object? roleName = null,Object? departmentId = freezed,Object? departmentName = freezed,Object? adLinked = null,}) {
   return _then(_self.copyWith(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as int,fullName: null == fullName ? _self.fullName : fullName // ignore: cast_nullable_to_non_nullable
@@ -74,7 +74,8 @@ as String,phoneNumber: freezed == phoneNumber ? _self.phoneNumber : phoneNumber 
 as String?,isActive: null == isActive ? _self.isActive : isActive // ignore: cast_nullable_to_non_nullable
 as bool,isLocked: null == isLocked ? _self.isLocked : isLocked // ignore: cast_nullable_to_non_nullable
 as bool,mfaEnabled: null == mfaEnabled ? _self.mfaEnabled : mfaEnabled // ignore: cast_nullable_to_non_nullable
-as bool,roleName: null == roleName ? _self.roleName : roleName // ignore: cast_nullable_to_non_nullable
+as bool,roleId: null == roleId ? _self.roleId : roleId // ignore: cast_nullable_to_non_nullable
+as int,roleName: null == roleName ? _self.roleName : roleName // ignore: cast_nullable_to_non_nullable
 as String,departmentId: freezed == departmentId ? _self.departmentId : departmentId // ignore: cast_nullable_to_non_nullable
 as int?,departmentName: freezed == departmentName ? _self.departmentName : departmentName // ignore: cast_nullable_to_non_nullable
 as String?,adLinked: null == adLinked ? _self.adLinked : adLinked // ignore: cast_nullable_to_non_nullable
@@ -163,10 +164,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( int id, @JsonKey(name: 'full_name')  String fullName,  String email, @JsonKey(name: 'phone_number')  String? phoneNumber, @JsonKey(name: 'is_active', fromJson: _boolFromInt)  bool isActive, @JsonKey(name: 'is_locked', fromJson: _boolFromInt)  bool isLocked, @JsonKey(name: 'mfa_enabled', fromJson: _boolFromInt)  bool mfaEnabled, @JsonKey(name: 'role_name')  String roleName, @JsonKey(name: 'department_id')  int? departmentId, @JsonKey(name: 'department_name')  String? departmentName, @JsonKey(name: 'ad_linked', fromJson: _boolFromInt)  bool adLinked)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( int id, @JsonKey(name: 'full_name')  String fullName,  String email, @JsonKey(name: 'phone_number')  String? phoneNumber, @JsonKey(name: 'is_active', fromJson: _boolFromInt)  bool isActive, @JsonKey(name: 'is_locked', fromJson: _boolFromInt)  bool isLocked, @JsonKey(name: 'mfa_enabled', fromJson: _boolFromInt)  bool mfaEnabled, @JsonKey(name: 'role_id')  int roleId, @JsonKey(name: 'role_name')  String roleName, @JsonKey(name: 'department_id')  int? departmentId, @JsonKey(name: 'department_name')  String? departmentName, @JsonKey(name: 'ad_linked', fromJson: _boolFromInt)  bool adLinked)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _UserRow() when $default != null:
-return $default(_that.id,_that.fullName,_that.email,_that.phoneNumber,_that.isActive,_that.isLocked,_that.mfaEnabled,_that.roleName,_that.departmentId,_that.departmentName,_that.adLinked);case _:
+return $default(_that.id,_that.fullName,_that.email,_that.phoneNumber,_that.isActive,_that.isLocked,_that.mfaEnabled,_that.roleId,_that.roleName,_that.departmentId,_that.departmentName,_that.adLinked);case _:
   return orElse();
 
 }
@@ -184,10 +185,10 @@ return $default(_that.id,_that.fullName,_that.email,_that.phoneNumber,_that.isAc
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( int id, @JsonKey(name: 'full_name')  String fullName,  String email, @JsonKey(name: 'phone_number')  String? phoneNumber, @JsonKey(name: 'is_active', fromJson: _boolFromInt)  bool isActive, @JsonKey(name: 'is_locked', fromJson: _boolFromInt)  bool isLocked, @JsonKey(name: 'mfa_enabled', fromJson: _boolFromInt)  bool mfaEnabled, @JsonKey(name: 'role_name')  String roleName, @JsonKey(name: 'department_id')  int? departmentId, @JsonKey(name: 'department_name')  String? departmentName, @JsonKey(name: 'ad_linked', fromJson: _boolFromInt)  bool adLinked)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( int id, @JsonKey(name: 'full_name')  String fullName,  String email, @JsonKey(name: 'phone_number')  String? phoneNumber, @JsonKey(name: 'is_active', fromJson: _boolFromInt)  bool isActive, @JsonKey(name: 'is_locked', fromJson: _boolFromInt)  bool isLocked, @JsonKey(name: 'mfa_enabled', fromJson: _boolFromInt)  bool mfaEnabled, @JsonKey(name: 'role_id')  int roleId, @JsonKey(name: 'role_name')  String roleName, @JsonKey(name: 'department_id')  int? departmentId, @JsonKey(name: 'department_name')  String? departmentName, @JsonKey(name: 'ad_linked', fromJson: _boolFromInt)  bool adLinked)  $default,) {final _that = this;
 switch (_that) {
 case _UserRow():
-return $default(_that.id,_that.fullName,_that.email,_that.phoneNumber,_that.isActive,_that.isLocked,_that.mfaEnabled,_that.roleName,_that.departmentId,_that.departmentName,_that.adLinked);case _:
+return $default(_that.id,_that.fullName,_that.email,_that.phoneNumber,_that.isActive,_that.isLocked,_that.mfaEnabled,_that.roleId,_that.roleName,_that.departmentId,_that.departmentName,_that.adLinked);case _:
   throw StateError('Unexpected subclass');
 
 }
@@ -204,10 +205,10 @@ return $default(_that.id,_that.fullName,_that.email,_that.phoneNumber,_that.isAc
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( int id, @JsonKey(name: 'full_name')  String fullName,  String email, @JsonKey(name: 'phone_number')  String? phoneNumber, @JsonKey(name: 'is_active', fromJson: _boolFromInt)  bool isActive, @JsonKey(name: 'is_locked', fromJson: _boolFromInt)  bool isLocked, @JsonKey(name: 'mfa_enabled', fromJson: _boolFromInt)  bool mfaEnabled, @JsonKey(name: 'role_name')  String roleName, @JsonKey(name: 'department_id')  int? departmentId, @JsonKey(name: 'department_name')  String? departmentName, @JsonKey(name: 'ad_linked', fromJson: _boolFromInt)  bool adLinked)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( int id, @JsonKey(name: 'full_name')  String fullName,  String email, @JsonKey(name: 'phone_number')  String? phoneNumber, @JsonKey(name: 'is_active', fromJson: _boolFromInt)  bool isActive, @JsonKey(name: 'is_locked', fromJson: _boolFromInt)  bool isLocked, @JsonKey(name: 'mfa_enabled', fromJson: _boolFromInt)  bool mfaEnabled, @JsonKey(name: 'role_id')  int roleId, @JsonKey(name: 'role_name')  String roleName, @JsonKey(name: 'department_id')  int? departmentId, @JsonKey(name: 'department_name')  String? departmentName, @JsonKey(name: 'ad_linked', fromJson: _boolFromInt)  bool adLinked)?  $default,) {final _that = this;
 switch (_that) {
 case _UserRow() when $default != null:
-return $default(_that.id,_that.fullName,_that.email,_that.phoneNumber,_that.isActive,_that.isLocked,_that.mfaEnabled,_that.roleName,_that.departmentId,_that.departmentName,_that.adLinked);case _:
+return $default(_that.id,_that.fullName,_that.email,_that.phoneNumber,_that.isActive,_that.isLocked,_that.mfaEnabled,_that.roleId,_that.roleName,_that.departmentId,_that.departmentName,_that.adLinked);case _:
   return null;
 
 }
@@ -219,7 +220,7 @@ return $default(_that.id,_that.fullName,_that.email,_that.phoneNumber,_that.isAc
 @JsonSerializable()
 
 class _UserRow implements UserRow {
-  const _UserRow({required this.id, @JsonKey(name: 'full_name') required this.fullName, required this.email, @JsonKey(name: 'phone_number') this.phoneNumber, @JsonKey(name: 'is_active', fromJson: _boolFromInt) required this.isActive, @JsonKey(name: 'is_locked', fromJson: _boolFromInt) required this.isLocked, @JsonKey(name: 'mfa_enabled', fromJson: _boolFromInt) required this.mfaEnabled, @JsonKey(name: 'role_name') required this.roleName, @JsonKey(name: 'department_id') this.departmentId, @JsonKey(name: 'department_name') this.departmentName, @JsonKey(name: 'ad_linked', fromJson: _boolFromInt) this.adLinked = false});
+  const _UserRow({required this.id, @JsonKey(name: 'full_name') required this.fullName, required this.email, @JsonKey(name: 'phone_number') this.phoneNumber, @JsonKey(name: 'is_active', fromJson: _boolFromInt) required this.isActive, @JsonKey(name: 'is_locked', fromJson: _boolFromInt) required this.isLocked, @JsonKey(name: 'mfa_enabled', fromJson: _boolFromInt) required this.mfaEnabled, @JsonKey(name: 'role_id') required this.roleId, @JsonKey(name: 'role_name') required this.roleName, @JsonKey(name: 'department_id') this.departmentId, @JsonKey(name: 'department_name') this.departmentName, @JsonKey(name: 'ad_linked', fromJson: _boolFromInt) this.adLinked = false});
   factory _UserRow.fromJson(Map<String, dynamic> json) => _$UserRowFromJson(json);
 
 @override final  int id;
@@ -229,6 +230,7 @@ class _UserRow implements UserRow {
 @override@JsonKey(name: 'is_active', fromJson: _boolFromInt) final  bool isActive;
 @override@JsonKey(name: 'is_locked', fromJson: _boolFromInt) final  bool isLocked;
 @override@JsonKey(name: 'mfa_enabled', fromJson: _boolFromInt) final  bool mfaEnabled;
+@override@JsonKey(name: 'role_id') final  int roleId;
 @override@JsonKey(name: 'role_name') final  String roleName;
 @override@JsonKey(name: 'department_id') final  int? departmentId;
 @override@JsonKey(name: 'department_name') final  String? departmentName;
@@ -247,16 +249,16 @@ Map<String, dynamic> toJson() {
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _UserRow&&(identical(other.id, id) || other.id == id)&&(identical(other.fullName, fullName) || other.fullName == fullName)&&(identical(other.email, email) || other.email == email)&&(identical(other.phoneNumber, phoneNumber) || other.phoneNumber == phoneNumber)&&(identical(other.isActive, isActive) || other.isActive == isActive)&&(identical(other.isLocked, isLocked) || other.isLocked == isLocked)&&(identical(other.mfaEnabled, mfaEnabled) || other.mfaEnabled == mfaEnabled)&&(identical(other.roleName, roleName) || other.roleName == roleName)&&(identical(other.departmentId, departmentId) || other.departmentId == departmentId)&&(identical(other.departmentName, departmentName) || other.departmentName == departmentName)&&(identical(other.adLinked, adLinked) || other.adLinked == adLinked));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is _UserRow&&(identical(other.id, id) || other.id == id)&&(identical(other.fullName, fullName) || other.fullName == fullName)&&(identical(other.email, email) || other.email == email)&&(identical(other.phoneNumber, phoneNumber) || other.phoneNumber == phoneNumber)&&(identical(other.isActive, isActive) || other.isActive == isActive)&&(identical(other.isLocked, isLocked) || other.isLocked == isLocked)&&(identical(other.mfaEnabled, mfaEnabled) || other.mfaEnabled == mfaEnabled)&&(identical(other.roleId, roleId) || other.roleId == roleId)&&(identical(other.roleName, roleName) || other.roleName == roleName)&&(identical(other.departmentId, departmentId) || other.departmentId == departmentId)&&(identical(other.departmentName, departmentName) || other.departmentName == departmentName)&&(identical(other.adLinked, adLinked) || other.adLinked == adLinked));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hash(runtimeType,id,fullName,email,phoneNumber,isActive,isLocked,mfaEnabled,roleName,departmentId,departmentName,adLinked);
+int get hashCode => Object.hash(runtimeType,id,fullName,email,phoneNumber,isActive,isLocked,mfaEnabled,roleId,roleName,departmentId,departmentName,adLinked);
 
 @override
 String toString() {
-  return 'UserRow(id: $id, fullName: $fullName, email: $email, phoneNumber: $phoneNumber, isActive: $isActive, isLocked: $isLocked, mfaEnabled: $mfaEnabled, roleName: $roleName, departmentId: $departmentId, departmentName: $departmentName, adLinked: $adLinked)';
+  return 'UserRow(id: $id, fullName: $fullName, email: $email, phoneNumber: $phoneNumber, isActive: $isActive, isLocked: $isLocked, mfaEnabled: $mfaEnabled, roleId: $roleId, roleName: $roleName, departmentId: $departmentId, departmentName: $departmentName, adLinked: $adLinked)';
 }
 
 
@@ -267,7 +269,7 @@ abstract mixin class _$UserRowCopyWith<$Res> implements $UserRowCopyWith<$Res> {
   factory _$UserRowCopyWith(_UserRow value, $Res Function(_UserRow) _then) = __$UserRowCopyWithImpl;
 @override @useResult
 $Res call({
- int id,@JsonKey(name: 'full_name') String fullName, String email,@JsonKey(name: 'phone_number') String? phoneNumber,@JsonKey(name: 'is_active', fromJson: _boolFromInt) bool isActive,@JsonKey(name: 'is_locked', fromJson: _boolFromInt) bool isLocked,@JsonKey(name: 'mfa_enabled', fromJson: _boolFromInt) bool mfaEnabled,@JsonKey(name: 'role_name') String roleName,@JsonKey(name: 'department_id') int? departmentId,@JsonKey(name: 'department_name') String? departmentName,@JsonKey(name: 'ad_linked', fromJson: _boolFromInt) bool adLinked
+ int id,@JsonKey(name: 'full_name') String fullName, String email,@JsonKey(name: 'phone_number') String? phoneNumber,@JsonKey(name: 'is_active', fromJson: _boolFromInt) bool isActive,@JsonKey(name: 'is_locked', fromJson: _boolFromInt) bool isLocked,@JsonKey(name: 'mfa_enabled', fromJson: _boolFromInt) bool mfaEnabled,@JsonKey(name: 'role_id') int roleId,@JsonKey(name: 'role_name') String roleName,@JsonKey(name: 'department_id') int? departmentId,@JsonKey(name: 'department_name') String? departmentName,@JsonKey(name: 'ad_linked', fromJson: _boolFromInt) bool adLinked
 });
 
 
@@ -284,7 +286,7 @@ class __$UserRowCopyWithImpl<$Res>
 
 /// Create a copy of UserRow
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? fullName = null,Object? email = null,Object? phoneNumber = freezed,Object? isActive = null,Object? isLocked = null,Object? mfaEnabled = null,Object? roleName = null,Object? departmentId = freezed,Object? departmentName = freezed,Object? adLinked = null,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? fullName = null,Object? email = null,Object? phoneNumber = freezed,Object? isActive = null,Object? isLocked = null,Object? mfaEnabled = null,Object? roleId = null,Object? roleName = null,Object? departmentId = freezed,Object? departmentName = freezed,Object? adLinked = null,}) {
   return _then(_UserRow(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as int,fullName: null == fullName ? _self.fullName : fullName // ignore: cast_nullable_to_non_nullable
@@ -293,7 +295,8 @@ as String,phoneNumber: freezed == phoneNumber ? _self.phoneNumber : phoneNumber 
 as String?,isActive: null == isActive ? _self.isActive : isActive // ignore: cast_nullable_to_non_nullable
 as bool,isLocked: null == isLocked ? _self.isLocked : isLocked // ignore: cast_nullable_to_non_nullable
 as bool,mfaEnabled: null == mfaEnabled ? _self.mfaEnabled : mfaEnabled // ignore: cast_nullable_to_non_nullable
-as bool,roleName: null == roleName ? _self.roleName : roleName // ignore: cast_nullable_to_non_nullable
+as bool,roleId: null == roleId ? _self.roleId : roleId // ignore: cast_nullable_to_non_nullable
+as int,roleName: null == roleName ? _self.roleName : roleName // ignore: cast_nullable_to_non_nullable
 as String,departmentId: freezed == departmentId ? _self.departmentId : departmentId // ignore: cast_nullable_to_non_nullable
 as int?,departmentName: freezed == departmentName ? _self.departmentName : departmentName // ignore: cast_nullable_to_non_nullable
 as String?,adLinked: null == adLinked ? _self.adLinked : adLinked // ignore: cast_nullable_to_non_nullable

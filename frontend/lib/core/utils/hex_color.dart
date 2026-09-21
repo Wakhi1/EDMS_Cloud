@@ -7,3 +7,6 @@ Color? parseHexColor(String? hex) {
   if (hex == null || !RegExp(r'^#[0-9a-fA-F]{6}$').hasMatch(hex)) return null;
   return Color(int.parse('FF${hex.substring(1)}', radix: 16));
 }
+
+/// The inverse of [parseHexColor] — "#RRGGBB", uppercase, alpha dropped.
+String toHexColor(Color color) => '#${color.toARGB32().toRadixString(16).padLeft(8, '0').substring(2).toUpperCase()}';

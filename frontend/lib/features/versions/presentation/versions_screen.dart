@@ -222,7 +222,7 @@ class _VersionRowState extends ConsumerState<_VersionRow> {
                   ],
                 ),
                 Text(
-                  '${v.createdAt?.split("T").first ?? "—"} · ${v.createdBy ?? "—"} · $sizeKb',
+                  '${v.createdAt?.split("T").first ?? "—"} · ${v.createdBy ?? "—"} · $sizeKb · ${v.pagesLabel}',
                   style: TextStyle(fontSize: 11.5, color: tokens.ink2),
                 ),
               ],

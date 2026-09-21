@@ -15,9 +15,19 @@
 const fs = require('fs/promises');
 const path = require('path');
 const { mimeFromExtension } = require('../../utils/mimeType');
+const logger = require('../../config/logger');
 
+// The relative-path fallback ('./watched-intake') must anchor somewhere
+// that doesn't depend on the process's current working directory — a
+// service manager (pm2/systemd/IIS) can launch `node server.js` from a
+// different cwd than `backend/`, which silently pointed this at the wrong
+// (or a non-writable) directory in production. __dirname is stable
+// regardless of launch cwd; an absolute WATCHED_INTAKE_ROOT still wins
+// either way.
 function root() {
-  return path.resolve(process.env.WATCHED_INTAKE_ROOT || './watched-intake');
+  const configured = process.env.WATCHED_INTAKE_ROOT;
+  if (configured) return path.resolve(configured);
+  return path.resolve(__dirname, '../../../watched-intake');
 }
 
 /** Resolves config.path under the intake root, rejecting any attempt to escape it. */
@@ -53,6 +63,11 @@ async function testConnection(config) {
  * returns direct file entries), moves each into processed/ immediately,
  * and returns their bytes. A file that later fails registration still
  * shows up as a failed capture_batch_item — just not auto-retried.
+ *
+ * Each file is handled independently: one file that's still being written
+ * by an OS-level copy (read fails) or can't be renamed (locked by another
+ * process) is logged and left in place for the next poll, rather than
+ * aborting every other file already queued in this same directory listing.
  */
 async function poll(config) {
   const dir = await ensureDirs(config);
@@ -61,9 +76,13 @@ async function poll(config) {
   for (const entry of entries) {
     if (!entry.isFile()) continue;
     const filePath = path.join(dir, entry.name);
-    const buffer = await fs.readFile(filePath);
-    await fs.rename(filePath, path.join(dir, 'processed', entry.name));
-    files.push({ fileName: entry.name, buffer, mimeType: mimeFromExtension(entry.name) });
+    try {
+      const buffer = await fs.readFile(filePath);
+      await fs.rename(filePath, path.join(dir, 'processed', entry.name));
+      files.push({ fileName: entry.name, buffer, mimeType: mimeFromExtension(entry.name) });
+    } catch (err) {
+      logger.warn('Watched-folder intake: failed to read/move one file, skipping it this poll', { fileName: entry.name, error: err.message });
+    }
   }
   return files;
 }

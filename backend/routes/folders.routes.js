@@ -13,6 +13,7 @@ const { authenticate } = require('../middleware/auth.middleware');
 const { requireModuleAccess } = require('../middleware/rbac.middleware');
 const { logAudit } = require('../services/audit.service');
 const aclService = require('../services/acl.service');
+const storageService = require('../services/storage/storage.service');
 
 const router = express.Router();
 router.use(authenticate);
@@ -31,13 +32,15 @@ router.get('/', requireModuleAccess('repository'), asyncHandler(async (req, res)
   // subfolders' — so the file plan can show a location icon per folder
   // without a second round trip. NULL when the folder has no documents.
   const [rows] = await pool.query(
-    `SELECT f.*, rc.name AS retention_class_name,
+    `SELECT f.*, rc.name AS retention_class_name, si.name AS storage_provider_name,
             (SELECT GROUP_CONCAT(DISTINCT dso.provider)
              FROM documents d
              JOIN document_versions dv ON dv.id = d.current_version_id
              JOIN document_storage_objects dso ON dso.id = dv.storage_object_id
              WHERE d.folder_id = f.id AND d.status != 'archived') AS storage_providers
-     FROM folders f LEFT JOIN retention_classes rc ON rc.id = f.retention_class_id
+     FROM folders f
+     LEFT JOIN retention_classes rc ON rc.id = f.retention_class_id
+     LEFT JOIN integrations si ON si.id = f.storage_provider_id
      ${where} ORDER BY f.path`,
     params
   );
@@ -54,7 +57,10 @@ router.post(
     const errors = validationResult(req);
     if (!errors.isEmpty()) return fail(res, 'Validation failed', 422, errors.array());
 
-    const { name, parentId, departmentId, retentionClassId } = req.body;
+    const { name, parentId, departmentId, retentionClassId, storageProviderId, storagePrefix } = req.body;
+    if (storageProviderId && !storageService.providers[storageProviderId]) {
+      return fail(res, `"${storageProviderId}" is not a known storage provider`, 422);
+    }
     let path = name;
     if (parentId) {
       const [[parent]] = await pool.query('SELECT path FROM folders WHERE id = ?', [parentId]);
@@ -63,9 +69,10 @@ router.post(
     }
 
     const [result] = await pool.query(
-      `INSERT INTO folders (company_id, parent_id, name, path, department_id, retention_class_id, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [req.user.companyId, parentId || null, name, path, departmentId || null, retentionClassId || null, req.user.id]
+      `INSERT INTO folders (company_id, parent_id, name, path, department_id, retention_class_id, storage_provider_id, storage_prefix, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [req.user.companyId, parentId || null, name, path, departmentId || null, retentionClassId || null,
+       storageProviderId || null, storagePrefix || null, req.user.id]
     );
 
     await logAudit({ userId: req.user.id, action: 'Create', recordType: 'folder', recordId: result.insertId, detail: path, ip: req.ip });
@@ -88,9 +95,14 @@ router.put(
       return fail(res, 'You do not have access to this folder', 403);
     }
 
-    const { name, parentId, departmentId, retentionClassId } = req.body;
+    const { name, parentId, departmentId, retentionClassId, storageProviderId, storagePrefix } = req.body;
+    if (storageProviderId && !storageService.providers[storageProviderId]) {
+      return fail(res, `"${storageProviderId}" is not a known storage provider`, 422);
+    }
     const newName = name !== undefined ? name : folder.name;
     const newParentId = parentId !== undefined ? (parentId || null) : folder.parent_id;
+    const newStorageProviderId = storageProviderId !== undefined ? (storageProviderId || null) : folder.storage_provider_id;
+    const newStoragePrefix = storagePrefix !== undefined ? (storagePrefix || null) : folder.storage_prefix;
 
     let newPath = newName;
     if (newParentId) {
@@ -105,9 +117,12 @@ router.put(
       await conn.beginTransaction();
       const oldPath = folder.path;
       await conn.query(
-        `UPDATE folders SET name = ?, path = ?, parent_id = ?, department_id = COALESCE(?, department_id), retention_class_id = ?
+        `UPDATE folders SET name = ?, path = ?, parent_id = ?, department_id = COALESCE(?, department_id), retention_class_id = ?,
+                storage_provider_id = ?, storage_prefix = ?
          WHERE id = ?`,
-        [newName, newPath, newParentId, departmentId !== undefined ? departmentId : null, retentionClassId !== undefined ? (retentionClassId || null) : folder.retention_class_id, folder.id]
+        [newName, newPath, newParentId, departmentId !== undefined ? departmentId : null,
+         retentionClassId !== undefined ? (retentionClassId || null) : folder.retention_class_id,
+         newStorageProviderId, newStoragePrefix, folder.id]
       );
       if (oldPath !== newPath) {
         // Re-prefix every descendant's materialised path.

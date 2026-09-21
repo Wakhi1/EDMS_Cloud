@@ -4,10 +4,17 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/api_exception.dart';
 import '../../../core/api/api_providers.dart';
-import '../../../core/models/document_type_row.dart';
 import '../../../core/models/folder_row.dart';
 import '../../../core/models/ocr_preview_result.dart';
+import '../../../core/models/record_index_row.dart';
 import 'upload_batch_storage_provider.dart';
+
+/// Available record_indexes for one document type, cached per type so
+/// switching between two rows of the same type doesn't refetch. Watched
+/// directly by the review table's per-row "Record index" dropdown.
+final availableRecordIndexesProvider = FutureProvider.autoDispose.family<List<RecordIndexRow>, int>((ref, documentTypeId) {
+  return ref.watch(recordIndexesApiProvider).available(documentTypeId);
+});
 
 /// Derives a cloud-safe storage prefix from a repository folder's display
 /// path (e.g. "Pension Claims / 2026" -> "pension-claims/2026"), so picking/
@@ -40,6 +47,7 @@ class UploadRow {
     this.folderId,
     this.memberNumber = '',
     this.classification = 'internal',
+    this.recordIndexId,
     this.recordNo,
     this.customFields = const [],
     this.duplicateOf,
@@ -59,6 +67,14 @@ class UploadRow {
   final int? folderId;
   final String memberNumber;
   final String classification;
+
+  /// The admin-issued index the user picked from GET /available for this
+  /// row's [documentTypeId] — required to commit. Cleared whenever
+  /// [documentTypeId] changes, since an index belongs to exactly one type.
+  final int? recordIndexId;
+
+  /// Set only after a successful commit, from the server's response —
+  /// distinct from [recordIndexId], which is the pre-commit selection.
   final String? recordNo;
 
   /// Set from ocr-preview's content-hash duplicate check, before commit.
@@ -84,6 +100,7 @@ class UploadRow {
     int? Function()? folderId,
     String? memberNumber,
     String? classification,
+    int? Function()? recordIndexId,
     String? Function()? recordNo,
     List<({String label, String value})>? customFields,
     DuplicateOfInfo? Function()? duplicateOf,
@@ -103,6 +120,7 @@ class UploadRow {
       folderId: folderId != null ? folderId() : this.folderId,
       memberNumber: memberNumber ?? this.memberNumber,
       classification: classification ?? this.classification,
+      recordIndexId: recordIndexId != null ? recordIndexId() : this.recordIndexId,
       recordNo: recordNo != null ? recordNo() : this.recordNo,
       customFields: customFields ?? this.customFields,
       duplicateOf: duplicateOf != null ? duplicateOf() : this.duplicateOf,
@@ -184,8 +202,18 @@ class UploadQueueNotifier extends Notifier<List<UploadRow>> {
         folderId: folderId,
         memberNumber: memberNumber,
         classification: classification,
+        // An index belongs to exactly one type — changing the type
+        // invalidates whatever was picked before.
+        recordIndexId: documentTypeId != null ? () => null : null,
       ),
     );
+  }
+
+  /// Sets the row's chosen record index (from GET /available). The screen
+  /// is responsible for only offering ids not already picked by another
+  /// row in this same queue.
+  void setRecordIndex(String localId, int? recordIndexId) {
+    _updateRow(localId, (r) => r.copyWith(recordIndexId: () => recordIndexId));
   }
 
   void addCustomField(String localId, String label, String value) {
@@ -217,63 +245,62 @@ class UploadQueueNotifier extends Notifier<List<UploadRow>> {
     ];
   }
 
-  /// Commits every row that's ready (recognized, has a type+folder chosen)
-  /// via the real registration endpoint, generating a client-side record
-  /// number and retrying once on a 409 (duplicate) response. [folders] is
-  /// used to derive each row's storage prefix from its chosen repository
-  /// folder, unless the batch storage location has an explicit override.
-  Future<void> commitAll(List<DocumentTypeRow> types, List<FolderRow> folders) async {
+  /// Commits every row that's ready (recognized, has a type+folder+record
+  /// index chosen) via the real registration endpoint. [folders] is used to
+  /// derive each row's storage prefix from its chosen repository folder,
+  /// unless the batch storage location has an explicit override.
+  Future<void> commitAll(List<FolderRow> folders) async {
     for (final row in state) {
       if (row.status == UploadRowStatus.committed) continue;
-      if (row.documentTypeId == null || row.folderId == null) continue;
+      if (row.documentTypeId == null || row.folderId == null || row.recordIndexId == null) continue;
       if (row.duplicateOf != null && !row.allowDuplicate) continue; // needs an explicit "upload anyway"
-      await _commitRow(row.localId, types, folders);
+      await _commitRow(row.localId, folders);
     }
   }
 
-  Future<void> _commitRow(String localId, List<DocumentTypeRow> types, List<FolderRow> folders) async {
+  Future<void> _commitRow(String localId, List<FolderRow> folders) async {
     _updateRow(localId, (r) => r.copyWith(status: UploadRowStatus.committing));
     final row = state.firstWhere((r) => r.localId == localId);
-    final typeCode = types.firstWhere((t) => t.id == row.documentTypeId, orElse: () => types.first).code;
 
     final batchStorage = ref.read(uploadBatchStorageProvider);
     final folder = folders.where((f) => f.id == row.folderId).firstOrNull;
     final storagePrefix = batchStorage.prefixOverride ?? (folder != null ? sanitizeStoragePrefix(folder.path) : null);
 
-    var attempt = 0;
-    while (attempt < 3) {
-      attempt += 1;
-      final recordNo = _generateRecordNo(typeCode);
-      try {
-        await ref.read(documentsApiProvider).create(
-              recordNo: recordNo,
-              title: row.title.isEmpty ? row.fileName : row.title,
-              documentTypeId: row.documentTypeId!,
-              folderId: row.folderId!,
-              memberNumber: row.memberNumber.isEmpty ? null : row.memberNumber,
-              classification: row.classification,
-              storageProviderId: batchStorage.providerId,
-              storagePrefix: storagePrefix,
-              customFields: row.customFields,
-              allowDuplicate: row.allowDuplicate,
-              fileBytes: row.bytes,
-              fileName: row.fileName,
-              mimeType: row.mimeType,
-            );
-        _updateRow(localId, (r) => r.copyWith(status: UploadRowStatus.committed, recordNo: () => recordNo));
-        return;
-      } on ApiException catch (e) {
-        if (e.statusCode == 409 && attempt < 3) continue; // regenerate and retry
-        _updateRow(localId, (r) => r.copyWith(status: UploadRowStatus.commitFailed, error: () => e.message));
+    try {
+      final result = await ref.read(documentsApiProvider).create(
+            recordIndexId: row.recordIndexId!,
+            title: row.title.isEmpty ? row.fileName : row.title,
+            documentTypeId: row.documentTypeId!,
+            folderId: row.folderId!,
+            memberNumber: row.memberNumber.isEmpty ? null : row.memberNumber,
+            classification: row.classification,
+            storageProviderId: batchStorage.providerId,
+            storagePrefix: storagePrefix,
+            customFields: row.customFields,
+            allowDuplicate: row.allowDuplicate,
+            fileBytes: row.bytes,
+            fileName: row.fileName,
+            mimeType: row.mimeType,
+          );
+      _updateRow(localId, (r) => r.copyWith(status: UploadRowStatus.committed, recordNo: () => result.recordNo));
+    } on ApiException catch (e) {
+      if (e.statusCode == 409) {
+        // Someone else claimed it between selection and commit — the
+        // picked id no longer exists in the available pool, so clear it
+        // and refresh that list rather than blindly retrying a guess.
+        ref.invalidate(availableRecordIndexesProvider(row.documentTypeId!));
+        _updateRow(
+          localId,
+          (r) => r.copyWith(
+            status: UploadRowStatus.commitFailed,
+            recordIndexId: () => null,
+            error: () => 'That record index was just taken — pick another.',
+          ),
+        );
         return;
       }
+      _updateRow(localId, (r) => r.copyWith(status: UploadRowStatus.commitFailed, error: () => e.message));
     }
-  }
-
-  static String _generateRecordNo(String typeCode) {
-    final year = DateTime.now().year;
-    final suffix = (DateTime.now().microsecondsSinceEpoch + _random.nextInt(9999)) % 10000;
-    return '$typeCode-$year-${suffix.toString().padLeft(4, '0')}';
   }
 }
 

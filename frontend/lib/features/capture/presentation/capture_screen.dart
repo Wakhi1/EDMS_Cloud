@@ -5,6 +5,7 @@ import '../../../core/api/api_exception.dart';
 import '../../../core/api/api_providers.dart';
 import '../../../core/models/capture_batch_row.dart';
 import '../../../core/models/capture_batch_summary.dart';
+import '../../../core/models/document_type_row.dart';
 import '../../../core/models/folder_row.dart';
 import '../../../core/theme/pspf_tokens.dart';
 import '../../../core/utils/file_saver/file_saver.dart';
@@ -36,8 +37,10 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
 
   Future<void> _newBatch() async {
     List<FolderRow> folders;
+    List<DocumentTypeRow> documentTypes;
     try {
       folders = await ref.read(foldersProvider.future);
+      documentTypes = await ref.read(documentTypesProvider.future);
     } on ApiException catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
       return;
@@ -47,11 +50,16 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
       return;
     }
     if (!mounted) return;
-    final result = await NewBatchDialog.show(context, folders: folders);
+    final result = await NewBatchDialog.show(context, folders: folders, documentTypes: documentTypes);
     if (result == null) return;
 
     try {
-      final outcome = await ref.read(captureBatchesApiProvider).upload(files: result.files, source: result.source, folderId: result.folderId);
+      final outcome = await ref.read(captureBatchesApiProvider).upload(
+            files: result.files,
+            source: result.source,
+            folderId: result.folderId,
+            documentTypeId: result.documentTypeId,
+          );
       _refresh();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

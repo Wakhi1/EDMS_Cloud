@@ -11,7 +11,12 @@ import '../../../core/router/route_paths.dart';
 import '../../../core/theme/pspf_tokens.dart';
 import '../../../core/utils/file_saver/file_saver.dart';
 import '../../../core/widgets/confirm_dialog.dart';
+import '../../../core/widgets/document_preview/csv_preview.dart';
+import '../../../core/widgets/document_preview/docx_preview.dart';
 import '../../../core/widgets/document_preview/pdf_preview.dart';
+import '../../../core/widgets/document_preview/text_preview.dart';
+import '../../../core/widgets/document_preview/unsupported_file_card.dart';
+import '../../../core/widgets/document_preview/xlsx_preview.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/result_dialog.dart';
 import '../../../core/widgets/status_chip.dart';
@@ -60,6 +65,7 @@ class _ViewerBodyState extends ConsumerState<_ViewerBody> {
   bool _previewLoading = false;
   Uint8List? _previewBytes;
   String? _previewContentType;
+  String? _previewFileName;
   String? _previewError;
 
   @override
@@ -81,6 +87,7 @@ class _ViewerBodyState extends ConsumerState<_ViewerBody> {
       setState(() {
         _previewBytes = Uint8List.fromList(content.bytes);
         _previewContentType = content.contentType;
+        _previewFileName = content.fileName;
       });
     } on ApiException catch (e) {
       if (mounted) setState(() => _previewError = e.message);
@@ -206,6 +213,7 @@ class _ViewerBodyState extends ConsumerState<_ViewerBody> {
             ('Department', doc.department ?? '—'),
             ('Custodian', doc.ownerName ?? '—'),
             ('Version', doc.currentVersionNo != null ? 'v${doc.currentVersionNo}' : '—'),
+            ('Pages', doc.pagesLabel),
             ('Classification', doc.classification),
             ('File plan', doc.folderPath ?? '—'),
             ('Member', doc.memberName ?? doc.memberNumber ?? '—'),
@@ -320,24 +328,43 @@ class _ViewerBodyState extends ConsumerState<_ViewerBody> {
       );
     } else if (_previewBytes case final bytes?) {
       final contentType = _previewContentType ?? '';
+
+      Widget framed(Widget child, {double height = 640}) => Container(
+            height: height,
+            decoration: BoxDecoration(border: Border.all(color: tokens.line)),
+            child: child,
+          );
+
+      const docxType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      const xlsxType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
       if (contentType.startsWith('image/')) {
-        renderedPreview = Container(
+        renderedPreview = framed(
+          InteractiveViewer(child: Center(child: Image.memory(bytes, fit: BoxFit.contain))),
           height: 520,
-          decoration: BoxDecoration(border: Border.all(color: tokens.line)),
-          child: InteractiveViewer(child: Center(child: Image.memory(bytes, fit: BoxFit.contain))),
         );
       } else if (contentType == 'application/pdf') {
-        renderedPreview = Container(
-          height: 640,
-          decoration: BoxDecoration(border: Border.all(color: tokens.line)),
-          child: PdfPreview(bytes: bytes),
-        );
+        renderedPreview = framed(PdfPreview(bytes: bytes));
+      } else if (contentType == docxType) {
+        renderedPreview = framed(DocxPreview(bytes: bytes));
+      } else if (contentType == xlsxType) {
+        renderedPreview = framed(XlsxPreview(bytes: bytes));
+      } else if (contentType == 'text/csv') {
+        renderedPreview = framed(CsvPreview(bytes: bytes));
+      } else if (contentType == 'text/plain') {
+        renderedPreview = framed(TextPreview(bytes: bytes));
       } else {
+        // Legacy binary .doc/.xls (distinct formats from the OOXML docx/
+        // xlsx above — neither viewer package parses them) and anything
+        // else fall back to a professional file-type card rather than
+        // attempting a render likely to fail.
         renderedPreview = SizedBox(
           height: 260,
-          child: messageBox(
-            icon: Icons.description_outlined,
-            message: 'Preview isn\'t supported for this file type — use Download to open the file.',
+          child: UnsupportedFileCard(
+            fileName: _previewFileName ?? doc.title,
+            contentType: contentType,
+            sizeBytes: bytes.length,
+            onDownload: _downloading ? null : _download,
           ),
         );
       }

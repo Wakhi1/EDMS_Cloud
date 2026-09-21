@@ -28,4 +28,28 @@ function buildDocumentFilters({ from, to, departmentId, documentTypeId, folderId
   return { where: clauses.length ? `WHERE ${clauses.join(' AND ')}` : '', params };
 }
 
-module.exports = { buildDocumentFilters };
+/**
+ * Canonical registry of every KPI/graph section the Reports screen can
+ * show — the same keys drive the on-screen "Customize" section picker,
+ * saved report_templates.sections, and GET /api/reports/export's
+ * ?sections= filter, so all three always agree on what a given key means
+ * and an export can never drift from what's selected on screen.
+ */
+const REPORT_SECTIONS = [
+  { key: 'by-status', title: 'Records by status' },
+  { key: 'by-department', title: 'Records by department' },
+  { key: 'by-category', title: 'Records by category' },
+  { key: 'by-folder', title: 'Records by folder (top 15)' },
+  { key: 'by-classification', title: 'Records by classification' },
+  { key: 'capacity', title: 'Storage capacity' },
+  { key: 'captured-over-time', title: 'Records captured over time' },
+  { key: 'capture-by-source', title: 'Capture success by source' },
+  { key: 'claim-turnaround', title: 'Claim turnaround (avg days)' },
+  { key: 'retention-status', title: 'Retention & disposal status' },
+  { key: 'overdue-retention', title: 'Overdue for disposal' },
+  { key: 'audit-actions', title: 'Audit actions breakdown' },
+  { key: 'top-users', title: 'Top audit actors' },
+];
+const REPORT_SECTION_KEYS = REPORT_SECTIONS.map((s) => s.key);
+
+module.exports = { buildDocumentFilters, REPORT_SECTIONS, REPORT_SECTION_KEYS };

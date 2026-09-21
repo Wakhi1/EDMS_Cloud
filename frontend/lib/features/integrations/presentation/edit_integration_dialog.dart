@@ -38,6 +38,7 @@ class _EditIntegrationDialogState extends State<EditIntegrationDialog> {
   late final _userController = TextEditingController(text: '${_config['user'] ?? ''}');
   late final _pathController = TextEditingController(text: '${_config['path'] ?? ''}');
   late final _mailboxController = TextEditingController(text: '${_config['mailbox'] ?? ''}');
+  final _passwordController = TextEditingController();
   late final _intervalController = TextEditingController(
     text: '${_config['pollIntervalSeconds'] ?? _config['pollIntervalMinutes'] ?? ''}',
   );
@@ -57,9 +58,56 @@ class _EditIntegrationDialogState extends State<EditIntegrationDialog> {
   // env-var-not-DB convention as the AD bind password above.
   late final _smsFromController = TextEditingController(text: '${_config['from'] ?? ''}');
 
+  // SMTP config fields — only used/shown for the 'smtp' integration. Reuses
+  // _hostController/_portController/_userController/_passwordController
+  // (already declared above, generically named, otherwise unused by this
+  // branch) rather than duplicating them.
+  late final _smtpFromController = TextEditingController(text: '${_config['from'] ?? ''}');
+  late bool _smtpSecure = _config['secure'] == true;
+
+  // AWS S3 config fields — only used/shown for the 'aws_s3' integration.
+  // secretAccessKey is blank-by-default, same "leave blank to keep the
+  // current value" convention as every other secret field above.
+  late final _awsRegionController = TextEditingController(text: '${_config['region'] ?? ''}');
+  late final _awsAccessKeyIdController = TextEditingController(text: '${_config['accessKeyId'] ?? ''}');
+  final _awsSecretAccessKeyController = TextEditingController();
+  late final _awsBucketController = TextEditingController(text: '${_config['bucket'] ?? ''}');
+
+  // Azure Blob Storage config fields — only used/shown for 'azure_blob'.
+  // connectionString is the one secret field here (it embeds the account
+  // key) — blank-by-default, same convention.
+  final _azureConnectionStringController = TextEditingController();
+  late final _azureContainerController = TextEditingController(text: '${_config['container'] ?? ''}');
+
+  // GCP Storage config fields — only used/shown for 'gcp_storage'.
+  // serviceAccountJson lets an admin paste the whole downloaded key file's
+  // content here instead of needing server filesystem access for
+  // keyFilePath — blank-by-default, same convention.
+  late final _gcpProjectIdController = TextEditingController(text: '${_config['projectId'] ?? ''}');
+  late final _gcpBucketController = TextEditingController(text: '${_config['bucket'] ?? ''}');
+  late final _gcpKeyFilePathController = TextEditingController(text: '${_config['keyFilePath'] ?? ''}');
+  final _gcpServiceAccountJsonController = TextEditingController();
+
+  // Local disk config fields — only used/shown for 'local'. Not a secret
+  // (a server-local path, same treatment as the watched-folder root).
+  late final _localRootPathController = TextEditingController(text: '${_config['rootPath'] ?? ''}');
+
+  // Outbound webhook config fields — only used/shown for 'webhook'. Reuses
+  // _intervalController (already declared above, generic, otherwise unused
+  // by this branch) for the push interval. authToken is blank-by-default,
+  // same "leave blank to keep the current value" convention.
+  late final _webhookUrlController = TextEditingController(text: '${_config['url'] ?? ''}');
+  final _webhookAuthTokenController = TextEditingController();
+
   bool get _isIntakeConnector => _kIntakeConnectorIds.contains(widget.integration.id);
   bool get _isAd => widget.integration.id == 'ad';
   bool get _isSms => widget.integration.id == 'sms';
+  bool get _isSmtp => widget.integration.id == 'smtp';
+  bool get _isAwsS3 => widget.integration.id == 'aws_s3';
+  bool get _isAzureBlob => widget.integration.id == 'azure_blob';
+  bool get _isGcpStorage => widget.integration.id == 'gcp_storage';
+  bool get _isLocal => widget.integration.id == 'local';
+  bool get _isWebhook => widget.integration.id == 'webhook';
 
   @override
   void dispose() {
@@ -71,12 +119,27 @@ class _EditIntegrationDialogState extends State<EditIntegrationDialog> {
     _userController.dispose();
     _pathController.dispose();
     _mailboxController.dispose();
+    _passwordController.dispose();
     _intervalController.dispose();
     _adUrlController.dispose();
     _adBindDnController.dispose();
     _adSearchBaseController.dispose();
     _adSearchFilterController.dispose();
     _smsFromController.dispose();
+    _smtpFromController.dispose();
+    _awsRegionController.dispose();
+    _awsAccessKeyIdController.dispose();
+    _awsSecretAccessKeyController.dispose();
+    _awsBucketController.dispose();
+    _azureConnectionStringController.dispose();
+    _azureContainerController.dispose();
+    _gcpProjectIdController.dispose();
+    _gcpBucketController.dispose();
+    _gcpKeyFilePathController.dispose();
+    _gcpServiceAccountJsonController.dispose();
+    _localRootPathController.dispose();
+    _webhookUrlController.dispose();
+    _webhookAuthTokenController.dispose();
     super.dispose();
   }
 
@@ -99,6 +162,75 @@ class _EditIntegrationDialogState extends State<EditIntegrationDialog> {
     };
   }
 
+  Map<String, dynamic> _buildSmtpConfigJson() {
+    return {
+      'host': _hostController.text.trim(),
+      'port': int.tryParse(_portController.text) ?? 587,
+      'secure': _smtpSecure,
+      'user': _userController.text.trim(),
+      // Blank means "leave the currently-saved password alone" — same
+      // backend merge-on-blank behavior as the intake connectors above.
+      if (_passwordController.text.isNotEmpty) 'password': _passwordController.text,
+      'from': _smtpFromController.text.trim(),
+      'enabled': _enabled,
+    };
+  }
+
+  Map<String, dynamic> _buildAwsConfigJson() {
+    return {
+      'region': _awsRegionController.text.trim(),
+      'accessKeyId': _awsAccessKeyIdController.text.trim(),
+      // Blank means "leave the currently-saved secret key alone" — the
+      // backend merges in the existing value when this key is omitted.
+      if (_awsSecretAccessKeyController.text.isNotEmpty) 'secretAccessKey': _awsSecretAccessKeyController.text,
+      'bucket': _awsBucketController.text.trim(),
+    };
+  }
+
+  Map<String, dynamic> _buildAzureConfigJson() {
+    return {
+      if (_azureConnectionStringController.text.isNotEmpty) 'connectionString': _azureConnectionStringController.text,
+      'container': _azureContainerController.text.trim(),
+    };
+  }
+
+  Map<String, dynamic> _buildGcpConfigJson() {
+    return {
+      'projectId': _gcpProjectIdController.text.trim(),
+      'bucket': _gcpBucketController.text.trim(),
+      'keyFilePath': _gcpKeyFilePathController.text.trim(),
+      if (_gcpServiceAccountJsonController.text.isNotEmpty) 'serviceAccountJson': _gcpServiceAccountJsonController.text,
+    };
+  }
+
+  Map<String, dynamic> _buildLocalConfigJson() {
+    return {'rootPath': _localRootPathController.text.trim()};
+  }
+
+  Map<String, dynamic> _buildWebhookConfigJson() {
+    return {
+      'url': _webhookUrlController.text.trim(),
+      // Blank means "leave the currently-saved auth token alone" — same
+      // backend merge-on-blank behavior as every other secret field above.
+      if (_webhookAuthTokenController.text.isNotEmpty) 'authToken': _webhookAuthTokenController.text,
+      'pollIntervalMinutes': int.tryParse(_intervalController.text) ?? 15,
+      'enabled': _enabled,
+    };
+  }
+
+  Map<String, dynamic>? _buildConfigJsonForSave() {
+    if (_isIntakeConnector) return _buildConfigJson();
+    if (_isAd) return _buildAdConfigJson();
+    if (_isSms) return _buildSmsConfigJson();
+    if (_isSmtp) return _buildSmtpConfigJson();
+    if (_isAwsS3) return _buildAwsConfigJson();
+    if (_isAzureBlob) return _buildAzureConfigJson();
+    if (_isGcpStorage) return _buildGcpConfigJson();
+    if (_isLocal) return _buildLocalConfigJson();
+    if (_isWebhook) return _buildWebhookConfigJson();
+    return null;
+  }
+
   Map<String, dynamic> _buildConfigJson() {
     final id = widget.integration.id;
     final interval = int.tryParse(_intervalController.text) ?? 0;
@@ -106,6 +238,10 @@ class _EditIntegrationDialogState extends State<EditIntegrationDialog> {
       'host': _hostController.text.trim(),
       'port': int.tryParse(_portController.text) ?? (id == 'email_intake' ? 993 : 21),
       'user': _userController.text.trim(),
+      // Blank means "leave the currently-saved password alone" — the
+      // backend (integrations.routes.js PUT /:id) merges in the existing
+      // value when this key is empty/absent, rather than wiping it.
+      if (_passwordController.text.isNotEmpty) 'password': _passwordController.text,
       if (id == 'watched_folder') 'path': _pathController.text.trim(),
       if (id == 'ftp') 'path': _pathController.text.trim().isEmpty ? '/' : _pathController.text.trim(),
       if (id == 'email_intake') 'mailbox': _mailboxController.text.trim().isEmpty ? 'INBOX' : _mailboxController.text.trim(),
@@ -130,7 +266,15 @@ class _EditIntegrationDialogState extends State<EditIntegrationDialog> {
               const SizedBox(height: 12),
               TextField(controller: _descriptionController, decoration: const InputDecoration(labelText: 'Description')),
               const SizedBox(height: 12),
-              if (!_isIntakeConnector && !_isAd && !_isSms) ...[
+              if (!_isIntakeConnector &&
+                  !_isAd &&
+                  !_isSms &&
+                  !_isSmtp &&
+                  !_isAwsS3 &&
+                  !_isAzureBlob &&
+                  !_isGcpStorage &&
+                  !_isLocal &&
+                  !_isWebhook) ...[
                 TextField(controller: _endpointController, decoration: const InputDecoration(labelText: 'Endpoint')),
                 const SizedBox(height: 12),
               ],
@@ -156,9 +300,10 @@ class _EditIntegrationDialogState extends State<EditIntegrationDialog> {
                   const SizedBox(height: 12),
                   TextField(controller: _userController, decoration: const InputDecoration(labelText: 'Username')),
                   const SizedBox(height: 12),
-                  Text(
-                    'Password is set via the backend .env file (${widget.integration.id == 'ftp' ? 'FTP_INTAKE_PASSWORD' : 'IMAP_INTAKE_PASSWORD'}), not here.',
-                    style: const TextStyle(fontSize: 11.5),
+                  TextField(
+                    controller: _passwordController,
+                    obscureText: true,
+                    decoration: const InputDecoration(labelText: 'Password', hintText: 'Leave blank to keep the current password'),
                   ),
                   const SizedBox(height: 12),
                 ],
@@ -245,6 +390,135 @@ class _EditIntegrationDialogState extends State<EditIntegrationDialog> {
                   title: const Text('Enabled'),
                 ),
               ],
+              if (_isSmtp) ...[
+                const Divider(height: 28),
+                Text('Connection', style: Theme.of(context).textTheme.titleSmall),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(flex: 2, child: TextField(controller: _hostController, decoration: const InputDecoration(labelText: 'Host'))),
+                    const SizedBox(width: 8),
+                    Expanded(child: TextField(controller: _portController, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Port'))),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                TextField(controller: _userController, decoration: const InputDecoration(labelText: 'Username')),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _passwordController,
+                  obscureText: true,
+                  decoration: const InputDecoration(labelText: 'Password', hintText: 'Leave blank to keep the current password'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _smtpFromController,
+                  decoration: const InputDecoration(labelText: 'From', hintText: 'PSPF EDMS <no-reply@pspf.co.sz>'),
+                ),
+                const SizedBox(height: 4),
+                CheckboxListTile(
+                  value: _smtpSecure,
+                  onChanged: (v) => setState(() => _smtpSecure = v ?? false),
+                  controlAffinity: ListTileControlAffinity.leading,
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: const Text('Use TLS/SSL (secure)'),
+                ),
+                CheckboxListTile(
+                  value: _enabled,
+                  onChanged: (v) => setState(() => _enabled = v ?? false),
+                  controlAffinity: ListTileControlAffinity.leading,
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: const Text('Enabled'),
+                ),
+              ],
+              if (_isAwsS3) ...[
+                const Divider(height: 28),
+                Text('Connection', style: Theme.of(context).textTheme.titleSmall),
+                const SizedBox(height: 10),
+                TextField(controller: _awsRegionController, decoration: const InputDecoration(labelText: 'Region (e.g. eu-north-1)')),
+                const SizedBox(height: 12),
+                TextField(controller: _awsAccessKeyIdController, decoration: const InputDecoration(labelText: 'Access key ID')),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _awsSecretAccessKeyController,
+                  obscureText: true,
+                  decoration: const InputDecoration(labelText: 'Secret access key', hintText: 'Leave blank to keep the current value'),
+                ),
+                const SizedBox(height: 12),
+                TextField(controller: _awsBucketController, decoration: const InputDecoration(labelText: 'Bucket')),
+              ],
+              if (_isAzureBlob) ...[
+                const Divider(height: 28),
+                Text('Connection', style: Theme.of(context).textTheme.titleSmall),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: _azureConnectionStringController,
+                  obscureText: true,
+                  decoration: const InputDecoration(labelText: 'Connection string', hintText: 'Leave blank to keep the current value'),
+                ),
+                const SizedBox(height: 12),
+                TextField(controller: _azureContainerController, decoration: const InputDecoration(labelText: 'Container')),
+              ],
+              if (_isGcpStorage) ...[
+                const Divider(height: 28),
+                Text('Connection', style: Theme.of(context).textTheme.titleSmall),
+                const SizedBox(height: 10),
+                TextField(controller: _gcpProjectIdController, decoration: const InputDecoration(labelText: 'Project ID')),
+                const SizedBox(height: 12),
+                TextField(controller: _gcpBucketController, decoration: const InputDecoration(labelText: 'Bucket')),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _gcpServiceAccountJsonController,
+                  maxLines: 4,
+                  decoration: const InputDecoration(
+                    labelText: 'Service account JSON key',
+                    hintText: 'Paste the downloaded key file\'s contents — leave blank to keep the current value',
+                    alignLabelWithHint: true,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _gcpKeyFilePathController,
+                  decoration: const InputDecoration(labelText: 'Key file path (used only if no JSON key is set above)'),
+                ),
+              ],
+              if (_isLocal) ...[
+                const Divider(height: 28),
+                Text('Connection', style: Theme.of(context).textTheme.titleSmall),
+                const SizedBox(height: 10),
+                TextField(controller: _localRootPathController, decoration: const InputDecoration(labelText: 'Root path on the server')),
+              ],
+              if (_isWebhook) ...[
+                const Divider(height: 28),
+                Text('Connection', style: Theme.of(context).textTheme.titleSmall),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: _webhookUrlController,
+                  decoration: const InputDecoration(labelText: 'Webhook URL', hintText: 'https://example.com/hooks/pspf-edms'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _webhookAuthTokenController,
+                  obscureText: true,
+                  decoration: const InputDecoration(labelText: 'Auth token (sent as Bearer)', hintText: 'Leave blank to keep the current value'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _intervalController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Push interval (minutes)'),
+                ),
+                const SizedBox(height: 4),
+                CheckboxListTile(
+                  value: _enabled,
+                  onChanged: (v) => setState(() => _enabled = v ?? false),
+                  controlAffinity: ListTileControlAffinity.leading,
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: const Text('Enabled — push automatically while the server is running'),
+                ),
+              ],
             ],
           ),
         ),
@@ -257,9 +531,7 @@ class _EditIntegrationDialogState extends State<EditIntegrationDialog> {
             description: _descriptionController.text.trim(),
             status: _status,
             endpoint: _isAd ? _adUrlController.text.trim() : _endpointController.text.trim(),
-            configJson: _isIntakeConnector
-                ? _buildConfigJson()
-                : (_isAd ? _buildAdConfigJson() : (_isSms ? _buildSmsConfigJson() : null)),
+            configJson: _buildConfigJsonForSave(),
           )),
           child: const Text('Save'),
         ),

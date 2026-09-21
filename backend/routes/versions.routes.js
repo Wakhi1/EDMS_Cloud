@@ -16,6 +16,7 @@ const aclService = require('../services/acl.service');
 const { envelopeEncryptFile } = require('../services/crypto.service');
 const storageService = require('../services/storage/storage.service');
 const ocrService = require('../services/ocr.service');
+const { countPages } = require('../services/pageCount.service');
 
 const router = express.Router();
 router.use(authenticate);
@@ -26,7 +27,7 @@ router.get('/document/:documentId', requireModuleAccess('versions'), asyncHandle
     return fail(res, 'You do not have access to this record', 403);
   }
   const [rows] = await pool.query(
-    `SELECT dv.id, dv.version_no, dv.file_name, dv.size_bytes, dv.is_current, dv.created_at, u.full_name AS created_by
+    `SELECT dv.id, dv.version_no, dv.file_name, dv.size_bytes, dv.page_count, dv.page_count_estimated, dv.is_current, dv.created_at, u.full_name AS created_by
      FROM document_versions dv JOIN users u ON u.id = dv.created_by
      WHERE dv.document_id = ? ORDER BY dv.version_no DESC`,
     [req.params.documentId]
@@ -43,6 +44,7 @@ router.post('/document/:documentId', requireModuleAccess('versions', true), uplo
   }
 
   const ocrResult = await ocrService.extractText(req.file.buffer, req.file.mimetype, req.file.originalname);
+  const pages = await countPages(req.file.buffer, req.file.mimetype, req.file.originalname);
 
   const conn = await pool.getConnection();
   try {
@@ -70,9 +72,9 @@ router.post('/document/:documentId', requireModuleAccess('versions', true), uplo
 
     const [version] = await conn.query(
       `INSERT INTO document_versions
-         (company_id, document_id, version_no, file_name, mime_type, size_bytes, storage_object_id, ocr_text, is_current, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
-      [req.user.companyId, documentId, nextVersion, req.file.originalname, req.file.mimetype, req.file.size, storageRow.insertId, ocrResult.text, req.user.id]
+         (company_id, document_id, version_no, file_name, mime_type, size_bytes, page_count, page_count_estimated, storage_object_id, ocr_text, is_current, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+      [req.user.companyId, documentId, nextVersion, req.file.originalname, req.file.mimetype, req.file.size, pages.count, pages.estimated ? 1 : 0, storageRow.insertId, ocrResult.text, req.user.id]
     );
 
     const [kek] = await conn.query('SELECT id FROM key_encryption_keys WHERE is_active = 1 LIMIT 1');
