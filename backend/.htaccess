@@ -1,0 +1,10 @@
+# The API folder may sit inside the public web root (cPanel). Its files —
+# .env, service-account keys, source, storage, logs — must never be served
+# directly; requests reach the app through Node.js/Passenger instead.
+<IfModule mod_authz_core.c>
+  Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+  Order allow,deny
+  Deny from all
+</IfModule>

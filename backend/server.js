@@ -9,6 +9,10 @@
  * production. helmet() + hsts below assume TLS is present; see the
  * "Encryption in transit" note in README.md.
  */
+// Hosts like cPanel start the app from the site root (startup file
+// "edms_api/server.js"); run from this folder so .env and the relative
+// ./storage, ./logs, ./backup-tmp paths resolve here, not in public_html.
+process.chdir(__dirname);
 require("dotenv").config();
 const express = require("express");
 const helmet = require("helmet");
