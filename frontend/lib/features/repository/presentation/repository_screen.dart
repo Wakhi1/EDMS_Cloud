@@ -31,22 +31,28 @@ class RepositoryScreen extends ConsumerWidget {
     final documentsAsync = ref.watch(repositoryDocumentsProvider);
     final recycleBin = ref.watch(repositoryRecycleBinProvider);
 
+    final sort = ref.watch(repositorySortProvider);
+    final viewMode = ref.watch(repositoryViewModeProvider);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(18, 14, 18, 10),
+          padding: const EdgeInsets.fromLTRB(18, 12, 18, 10),
           child: LayoutBuilder(
             builder: (context, constraints) {
-              final title = Text(
-                recycleBin ? 'Records / Repository / Recycle bin' : 'Records / Repository',
-                style: Theme.of(context).textTheme.titleMedium,
+              final title = Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(recycleBin ? 'Recycle bin' : 'Repository', style: Theme.of(context).textTheme.titleMedium),
+                  Text(recycleBin ? 'Records / Repository / Recycle bin' : 'Records / Repository', style: TextStyle(fontSize: 11, color: context.tokens.ink3)),
+                ],
               );
               final filterBar = _FilterBar();
               const viewToggle = _ViewModeToggle();
               const recycleToggle = _RecycleBinToggle();
               const emptyBinButton = _EmptyRecycleBinButton();
-              if (constraints.maxWidth < 560) {
+              if (constraints.maxWidth < 640) {
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -57,19 +63,14 @@ class RepositoryScreen extends ConsumerWidget {
                 );
               }
               return Row(
-                children: [
-                  title,
-                  const Spacer(),
-                  filterBar,
-                  const SizedBox(width: 10),
-                  emptyBinButton,
-                  recycleToggle,
-                  const SizedBox(width: 8),
-                  viewToggle,
-                ],
+                children: [title, const Spacer(), filterBar, const SizedBox(width: 8), emptyBinButton, recycleToggle, const SizedBox(width: 8), viewToggle],
               );
             },
           ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(18, 0, 18, 12),
+          child: _RepositoryStats(docs: documentsAsync.valueOrNull, recycleBin: recycleBin),
         ),
         Expanded(
           child: Padding(
@@ -77,27 +78,28 @@ class RepositoryScreen extends ConsumerWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (showTree) const SizedBox(width: 190, child: _FolderTree()),
-                if (showTree) const SizedBox(width: 16),
+                if (showTree) const SizedBox(width: 200, child: _FolderTree()),
+                if (showTree) const SizedBox(width: 12),
                 Expanded(
                   child: documentsAsync.when(
-                    loading: () =>
-                        const Center(child: CircularProgressIndicator()),
-                    error: (error, _) => ErrorState(
-                      message: error is ApiException ? error.message : '$error',
-                      onRetry: () =>
-                          ref.invalidate(repositoryDocumentsProvider),
-                    ),
-                    data: (docs) => ref.watch(repositoryViewModeProvider) == RepositoryViewMode.grid
-                        ? _DocumentGrid(docs: docs, recycleBin: recycleBin)
-                        : _DocumentList(docs: docs, recycleBin: recycleBin),
+                    loading: () => const Center(child: CircularProgressIndicator()),
+                    error: (error, _) =>
+                        ErrorState(message: error is ApiException ? error.message : '$error', onRetry: () => ref.invalidate(repositoryDocumentsProvider)),
+                    data: (docs) {
+                      final sorted = _sortDocuments(docs, sort.column, sort.ascending);
+                      return switch (viewMode) {
+                        RepositoryViewMode.grid => _DocumentGrid(docs: sorted, recycleBin: recycleBin),
+                        RepositoryViewMode.list => _DocumentCompactList(docs: sorted, recycleBin: recycleBin),
+                        RepositoryViewMode.table => _DocumentTable(docs: sorted, recycleBin: recycleBin),
+                      };
+                    },
                   ),
                 ),
                 if (showDetails) ...[
-                  const SizedBox(width: 16),
-                  detailsCollapsed
+                  const SizedBox(width: 12),
+                  detailsCollapsed || ref.watch(selectedDocumentProvider) == null
                       ? const _CollapsedDetailsTab()
-                      : const SizedBox(width: 280, child: _PropertiesPanel()),
+                      : const SizedBox(width: 260, child: _PropertiesPanel()),
                 ],
               ],
             ),
@@ -123,9 +125,7 @@ class _RecycleBinToggle extends ConsumerWidget {
           ref.read(repositoryRecycleBinProvider.notifier).state = !active;
           ref.read(selectedDocumentProvider.notifier).state = null;
         },
-        style: active
-            ? OutlinedButton.styleFrom(backgroundColor: tokens.sel, foregroundColor: tokens.ink)
-            : null,
+        style: active ? OutlinedButton.styleFrom(backgroundColor: tokens.sel, foregroundColor: tokens.ink) : null,
         icon: Icon(active ? Icons.arrow_back : Icons.delete_outline, size: 16),
         label: Text(active ? 'Back' : 'Recycle bin'),
       ),
@@ -203,7 +203,10 @@ class _CollapsedDetailsTab extends ConsumerWidget {
         onTap: () => ref.read(repositoryDetailsCollapsedProvider.notifier).state = false,
         child: Container(
           width: 28,
-          decoration: BoxDecoration(border: Border.all(color: tokens.line), color: tokens.surf),
+          decoration: BoxDecoration(
+            border: Border.all(color: tokens.line),
+            color: tokens.surf,
+          ),
           alignment: Alignment.topCenter,
           padding: const EdgeInsets.only(top: 10),
           child: Icon(Icons.chevron_left, size: 18, color: tokens.ink2),
@@ -224,21 +227,15 @@ class _FilterBarState extends ConsumerState<_FilterBar> {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 260,
-      height: 34,
+      width: 240,
+      height: 32,
       child: TextField(
         controller: _controller,
         style: const TextStyle(fontSize: 13),
-        decoration: const InputDecoration(
-          isDense: true,
-          hintText: 'Filter this folder…',
-          prefixIcon: Icon(Icons.search, size: 16),
-        ),
+        decoration: const InputDecoration(isDense: true, hintText: 'Filter this folder…', prefixIcon: Icon(Icons.search, size: 16)),
         onSubmitted: (q) {
           final filters = ref.read(repositoryFiltersProvider);
-          ref.read(repositoryFiltersProvider.notifier).state = filters.copyWith(
-            q: q,
-          );
+          ref.read(repositoryFiltersProvider.notifier).state = filters.copyWith(q: q);
         },
       ),
     );
@@ -260,11 +257,11 @@ class _ViewModeToggle extends ConsumerWidget {
         child: InkWell(
           onTap: () => ref.read(repositoryViewModeProvider.notifier).state = value,
           child: Container(
-            width: 32,
-            height: 32,
+            width: 30,
+            height: 30,
             alignment: Alignment.center,
             color: selected ? tokens.sel : Colors.transparent,
-            child: Icon(icon, size: 17, color: selected ? tokens.ink : tokens.ink2),
+            child: Icon(icon, size: 16, color: selected ? tokens.accD : tokens.ink2),
           ),
         ),
       );
@@ -275,14 +272,138 @@ class _ViewModeToggle extends ConsumerWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          button(RepositoryViewMode.list, Icons.view_list_outlined, 'List view'),
-          Container(width: 1, height: 32, color: tokens.line),
-          button(RepositoryViewMode.grid, Icons.grid_view_outlined, 'Grid view'),
+          button(RepositoryViewMode.list, PhosphorIconsRegular.listBullets, 'List view'),
+          Container(width: 1, height: 30, color: tokens.line),
+          button(RepositoryViewMode.table, PhosphorIconsRegular.table, 'Table view'),
+          Container(width: 1, height: 30, color: tokens.line),
+          button(RepositoryViewMode.grid, PhosphorIconsRegular.squaresFour, 'Grid view'),
         ],
       ),
     );
   }
 }
+
+/// Compact figures for exactly what's in view (the current folder/filter),
+/// computed from the already-loaded page — no extra request.
+class _RepositoryStats extends StatelessWidget {
+  const _RepositoryStats({required this.docs, required this.recycleBin});
+
+  final List<DocumentRecord>? docs;
+  final bool recycleBin;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.tokens;
+    final list = docs;
+    int count(String status) => list?.where((d) => d.status == status).length ?? 0;
+    final pages = list?.fold<int>(0, (s, d) => s + (d.pageCount ?? 0));
+    final estimated = list?.any((d) => d.pageCountEstimated) ?? false;
+    final bytes = list?.fold<int>(0, (s, d) => s + (d.sizeBytes ?? 0));
+    final types = list?.map((d) => d.documentType).whereType<String>().toSet().length;
+
+    final stats = <(IconData, String, String, Color?)>[
+      (PhosphorIconsRegular.files, recycleBin ? 'In bin' : 'Records', list == null ? '…' : '${list.length}', null),
+      if (!recycleBin) ...[
+        (PhosphorIconsRegular.pencilSimpleLine, 'Draft', '${count('draft')}', tokens.acc2),
+        (PhosphorIconsRegular.hourglassMedium, 'Pending', '${count('pending_approval')}', tokens.warn),
+        (PhosphorIconsRegular.sealCheck, 'Approved', '${count('approved') + count('declared_final')}', tokens.ok),
+      ],
+      (PhosphorIconsRegular.bookOpenText, 'Pages', pages == null ? '…' : '${estimated ? '~' : ''}$pages', null),
+      (PhosphorIconsRegular.hardDrives, 'Size', bytes == null ? '…' : _formatSize(bytes), null),
+      (PhosphorIconsRegular.tag, 'Types', types == null ? '…' : '$types', null),
+    ];
+
+    return Container(
+      decoration: BoxDecoration(
+        color: tokens.surf,
+        border: Border.all(color: tokens.line),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final perRow = constraints.maxWidth >= 760 ? stats.length : (constraints.maxWidth >= 420 ? 4 : 2);
+          final cellWidth = (constraints.maxWidth - 2) / perRow;
+          return Wrap(
+            children: [
+              for (var i = 0; i < stats.length; i++)
+                Container(
+                  width: cellWidth,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    border: Border(right: i % perRow == perRow - 1 ? BorderSide.none : BorderSide(color: tokens.line)),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 26,
+                        height: 26,
+                        alignment: Alignment.center,
+                        color: (stats[i].$4 ?? tokens.accD).withValues(alpha: 0.1),
+                        child: Icon(stats[i].$1, size: 14, color: stats[i].$4 ?? tokens.accD),
+                      ),
+                      const SizedBox(width: 9),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              stats[i].$3,
+                              maxLines: 1,
+                              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: tokens.ink, height: 1.15),
+                            ),
+                            Text(
+                              stats[i].$2,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(fontSize: 10.5, color: tokens.ink2),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+String _formatSize(int bytes) {
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  var value = bytes.toDouble();
+  var unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return '${value.toStringAsFixed(unit == 0 || value >= 100 ? 0 : 1)} ${units[unit]}';
+}
+
+String _date(String? iso) => iso?.split('T').first.split(' ').first ?? '—';
+
+List<DocumentRecord> _sortDocuments(List<DocumentRecord> docs, RepositorySortColumn? column, bool ascending) {
+  if (column == null) return docs;
+  int compare(DocumentRecord a, DocumentRecord b) => switch (column) {
+    RepositorySortColumn.recordNo => a.recordNo.compareTo(b.recordNo),
+    RepositorySortColumn.title => a.title.toLowerCase().compareTo(b.title.toLowerCase()),
+    RepositorySortColumn.type => (a.documentType ?? '').compareTo(b.documentType ?? ''),
+    RepositorySortColumn.status => a.status.compareTo(b.status),
+    RepositorySortColumn.pages => (a.pageCount ?? -1).compareTo(b.pageCount ?? -1),
+    RepositorySortColumn.registered => (a.createdAt ?? '').compareTo(b.createdAt ?? ''),
+  };
+  final sorted = [...docs]..sort(compare);
+  return ascending ? sorted : sorted.reversed.toList();
+}
+
+/// Icon buttons without Material's 48px tap-target padding, so rows stay dense.
+final _compactIconStyle = IconButton.styleFrom(
+  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+  visualDensity: VisualDensity.compact,
+  minimumSize: const Size(26, 26),
+  padding: EdgeInsets.zero,
+);
 
 final _fileplanSearchProvider = StateProvider.autoDispose<String>((ref) => '');
 
@@ -315,16 +436,12 @@ class _FolderTree extends ConsumerWidget {
               children: [
                 Expanded(child: Text('FILE PLAN', style: Theme.of(context).textTheme.labelSmall)),
                 IconButton(
+                  style: _compactIconStyle,
                   tooltip: 'New folder',
                   icon: Icon(Icons.create_new_folder_outlined, size: 16, color: tokens.ink2),
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
-                  onPressed: () => _createFolder(
-                    context,
-                    ref,
-                    folders: foldersAsync.valueOrNull ?? const [],
-                    initialParentId: filters.folderId,
-                  ),
+                  onPressed: () => _createFolder(context, ref, folders: foldersAsync.valueOrNull ?? const [], initialParentId: filters.folderId),
                 ),
               ],
             ),
@@ -335,11 +452,7 @@ class _FolderTree extends ConsumerWidget {
               height: 30,
               child: TextField(
                 style: const TextStyle(fontSize: 12),
-                decoration: const InputDecoration(
-                  isDense: true,
-                  hintText: 'Search folders…',
-                  prefixIcon: Icon(Icons.search, size: 14),
-                ),
+                decoration: const InputDecoration(isDense: true, hintText: 'Search folders…', prefixIcon: Icon(Icons.search, size: 14)),
                 onChanged: (v) => ref.read(_fileplanSearchProvider.notifier).state = v,
               ),
             ),
@@ -360,29 +473,19 @@ class _FolderTree extends ConsumerWidget {
                         label: 'All records',
                         selected: filters.folderId == null,
                         onTap: () {
-                          ref.read(repositoryFiltersProvider.notifier).state =
-                              filters.copyWith(folderId: () => null);
+                          ref.read(repositoryFiltersProvider.notifier).state = filters.copyWith(folderId: () => null);
                         },
                       ),
                     foldersAsync.when(
-                      loading: () => const Padding(
-                        padding: EdgeInsets.all(12),
-                        child: LinearProgressIndicator(),
-                      ),
+                      loading: () => const Padding(padding: EdgeInsets.all(12), child: LinearProgressIndicator()),
                       error: (e, _) => Padding(
                         padding: const EdgeInsets.all(10),
-                        child: Text(
-                          '$e',
-                          style: TextStyle(color: tokens.bad, fontSize: 11),
-                        ),
+                        child: Text('$e', style: TextStyle(color: tokens.bad, fontSize: 11)),
                       ),
                       data: (folders) {
                         final q = search.trim().toLowerCase();
-                        final sorted = [...folders]
-                          ..sort((a, b) => a.path.compareTo(b.path));
-                        final matched = q.isEmpty
-                            ? sorted
-                            : sorted.where((f) => f.name.toLowerCase().contains(q) || f.path.toLowerCase().contains(q)).toList();
+                        final sorted = [...folders]..sort((a, b) => a.path.compareTo(b.path));
+                        final matched = q.isEmpty ? sorted : sorted.where((f) => f.name.toLowerCase().contains(q) || f.path.toLowerCase().contains(q)).toList();
                         if (q.isNotEmpty && matched.isEmpty) {
                           return Padding(
                             padding: const EdgeInsets.all(12),
@@ -428,8 +531,7 @@ class _FolderTree extends ConsumerWidget {
                                   return next;
                                 }),
                                 onTap: () {
-                                  ref.read(repositoryFiltersProvider.notifier).state =
-                                      filters.copyWith(folderId: () => f.id);
+                                  ref.read(repositoryFiltersProvider.notifier).state = filters.copyWith(folderId: () => f.id);
                                 },
                               ),
                           ],
@@ -474,13 +576,7 @@ class _FolderRow extends ConsumerWidget {
   final VoidCallback? onToggleCollapse;
 
   Future<void> _rename(BuildContext context, WidgetRef ref) async {
-    final newName = await ConfirmDialog.show(
-      context,
-      title: 'Rename "$label"',
-      fieldLabel: 'Folder name',
-      initialFieldValue: label,
-      okLabel: 'Rename',
-    );
+    final newName = await ConfirmDialog.show(context, title: 'Rename "$label"', fieldLabel: 'Folder name', initialFieldValue: label, okLabel: 'Rename');
     if (newName == null || newName.trim().isEmpty || newName.trim() == label) return;
 
     try {
@@ -516,66 +612,56 @@ class _FolderRow extends ConsumerWidget {
     final tokens = context.tokens;
 
     Widget row({bool hovering = false}) => Container(
-          padding: EdgeInsets.fromLTRB(10 + indent * 12, 6, 4, 6),
-          decoration: BoxDecoration(
-            color: hovering ? tokens.acc.withValues(alpha: 0.18) : (selected ? tokens.sel : Colors.transparent),
-            border: Border(
-              bottom: BorderSide(color: tokens.line),
-              left: hovering ? BorderSide(color: tokens.accD, width: 3) : BorderSide.none,
+      padding: EdgeInsets.fromLTRB(10 + indent * 12, 6, 4, 6),
+      decoration: BoxDecoration(
+        color: hovering ? tokens.acc.withValues(alpha: 0.18) : (selected ? tokens.sel : Colors.transparent),
+        border: Border(
+          bottom: BorderSide(color: tokens.line),
+          left: hovering ? BorderSide(color: tokens.accD, width: 3) : BorderSide.none,
+        ),
+      ),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 16,
+            child: hasChildren
+                ? InkWell(
+                    onTap: onToggleCollapse,
+                    child: Icon(collapsed ? Icons.chevron_right : Icons.expand_more, size: 15, color: tokens.ink2),
+                  )
+                : null,
+          ),
+          Icon(PhosphorIconsDuotone.folder, size: 15, color: tokens.accD),
+          const SizedBox(width: 7),
+          Expanded(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 12.5, color: selected ? tokens.ink : tokens.ink2),
             ),
           ),
-          child: Row(
-            children: [
-              SizedBox(
-                width: 16,
-                child: hasChildren
-                    ? InkWell(
-                        onTap: onToggleCollapse,
-                        child: Icon(
-                          collapsed ? Icons.chevron_right : Icons.expand_more,
-                          size: 15,
-                          color: tokens.ink2,
-                        ),
-                      )
-                    : null,
-              ),
-              Icon(PhosphorIconsDuotone.folder, size: 15, color: tokens.accD),
-              const SizedBox(width: 7),
-              Expanded(
-                child: Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 12.5,
-                    color: selected ? tokens.ink : tokens.ink2,
-                  ),
-                ),
-              ),
-              if (storageProviders != null) ...[
-                StorageLocationIcon(provider: storageProviders, size: 12, color: tokens.ink3),
-                const SizedBox(width: 4),
-              ],
-              if (folderId != null)
-                IconButton(
-                  tooltip: 'Manage access',
-                  icon: Icon(PhosphorIconsDuotone.lockKey, size: 15, color: tokens.ink2),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
-                  onPressed: () => context.go('/permissions/folder/$folderId'),
-                ),
-              if (folderId != null)
-                PopupMenuButton<String>(
-                  tooltip: 'More',
-                  padding: EdgeInsets.zero,
-                  icon: Icon(Icons.more_vert, size: 15, color: tokens.ink2),
-                  itemBuilder: (_) => const [
-                    PopupMenuItem(value: 'rename', child: Text('Rename')),
-                    PopupMenuItem(value: 'delete', child: Text('Delete')),
-                  ],
-                  onSelected: (v) => v == 'rename' ? _rename(context, ref) : _delete(context, ref),
-                ),
-            ],
-          ),
-        );
+          if (storageProviders != null) ...[StorageLocationIcon(provider: storageProviders, size: 12, color: tokens.ink3), const SizedBox(width: 4)],
+          if (folderId != null)
+            IconButton(
+              style: _compactIconStyle,
+              tooltip: 'Manage access',
+              icon: Icon(PhosphorIconsDuotone.lockKey, size: 15, color: tokens.ink2),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+              onPressed: () => context.go('/permissions/folder/$folderId'),
+            ),
+          if (folderId != null)
+            PopupMenuButton<String>(
+              tooltip: 'More',
+              padding: EdgeInsets.zero,
+              child: SizedBox(width: 24, height: 24, child: Icon(PhosphorIconsBold.dotsThreeVertical, size: 14, color: tokens.ink2)),
+              itemBuilder: (_) => const [PopupMenuItem(value: 'rename', child: Text('Rename')), PopupMenuItem(value: 'delete', child: Text('Delete'))],
+              onSelected: (v) => v == 'rename' ? _rename(context, ref) : _delete(context, ref),
+            ),
+        ],
+      ),
+    );
 
     if (folderId == null) {
       return InkWell(onTap: onTap, child: row());
@@ -585,7 +671,10 @@ class _FolderRow extends ConsumerWidget {
       onWillAcceptWithDetails: (details) => true,
       onAcceptWithDetails: (details) => _moveDocument(context, ref, details.data, folderId: folderId!, folderLabel: label),
       builder: (context, candidateData, rejectedData) {
-        return InkWell(onTap: onTap, child: row(hovering: candidateData.isNotEmpty));
+        return InkWell(
+          onTap: onTap,
+          child: row(hovering: candidateData.isNotEmpty),
+        );
       },
     );
   }
@@ -599,12 +688,9 @@ Future<void> _createFolder(BuildContext context, WidgetRef ref, {required List<F
   if (result == null) return;
 
   try {
-    await ref.read(foldersApiProvider).create(
-          name: result.name,
-          parentId: result.parentId,
-          storageProviderId: result.storageProviderId,
-          storagePrefix: result.storagePrefix,
-        );
+    await ref
+        .read(foldersApiProvider)
+        .create(name: result.name, parentId: result.parentId, storageProviderId: result.storageProviderId, storagePrefix: result.storagePrefix);
     ref.invalidate(foldersProvider);
     if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Folder created.')));
   } on ApiException catch (e) {
@@ -630,24 +716,28 @@ Future<void> _editDocument(BuildContext context, WidgetRef ref, DocumentRecord d
   }
   if (!context.mounted) return;
 
-  final result = await showDialog<
-      ({
-        String title,
-        int documentTypeId,
-        int folderId,
-        int? departmentId,
-        String classification,
-        String watermarkMode,
-        String? memberNumber,
-        String? memberName,
-      })>(
-    context: context,
-    builder: (_) => EditDocumentDialog(doc: doc, types: types, folders: folders, departments: departments),
-  );
+  final result =
+      await showDialog<
+        ({
+          String title,
+          int documentTypeId,
+          int folderId,
+          int? departmentId,
+          String classification,
+          String watermarkMode,
+          String? memberNumber,
+          String? memberName,
+        })
+      >(
+        context: context,
+        builder: (_) => EditDocumentDialog(doc: doc, types: types, folders: folders, departments: departments),
+      );
   if (result == null) return;
 
   try {
-    await ref.read(documentsApiProvider).update(
+    await ref
+        .read(documentsApiProvider)
+        .update(
           doc.id,
           title: result.title,
           documentTypeId: result.documentTypeId,
@@ -723,6 +813,7 @@ class _DocumentActionsButton extends ConsumerWidget {
     final tokens = context.tokens;
     if (recycleBin) {
       return IconButton(
+        style: _compactIconStyle,
         tooltip: 'Restore',
         icon: Icon(Icons.restore_from_trash_outlined, size: 17, color: tokens.ink2),
         padding: EdgeInsets.zero,
@@ -734,6 +825,7 @@ class _DocumentActionsButton extends ConsumerWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         IconButton(
+          style: _compactIconStyle,
           tooltip: 'Manage access',
           icon: Icon(Icons.lock_outline, size: 15, color: tokens.ink2),
           padding: EdgeInsets.zero,
@@ -744,11 +836,8 @@ class _DocumentActionsButton extends ConsumerWidget {
         PopupMenuButton<String>(
           tooltip: 'More',
           padding: EdgeInsets.zero,
-          icon: Icon(Icons.more_vert, size: 16, color: tokens.ink2),
-          itemBuilder: (_) => const [
-            PopupMenuItem(value: 'edit', child: Text('Edit')),
-            PopupMenuItem(value: 'delete', child: Text('Delete')),
-          ],
+          child: SizedBox(width: 26, height: 26, child: Icon(PhosphorIconsBold.dotsThreeVertical, size: 15, color: tokens.ink2)),
+          itemBuilder: (_) => const [PopupMenuItem(value: 'edit', child: Text('Edit')), PopupMenuItem(value: 'delete', child: Text('Delete'))],
           onSelected: (v) => v == 'edit' ? _editDocument(context, ref, doc) : _deleteDocument(context, ref, doc),
         ),
       ],
@@ -756,116 +845,275 @@ class _DocumentActionsButton extends ConsumerWidget {
   }
 }
 
-class _DocumentList extends ConsumerWidget {
-  const _DocumentList({required this.docs, required this.recycleBin});
+/// Opens a record in the viewer, remembering it as the selection.
+void _openDocument(BuildContext context, WidgetRef ref, DocumentRecord d) {
+  ref.read(selectedDocumentProvider.notifier).state = d;
+  context.go(RoutePaths.viewerFor('${d.id}'));
+}
+
+/// Wraps a row/card so it can be dragged onto a File Plan folder (not in the recycle bin).
+Widget _draggable(DocumentRecord d, bool recycleBin, Widget content, VoidCallback onTap) {
+  final tappable = InkWell(onTap: onTap, child: content);
+  if (recycleBin) return tappable;
+  return Draggable<DocumentRecord>(
+    data: d,
+    feedback: _DragFeedback(doc: d),
+    childWhenDragging: Opacity(opacity: 0.4, child: content),
+    child: tappable,
+  );
+}
+
+/// Full-column table with sortable headers.
+class _DocumentTable extends ConsumerWidget {
+  const _DocumentTable({required this.docs, required this.recycleBin});
 
   final List<DocumentRecord> docs;
   final bool recycleBin;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    if (docs.isEmpty) {
-      return const EmptyState(
-        message: 'No records match. Try clearing the filters.',
-      );
-    }
+    if (docs.isEmpty) return const EmptyState(message: 'No records match. Try clearing the filters.');
     final tokens = context.tokens;
     final selected = ref.watch(selectedDocumentProvider);
+    final sort = ref.watch(repositorySortProvider);
 
-    const flexes = [2, 3, 2, 2, 2, 1, 2];
+    const columns = <(String, int, RepositorySortColumn?)>[
+      ('Record no.', 3, RepositorySortColumn.recordNo),
+      ('Title', 5, RepositorySortColumn.title),
+      ('Type', 3, RepositorySortColumn.type),
+      ('Department', 2, null),
+      ('Status', 3, RepositorySortColumn.status),
+      ('Pages', 1, RepositorySortColumn.pages),
+      ('Registered', 2, RepositorySortColumn.registered),
+    ];
 
-    Widget cell(String text, int flex, {Widget? child}) {
+    Widget header((String, int, RepositorySortColumn?) c) {
+      final (label, flex, column) = c;
+      final active = column != null && sort.column == column;
+      final text = Row(
+        children: [
+          Flexible(
+            child: Text(
+              label.toUpperCase(),
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 10.5, letterSpacing: 0.5, fontWeight: FontWeight.w700, color: active ? tokens.ink : tokens.ink2),
+            ),
+          ),
+          if (active) Icon(sort.ascending ? PhosphorIconsBold.caretUp : PhosphorIconsBold.caretDown, size: 10, color: tokens.ink),
+        ],
+      );
       return Expanded(
         flex: flex,
-        child:
-            child ?? Text(text, overflow: TextOverflow.ellipsis, maxLines: 1),
+        child: column == null
+            ? text
+            : InkWell(onTap: () => ref.read(repositorySortProvider.notifier).state = (column: column, ascending: active ? !sort.ascending : true), child: text),
       );
     }
 
+    Widget cell(int flex, Widget child) => Expanded(flex: flex, child: child);
+    Text plain(String s, {Color? color, FontWeight? weight}) => Text(
+      s,
+      overflow: TextOverflow.ellipsis,
+      maxLines: 1,
+      style: TextStyle(fontSize: 12.5, color: color, fontWeight: weight),
+    );
+
     return Container(
-      decoration: BoxDecoration(border: Border.all(color: tokens.line)),
+      decoration: BoxDecoration(
+        border: Border.all(color: tokens.line),
+        color: tokens.surf,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Container(
             color: tokens.surf2,
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-            child: Row(
-              children: [
-                cell('Record no.', flexes[0]),
-                cell('Title', flexes[1]),
-                cell('Type', flexes[2]),
-                cell('Department', flexes[3]),
-                cell('Status', flexes[4]),
-                cell('Pages', flexes[5]),
-                cell('Registered', flexes[6]),
-                const SizedBox(width: 76),
-              ],
-            ),
+            child: Row(children: [for (final c in columns) header(c), const SizedBox(width: 64)]),
           ),
           Expanded(
             child: ListView.builder(
               itemCount: docs.length,
+              itemExtent: 36,
               itemBuilder: (context, i) {
                 final d = docs[i];
-                final rowContent = Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 9,
-                  ),
+                final content = Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
                   decoration: BoxDecoration(
-                    color: selected?.id == d.id ? tokens.sel : Colors.transparent,
+                    color: selected?.id == d.id ? tokens.sel : (i.isOdd ? tokens.surf2.withValues(alpha: 0.35) : null),
                     border: Border(top: BorderSide(color: tokens.line)),
                   ),
                   child: Row(
                     children: [
                       cell(
-                        '',
-                        flexes[0],
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
+                        3,
+                        Row(
                           children: [
-                            Flexible(child: Text(d.recordNo, overflow: TextOverflow.ellipsis)),
+                            Flexible(
+                              child: plain(d.recordNo, color: tokens.accD, weight: FontWeight.w600),
+                            ),
                             if (d.storageProvider != null) ...[
                               const SizedBox(width: 5),
-                              StorageLocationIcon(provider: d.storageProvider, size: 13, color: tokens.ink3),
+                              StorageLocationIcon(provider: d.storageProvider, size: 12, color: tokens.ink3),
                             ],
                           ],
                         ),
                       ),
-                      cell(d.title, flexes[1]),
-                      cell(d.documentType ?? '—', flexes[2]),
-                      cell(d.department ?? '—', flexes[3]),
                       cell(
-                        '',
-                        flexes[4],
-                        child: StatusChip.forDocumentStatus(d.status),
+                        5,
+                        Row(
+                          children: [
+                            Icon(_iconForMime(d.mimeType), size: 15, color: tokens.ink3),
+                            const SizedBox(width: 6),
+                            Expanded(child: plain(d.title, weight: FontWeight.w500)),
+                          ],
+                        ),
                       ),
-                      cell(d.pagesLabel, flexes[5]),
-                      cell(d.createdAt?.split('T').first ?? '—', flexes[6]),
-                      SizedBox(width: 76, child: _DocumentActionsButton(doc: d, recycleBin: recycleBin)),
+                      cell(3, plain(d.documentType ?? '—', color: tokens.ink2)),
+                      cell(2, plain(d.department ?? '—', color: tokens.ink2)),
+                      cell(3, Align(alignment: Alignment.centerLeft, child: StatusChip.forDocumentStatus(d.status))),
+                      cell(1, plain(d.pagesLabel, color: tokens.ink2)),
+                      cell(2, plain(_date(d.createdAt), color: tokens.ink2)),
+                      SizedBox(
+                        width: 64,
+                        child: _DocumentActionsButton(doc: d, recycleBin: recycleBin),
+                      ),
                     ],
                   ),
                 );
-                final tappable = InkWell(
-                  onTap: () {
-                    ref.read(selectedDocumentProvider.notifier).state = d;
-                    context.go(RoutePaths.viewerFor('${d.id}'));
-                  },
-                  child: rowContent,
-                );
-                if (recycleBin) return tappable;
-                return Draggable<DocumentRecord>(
-                  data: d,
-                  feedback: _DragFeedback(doc: d),
-                  childWhenDragging: Opacity(opacity: 0.4, child: rowContent),
-                  child: tappable,
-                );
+                return _draggable(d, recycleBin, content, () => _openDocument(context, ref, d));
               },
             ),
           ),
+          _FooterCount(count: docs.length),
         ],
       ),
+    );
+  }
+}
+
+/// Dense single-line rows: icon, title over record no. + type, then status,
+/// pages, size and date — scannable without the width of the full table.
+class _DocumentCompactList extends ConsumerWidget {
+  const _DocumentCompactList({required this.docs, required this.recycleBin});
+
+  final List<DocumentRecord> docs;
+  final bool recycleBin;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (docs.isEmpty) return const EmptyState(message: 'No records match. Try clearing the filters.');
+    final tokens = context.tokens;
+    final selected = ref.watch(selectedDocumentProvider);
+
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: tokens.line),
+        color: tokens.surf,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(
+            child: ListView.builder(
+              itemCount: docs.length,
+              itemExtent: 46,
+              itemBuilder: (context, i) {
+                final d = docs[i];
+                final meta = [d.recordNo, if (d.documentType != null) d.documentType!, if (d.folderPath != null) d.folderPath!].join(' · ');
+                final content = Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  decoration: BoxDecoration(
+                    color: selected?.id == d.id ? tokens.sel : null,
+                    border: Border(bottom: BorderSide(color: tokens.line)),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 28,
+                        height: 28,
+                        alignment: Alignment.center,
+                        color: tokens.accT,
+                        child: Icon(_iconForMime(d.mimeType), size: 15, color: tokens.accD),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              d.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
+                            ),
+                            Text(
+                              meta,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(fontSize: 11, color: tokens.ink3),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      StatusChip.forDocumentStatus(d.status),
+                      SizedBox(
+                        width: 58,
+                        child: Text(
+                          '${d.pagesLabel} pg',
+                          textAlign: TextAlign.right,
+                          style: TextStyle(fontSize: 11, color: tokens.ink2),
+                        ),
+                      ),
+                      SizedBox(
+                        width: 64,
+                        child: Text(
+                          d.sizeBytes == null ? '—' : _formatSize(d.sizeBytes!),
+                          textAlign: TextAlign.right,
+                          style: TextStyle(fontSize: 11, color: tokens.ink2),
+                        ),
+                      ),
+                      SizedBox(
+                        width: 82,
+                        child: Text(
+                          _date(d.createdAt),
+                          textAlign: TextAlign.right,
+                          style: TextStyle(fontSize: 11, color: tokens.ink2),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      _DocumentActionsButton(doc: d, recycleBin: recycleBin),
+                    ],
+                  ),
+                );
+                return _draggable(d, recycleBin, content, () => _openDocument(context, ref, d));
+              },
+            ),
+          ),
+          _FooterCount(count: docs.length),
+        ],
+      ),
+    );
+  }
+}
+
+class _FooterCount extends StatelessWidget {
+  const _FooterCount({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.tokens;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: tokens.surf2,
+        border: Border(top: BorderSide(color: tokens.line)),
+      ),
+      child: Text('$count record${count == 1 ? '' : 's'}', style: TextStyle(fontSize: 11, color: tokens.ink2)),
     );
   }
 }
@@ -900,13 +1148,18 @@ class _DragFeedback extends StatelessWidget {
       child: Container(
         constraints: const BoxConstraints(maxWidth: 220),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-        decoration: BoxDecoration(border: Border.all(color: tokens.accD), color: tokens.surf),
+        decoration: BoxDecoration(
+          border: Border.all(color: tokens.accD),
+          color: tokens.surf,
+        ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(_iconForMime(doc.mimeType), size: 16, color: tokens.accD),
             const SizedBox(width: 6),
-            Flexible(child: Text(doc.title, style: const TextStyle(fontSize: 12), overflow: TextOverflow.ellipsis)),
+            Flexible(
+              child: Text(doc.title, style: const TextStyle(fontSize: 12), overflow: TextOverflow.ellipsis),
+            ),
           ],
         ),
       ),
@@ -914,6 +1167,8 @@ class _DragFeedback extends StatelessWidget {
   }
 }
 
+/// Small cards — icon, title, record no., status and a meta line. Tight
+/// extent so many fit on screen without the grid feeling bulky.
 class _DocumentGrid extends ConsumerWidget {
   const _DocumentGrid({required this.docs, required this.recycleBin});
 
@@ -922,26 +1177,19 @@ class _DocumentGrid extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    if (docs.isEmpty) {
-      return const EmptyState(message: 'No records match. Try clearing the filters.');
-    }
+    if (docs.isEmpty) return const EmptyState(message: 'No records match. Try clearing the filters.');
     final tokens = context.tokens;
     final selected = ref.watch(selectedDocumentProvider);
 
     return GridView.builder(
       padding: const EdgeInsets.only(bottom: 4),
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 200,
-        mainAxisExtent: 172,
-        crossAxisSpacing: 12,
-        mainAxisSpacing: 12,
-      ),
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(maxCrossAxisExtent: 230, mainAxisExtent: 110, crossAxisSpacing: 10, mainAxisSpacing: 10),
       itemCount: docs.length,
       itemBuilder: (context, i) {
         final d = docs[i];
         final isSelected = selected?.id == d.id;
         final card = Container(
-          padding: const EdgeInsets.fromLTRB(10, 6, 4, 10),
+          padding: const EdgeInsets.fromLTRB(10, 8, 2, 8),
           decoration: BoxDecoration(
             border: Border.all(color: isSelected ? tokens.accD : tokens.line),
             color: isSelected ? tokens.sel : tokens.surf,
@@ -950,51 +1198,59 @@ class _DocumentGrid extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(_iconForMime(d.mimeType), size: 30, color: tokens.accD),
-                  if (d.storageProvider != null) ...[
-                    const SizedBox(width: 4),
-                    StorageLocationIcon(provider: d.storageProvider, size: 13, color: tokens.ink3),
-                  ],
+                  Container(
+                    width: 30,
+                    height: 30,
+                    alignment: Alignment.center,
+                    color: tokens.accT,
+                    child: Icon(_iconForMime(d.mimeType), size: 16, color: tokens.accD),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          d.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
+                        ),
+                        Text(
+                          d.recordNo,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: 11, color: tokens.accD),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const Spacer(),
+              Text(
+                d.documentType ?? '—',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 11, color: tokens.ink2),
+              ),
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  StatusChip.forDocumentStatus(d.status),
                   const Spacer(),
+                  Text('${d.pagesLabel} pg', style: TextStyle(fontSize: 10.5, color: tokens.ink3)),
+                  if (d.storageProvider != null) ...[const SizedBox(width: 5), StorageLocationIcon(provider: d.storageProvider, size: 11, color: tokens.ink3)],
+                  const SizedBox(width: 2),
                   _DocumentActionsButton(doc: d, recycleBin: recycleBin),
                 ],
               ),
-              Padding(
-                padding: const EdgeInsets.only(left: 6),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      d.title,
-                      style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 2),
-                    Text(d.recordNo, style: TextStyle(fontSize: 11, color: tokens.ink2)),
-                  ],
-                ),
-              ),
-              const Spacer(),
-              Padding(padding: const EdgeInsets.only(left: 6), child: StatusChip.forDocumentStatus(d.status)),
             ],
           ),
         );
-        final tappable = InkWell(
-          onTap: () {
-            ref.read(selectedDocumentProvider.notifier).state = d;
-            context.go(RoutePaths.viewerFor('${d.id}'));
-          },
-          child: card,
-        );
-        if (recycleBin) return tappable;
-        return Draggable<DocumentRecord>(
-          data: d,
-          feedback: _DragFeedback(doc: d),
-          childWhenDragging: Opacity(opacity: 0.4, child: card),
-          child: tappable,
-        );
+        return _draggable(d, recycleBin, card, () => _openDocument(context, ref, d));
       },
     );
   }
@@ -1011,6 +1267,7 @@ class _PropertiesPanel extends ConsumerWidget {
     final collapseButton = Align(
       alignment: Alignment.topRight,
       child: IconButton(
+        style: _compactIconStyle,
         tooltip: 'Hide properties',
         icon: Icon(Icons.chevron_right, size: 18, color: tokens.ink2),
         onPressed: () => ref.read(repositoryDetailsCollapsedProvider.notifier).state = true,
@@ -1019,7 +1276,10 @@ class _PropertiesPanel extends ConsumerWidget {
 
     if (doc == null) {
       return Container(
-        decoration: BoxDecoration(border: Border.all(color: tokens.line), color: tokens.surf),
+        decoration: BoxDecoration(
+          border: Border.all(color: tokens.line),
+          color: tokens.surf,
+        ),
         child: Column(
           children: [
             collapseButton,
@@ -1034,10 +1294,7 @@ class _PropertiesPanel extends ConsumerWidget {
       ('Department', doc.department ?? '—'),
       ('Custodian', doc.ownerName ?? '—'),
       ('Status', doc.status.replaceAll('_', ' ')),
-      (
-        'Version',
-        doc.currentVersionNo != null ? 'v${doc.currentVersionNo}' : '—',
-      ),
+      ('Version', doc.currentVersionNo != null ? 'v${doc.currentVersionNo}' : '—'),
       ('Pages', doc.pagesLabel),
       ('Classification', doc.classification),
       ('File plan', doc.folderPath ?? '—'),
@@ -1052,44 +1309,30 @@ class _PropertiesPanel extends ConsumerWidget {
       padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
       child: SingleChildScrollView(
         child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          collapseButton,
-          Text(doc.title, style: Theme.of(context).textTheme.titleSmall),
-          Text(
-            doc.recordNo,
-            style: TextStyle(fontSize: 12, color: tokens.ink2),
-          ),
-          const SizedBox(height: 10),
-          for (final (k, v) in rows)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 3),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  SizedBox(
-                    width: 88,
-                    child: Text(
-                      k.toUpperCase(),
-                      style: Theme.of(context).textTheme.labelSmall,
-                    ),
-                  ),
-                  Expanded(
-                    child: Text(v, style: const TextStyle(fontSize: 12.5)),
-                  ),
-                ],
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            collapseButton,
+            Text(doc.title, style: Theme.of(context).textTheme.titleSmall),
+            Text(doc.recordNo, style: TextStyle(fontSize: 12, color: tokens.ink2)),
+            const SizedBox(height: 10),
+            for (final (k, v) in rows)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 3),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(width: 88, child: Text(k.toUpperCase(), style: Theme.of(context).textTheme.labelSmall)),
+                    Expanded(child: Text(v, style: const TextStyle(fontSize: 12.5))),
+                  ],
+                ),
               ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(onPressed: () => context.go(RoutePaths.viewerFor('${doc.id}')), child: const Text('Open in viewer')),
             ),
-          const SizedBox(height: 10),
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton(
-              onPressed: () => context.go(RoutePaths.viewerFor('${doc.id}')),
-              child: const Text('Open in viewer'),
-            ),
-          ),
-        ],
+          ],
         ),
       ),
     );

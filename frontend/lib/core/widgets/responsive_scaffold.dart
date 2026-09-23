@@ -18,7 +18,7 @@ const _kDesktopBreakpoint = 1024.0;
 const _kTabletBreakpoint = 600.0;
 
 /// The three responsive layouts from the design mockup: desktop (permanent
-/// 238px drawer + search app bar), tablet (76px icon rail + hamburger
+/// 212px drawer + search app bar), tablet (76px icon rail + hamburger
 /// drawer), mobile (bottom nav + hamburger drawer, no search in the app
 /// bar). Wraps every authenticated route via the ShellRoute in
 /// core/router/app_router.dart.
@@ -44,7 +44,7 @@ class ResponsiveScaffold extends ConsumerWidget {
         children: [
           if (isDesktop)
             SizedBox(
-              width: 238,
+              width: 212,
               child: Material(
                 color: tokens.surf,
                 child: _NavDrawerContent(currentPath: currentPath),
@@ -86,7 +86,7 @@ class _TopAppBar extends ConsumerWidget implements PreferredSizeWidget {
   final String currentPath;
 
   @override
-  Size get preferredSize => const Size.fromHeight(kToolbarHeight);
+  Size get preferredSize => const Size.fromHeight(52);
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -97,71 +97,128 @@ class _TopAppBar extends ConsumerWidget implements PreferredSizeWidget {
     final backTarget = _backTargetFor(currentPath);
     final branding = ref.watch(companyBrandingProvider).valueOrNull ?? CompanyBranding.fallback;
 
+    final tokens = context.tokens;
+    final initials = (user?.fullName ?? '').split(RegExp(r'\s+')).where((p) => p.isNotEmpty).take(2).map((p) => p[0].toUpperCase()).join();
+
     return AppBar(
+      toolbarHeight: 52,
+      titleSpacing: 14,
       leading: backTarget != null
-          ? IconButton(
-              icon: const Icon(Icons.arrow_back),
-              tooltip: 'Back',
-              onPressed: () => context.go(backTarget),
-            )
+          ? IconButton(icon: const Icon(Icons.arrow_back), tooltip: 'Back', onPressed: () => context.go(backTarget))
           : showHamburger
-              ? Builder(builder: (context) => IconButton(
-                    icon: const Icon(Icons.menu),
-                    onPressed: () => Scaffold.of(context).openDrawer(),
-                  ))
-              : null,
+          ? Builder(
+              builder: (context) => IconButton(icon: const Icon(Icons.menu), onPressed: () => Scaffold.of(context).openDrawer()),
+            )
+          : null,
       automaticallyImplyLeading: false,
+      // Brand left, search centred in the remaining space, actions right.
       title: Row(
         children: [
-          Text(branding.shortLabel, style: const TextStyle(fontWeight: FontWeight.w700)),
-          if (showSearch) ...[
-            const SizedBox(width: 22),
-            SizedBox(
-              width: 380,
-              height: 34,
-              child: TextField(
-                controller: searchController,
-                style: const TextStyle(fontSize: 13),
-                decoration: const InputDecoration(
-                  isDense: true,
-                  hintText: 'Search records, members, claim numbers…',
-                  prefixIcon: Icon(Icons.search, size: 18),
+          Text(branding.shortLabel, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+          if (showSearch)
+            Expanded(
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 440),
+                  child: SizedBox(
+                    height: 32,
+                    child: TextField(
+                      controller: searchController,
+                      style: const TextStyle(fontSize: 12.5),
+                      textAlignVertical: TextAlignVertical.center,
+                      decoration: InputDecoration(
+                        isDense: true,
+                        filled: true,
+                        fillColor: tokens.surf2,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+                        hintText: 'Search records, members, claim numbers…',
+                        hintStyle: TextStyle(fontSize: 12.5, color: tokens.ink3),
+                        prefixIcon: Icon(PhosphorIconsRegular.magnifyingGlass, size: 15, color: tokens.ink3),
+                        prefixIconConstraints: const BoxConstraints(minWidth: 34),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.zero,
+                          borderSide: BorderSide(color: tokens.line),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.zero,
+                          borderSide: BorderSide(color: tokens.accD),
+                        ),
+                      ),
+                      onSubmitted: (q) => context.go('${RoutePaths.search}?q=${Uri.encodeQueryComponent(q)}'),
+                    ),
+                  ),
                 ),
-                onSubmitted: (q) => context.go('${RoutePaths.search}?q=${Uri.encodeQueryComponent(q)}'),
               ),
             ),
-          ],
         ],
       ),
       actions: [
         Builder(
           builder: (context) => IconButton(
+            visualDensity: VisualDensity.compact,
             icon: Badge(
               isLabelVisible: unreadCount > 0,
               label: Text(unreadCount > 99 ? '99+' : '$unreadCount'),
-              child: Icon(PhosphorIconsDuotone.bell),
+              child: Icon(PhosphorIconsRegular.bell, size: 19),
             ),
             tooltip: 'Notifications',
             onPressed: () => Scaffold.of(context).openEndDrawer(),
           ),
         ),
         IconButton(
-          icon: Icon(themeMode == ThemeMode.dark ? PhosphorIconsDuotone.sun : PhosphorIconsDuotone.moon),
+          visualDensity: VisualDensity.compact,
+          icon: Icon(themeMode == ThemeMode.dark ? PhosphorIconsRegular.sun : PhosphorIconsRegular.moon, size: 19),
           tooltip: 'Toggle theme',
           onPressed: () {
             ref.read(themeModeProvider.notifier).setMode(themeMode == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark);
           },
         ),
         if (user != null)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: Center(child: Text(user.role, style: const TextStyle(fontSize: 12))),
+          PopupMenuButton<String>(
+            tooltip: '${user.fullName} · ${user.role}',
+            offset: const Offset(0, 44),
+            onSelected: (v) {
+              if (v == 'logout') ref.read(authControllerProvider.notifier).logout();
+            },
+            itemBuilder: (_) => [
+              PopupMenuItem<String>(
+                enabled: false,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      user.fullName,
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: tokens.ink),
+                    ),
+                    Text(user.role, style: TextStyle(fontSize: 11.5, color: tokens.accD)),
+                  ],
+                ),
+              ),
+              const PopupMenuDivider(),
+              const PopupMenuItem<String>(value: 'logout', child: Text('Sign out')),
+            ],
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 28,
+                    height: 28,
+                    alignment: Alignment.center,
+                    color: tokens.acc,
+                    child: Text(
+                      initials.isEmpty ? '?' : initials,
+                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white),
+                    ),
+                  ),
+                  const SizedBox(width: 7),
+                  if (MediaQuery.sizeOf(context).width >= 1200) Text(user.role, style: TextStyle(fontSize: 12, color: tokens.ink2)),
+                  Icon(PhosphorIconsRegular.caretDown, size: 12, color: tokens.ink3),
+                ],
+              ),
+            ),
           ),
-        IconButton(
-          icon: const Icon(Icons.logout),
-          tooltip: 'Sign out',
-          onPressed: () => ref.read(authControllerProvider.notifier).logout(),
-        ),
       ],
     );
   }
@@ -181,34 +238,49 @@ class _NavDrawerContent extends ConsumerWidget {
       children: [
         Container(
           width: double.infinity,
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
-          decoration: BoxDecoration(border: Border(bottom: BorderSide(color: tokens.line))),
+          padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+          decoration: BoxDecoration(
+            border: Border(bottom: BorderSide(color: tokens.line)),
+          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('SIGNED IN AS', style: Theme.of(context).textTheme.labelSmall),
-              const SizedBox(height: 3),
-              Text(user?.fullName ?? '—', style: Theme.of(context).textTheme.titleSmall),
-              Text(user?.role ?? '—', style: TextStyle(fontSize: 12, color: tokens.accD)),
+              Text(
+                user?.fullName ?? '—',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+              ),
+              Text(
+                user?.role ?? '—',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 11.5, color: tokens.accD),
+              ),
             ],
           ),
         ),
         Expanded(
           child: ListView(
-            padding: EdgeInsets.zero,
-            children: [
-              for (final group in kNavGroups) _NavGroupSection(group: group, currentPath: currentPath),
-            ],
+            padding: const EdgeInsets.only(bottom: 8),
+            children: [for (final group in kNavGroups) _NavGroupSection(group: group, currentPath: currentPath)],
           ),
         ),
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(border: Border(top: BorderSide(color: tokens.line))),
-          child: OutlinedButton.icon(
-            onPressed: () => ref.read(authControllerProvider.notifier).logout(),
-            icon: const Icon(Icons.logout, size: 16),
-            label: const Text('Sign out'),
+        InkWell(
+          onTap: () => ref.read(authControllerProvider.notifier).logout(),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              border: Border(top: BorderSide(color: tokens.line)),
+            ),
+            child: Row(
+              children: [
+                Icon(PhosphorIconsRegular.signOut, size: 16, color: tokens.ink2),
+                const SizedBox(width: 10),
+                Text('Sign out', style: TextStyle(fontSize: 12.5, color: tokens.ink2)),
+              ],
+            ),
           ),
         ),
       ],
@@ -228,13 +300,16 @@ class _NavGroupSection extends ConsumerWidget {
     final unreadCount = ref.watch(notificationsListProvider).valueOrNull?.where((n) => !n.isRead).length ?? 0;
 
     return Padding(
-      padding: const EdgeInsets.only(top: 10, bottom: 2),
+      padding: const EdgeInsets.only(top: 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
-            child: Text(group.title.toUpperCase(), style: Theme.of(context).textTheme.labelSmall),
+            padding: const EdgeInsets.fromLTRB(14, 0, 14, 3),
+            child: Text(
+              group.title.toUpperCase(),
+              style: TextStyle(fontSize: 10, letterSpacing: 0.8, fontWeight: FontWeight.w700, color: context.tokens.ink3),
+            ),
           ),
           for (final item in group.items)
             _NavTile(
@@ -268,24 +343,27 @@ class _NavTile extends ConsumerWidget {
         context.go(item.path);
       },
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        height: 32,
+        padding: const EdgeInsets.symmetric(horizontal: 11),
         decoration: BoxDecoration(
           color: selected ? tokens.sel : Colors.transparent,
           border: Border(left: BorderSide(color: selected ? tokens.acc : Colors.transparent, width: 3)),
         ),
         child: Row(
           children: [
-            Icon(item.icon, size: 18, color: selected ? tokens.ink : tokens.ink2),
+            Icon(item.icon, size: 16, color: selected ? tokens.accD : tokens.ink2),
             const SizedBox(width: 10),
             Expanded(
               child: Text(
                 item.label,
-                style: TextStyle(fontSize: 13.5, color: selected ? tokens.ink : tokens.ink2, fontWeight: selected ? FontWeight.w600 : FontWeight.w400),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 12.5, color: selected ? tokens.ink : tokens.ink2, fontWeight: selected ? FontWeight.w600 : FontWeight.w400),
               ),
             ),
             if (trailingCount > 0)
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                 color: tokens.bad,
                 child: Text(
                   trailingCount > 99 ? '99+' : '$trailingCount',
@@ -360,8 +438,7 @@ class _BottomNav extends ConsumerWidget {
         context.go(primary[i].path);
       },
       items: [
-        for (final item in primary)
-          BottomNavigationBarItem(icon: Icon(item.icon, size: 20), label: item.shortLabel ?? item.label),
+        for (final item in primary) BottomNavigationBarItem(icon: Icon(item.icon, size: 20), label: item.shortLabel ?? item.label),
         const BottomNavigationBarItem(icon: Icon(Icons.more_horiz), label: 'More'),
       ],
     );

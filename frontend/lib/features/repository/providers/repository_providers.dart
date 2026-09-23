@@ -22,11 +22,7 @@ class RepositoryFilters {
   final String? status;
 
   RepositoryFilters copyWith({int? Function()? folderId, String? q, String? Function()? status}) {
-    return RepositoryFilters(
-      folderId: folderId != null ? folderId() : this.folderId,
-      q: q ?? this.q,
-      status: status != null ? status() : this.status,
-    );
+    return RepositoryFilters(folderId: folderId != null ? folderId() : this.folderId, q: q ?? this.q, status: status != null ? status() : this.status);
   }
 }
 
@@ -42,18 +38,19 @@ final repositoryRecycleBinProvider = StateProvider<bool>((ref) => false);
 final repositoryDocumentsProvider = FutureProvider.autoDispose<List<DocumentRecord>>((ref) {
   final filters = ref.watch(repositoryFiltersProvider);
   final recycleBin = ref.watch(repositoryRecycleBinProvider);
-  return ref.watch(documentsApiProvider).search(
-        q: filters.q,
-        folderId: filters.folderId,
-        status: recycleBin ? 'archived' : filters.status,
-      );
+  return ref.watch(documentsApiProvider).search(q: filters.q, folderId: filters.folderId, status: recycleBin ? 'archived' : filters.status);
 });
 
 final selectedDocumentProvider = StateProvider<DocumentRecord?>((ref) => null);
 
-enum RepositoryViewMode { list, grid }
+enum RepositoryViewMode { list, table, grid }
 
-final repositoryViewModeProvider = StateProvider<RepositoryViewMode>((ref) => RepositoryViewMode.list);
+final repositoryViewModeProvider = StateProvider<RepositoryViewMode>((ref) => RepositoryViewMode.table);
+
+enum RepositorySortColumn { recordNo, title, type, status, pages, registered }
+
+/// Client-side sort for the loaded page of records; null column = server order.
+final repositorySortProvider = StateProvider<({RepositorySortColumn? column, bool ascending})>((ref) => (column: null, ascending: true));
 
 /// Manual override for the properties panel, independent of the width
 /// breakpoint that decides whether it's offered at all.
