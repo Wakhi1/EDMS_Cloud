@@ -11,6 +11,12 @@
  * — never as a CLI argument, so it never appears in a process listing.
  * The plaintext SQL dump only ever touches a local temp file for as long
  * as it takes to encrypt it, then is deleted immediately.
+ *
+ * BACKUP_ENGINE picks how the dump/restore runs: 'cli' (mysqldump/mysql
+ * only), 'node' (services/sqlDump.service.js over the app's own DB
+ * connection — for hosts like cPanel with no usable MySQL binaries), or
+ * 'auto' (default: the CLI when its binary exists and succeeds, otherwise
+ * the Node engine).
  */
 const fs = require('fs');
 const fsp = require('fs/promises');
@@ -23,10 +29,35 @@ const { logAudit } = require('./audit.service');
 const { envelopeEncryptFile, envelopeDecryptFile, sha256 } = require('./crypto.service');
 const storageService = require('./storage/storage.service');
 const { notifyDepartment } = require('./notifications.service');
+const sqlDump = require('./sqlDump.service');
 
 const TMP_DIR = process.env.BACKUP_TMP_DIR || './backup-tmp';
 const MYSQLDUMP_PATH = process.env.MYSQLDUMP_PATH || 'mysqldump';
 const MYSQL_CLI_PATH = process.env.MYSQL_CLI_PATH || 'mysql';
+const BACKUP_ENGINE = (process.env.BACKUP_ENGINE || 'auto').toLowerCase();
+const IGNORED_TABLES = ['backups', 'audit_log'];
+
+/** False when a CLI path is configured as a file path that doesn't exist here (e.g. a XAMPP path on Linux). */
+function cliAvailable(cmd) {
+  if (BACKUP_ENGINE === 'node') return false;
+  if (BACKUP_ENGINE === 'cli') return true;
+  return !/[\\/]/.test(cmd) || fs.existsSync(cmd);
+}
+
+/** Runs the CLI step when usable, falling back to the Node engine in 'auto' mode. Resolves to the engine used. */
+async function withEngine(cmd, cliStep, nodeStep) {
+  if (cliAvailable(cmd)) {
+    try {
+      await cliStep();
+      return 'cli';
+    } catch (err) {
+      if (BACKUP_ENGINE === 'cli') throw err;
+      logger.warn(`${path.basename(cmd)} failed — falling back to the Node backup engine`, { error: err.message });
+    }
+  }
+  await nodeStep();
+  return 'node';
+}
 
 const DB_ARGS = () => [
   `--host=${process.env.DB_HOST || '127.0.0.1'}`,
@@ -88,18 +119,22 @@ async function runBackup({ createdBy, companyId = null, ip }) {
   const backupId = insertResult.insertId;
 
   try {
-    await runToFile(
+    // `backups` and `audit_log` are operational bookkeeping, not records
+    // data — excluding them means a restore can never wipe out the audit
+    // trail or the safety-backup row that makes the restore itself undoable
+    // (see restoreBackup below).
+    const engine = await withEngine(
       MYSQLDUMP_PATH,
-      [
-        ...DB_ARGS(), '--single-transaction', '--routines', '--triggers',
-        // `backups` and `audit_log` are operational bookkeeping, not
-        // records data — excluding them means a restore can never wipe out
-        // the audit trail or the safety-backup row that makes the restore
-        // itself undoable (see restoreBackup below).
-        `--ignore-table=${dbName}.backups`, `--ignore-table=${dbName}.audit_log`,
-        dbName,
-      ],
-      tmpFile
+      () => runToFile(
+        MYSQLDUMP_PATH,
+        [
+          ...DB_ARGS(), '--single-transaction', '--routines', '--triggers', '--no-tablespaces',
+          ...IGNORED_TABLES.map((t) => `--ignore-table=${dbName}.${t}`),
+          dbName,
+        ],
+        tmpFile
+      ),
+      () => sqlDump.dumpToFile(tmpFile, { ignoreTables: IGNORED_TABLES })
     );
 
     const plaintext = await fsp.readFile(tmpFile);
@@ -115,7 +150,7 @@ async function runBackup({ createdBy, companyId = null, ip }) {
        enc.fileIv, enc.fileAuthTag, enc.checksumSha256, backupId]
     );
 
-    await logAudit({ userId: createdBy, action: 'Backup', recordType: 'backup', recordId: backupId, detail: `${fileKey} (${plaintext.length} bytes, ${uploadResult.provider})`, ip });
+    await logAudit({ userId: createdBy, action: 'Backup', recordType: 'backup', recordId: backupId, detail: `${fileKey} (${plaintext.length} bytes, ${uploadResult.provider}, ${engine} engine)`, ip });
     await notifyDepartment('ICT', {
       type: 'backup_completed',
       title: 'Database backup completed',
@@ -179,7 +214,11 @@ async function restoreBackup({ backupId, confirmationPhrase, performedBy, ip }) 
     }
 
     await fsp.writeFile(tmpFile, plaintext);
-    await runFromFile(MYSQL_CLI_PATH, [...DB_ARGS(), process.env.DB_NAME || 'pspf_edms'], tmpFile);
+    await withEngine(
+      MYSQL_CLI_PATH,
+      () => runFromFile(MYSQL_CLI_PATH, [...DB_ARGS(), process.env.DB_NAME || 'pspf_edms'], tmpFile),
+      () => sqlDump.restoreFromFile(tmpFile)
+    );
 
     const [[{ rowsAfter }]] = await pool.query('SELECT COUNT(*) AS rowsAfter FROM documents');
 

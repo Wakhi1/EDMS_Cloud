@@ -93,6 +93,7 @@ class Endpoints {
   static const reportsByCategory = '/api/reports/by-category';
   static const reportsByFolder = '/api/reports/by-folder';
   static const reportsCapacity = '/api/reports/capacity';
+  static const dashboardSummary = '/api/dashboard/summary';
   static const reportsByClassification = '/api/reports/by-classification';
   static const reportsCapturedOverTime = '/api/reports/captured-over-time';
   static const reportsCaptureBySource = '/api/reports/capture-by-source';

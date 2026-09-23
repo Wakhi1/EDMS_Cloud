@@ -29,7 +29,7 @@ const storageService = require('../services/storage/storage.service');
 const ocrService = require('../services/ocr.service');
 const { registerDocument, DuplicateRecordNoError, DuplicateContentError, findDuplicateByContentHash, relocateDocumentStorage } = require('../services/document.service');
 const { claimSpecificIndex, releaseIndex, linkIndexToDocument, IndexUnavailableError } = require('../services/recordIndex.service');
-const { suggestMemberNumber, suggestDocumentTypeCode } = require('../services/classification.service');
+const { suggestMemberNumber, suggestDocumentType } = require('../services/classification.service');
 const { getSettingBool } = require('../services/settings.service');
 const { watermarkPdf } = require('../services/watermark.service');
 const { redactBankNumbers } = require('../services/redaction.service');
@@ -217,12 +217,10 @@ router.post('/ocr-preview', requireModuleAccess('capture', true), upload.single(
   if (!req.file) return fail(res, 'A file is required', 400);
 
   const ocrResult = await ocrService.extractText(req.file.buffer, req.file.mimetype, req.file.originalname);
-  const suggestedCode = suggestDocumentTypeCode(ocrResult.text);
-  let suggestedDocumentTypeId = null;
-  if (suggestedCode) {
-    const [[type]] = await pool.query('SELECT id FROM document_types WHERE code = ?', [suggestedCode]);
-    suggestedDocumentTypeId = type ? type.id : null;
-  }
+  const suggestedType = await suggestDocumentType({
+    text: ocrResult.text, fileName: req.file.originalname, companyId: req.user.companyId,
+  });
+  const suggestedDocumentTypeId = suggestedType ? suggestedType.id : null;
   const duplicateOf = await findDuplicateByContentHash(sha256(req.file.buffer));
 
   return ok(res, {
@@ -230,7 +228,8 @@ router.post('/ocr-preview', requireModuleAccess('capture', true), upload.single(
     confidence: ocrResult.confidence,
     duplicateOf,
     suggestedDocumentTypeId,
-    suggestedMemberNumber: suggestMemberNumber(ocrResult.text),
+    suggestedTypeMatched: suggestedType ? suggestedType.matched : false,
+    suggestedMemberNumber: suggestMemberNumber(ocrResult.text) || suggestMemberNumber(req.file.originalname),
   });
 }));
 

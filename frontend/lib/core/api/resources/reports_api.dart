@@ -4,6 +4,7 @@ import '../../models/capacity_stats.dart';
 import '../../models/capture_source_stat.dart';
 import '../../models/claim_turnaround_point.dart';
 import '../../models/count_item.dart';
+import '../../models/dashboard_summary.dart';
 import '../../models/retention_status_stat.dart';
 import '../api_client.dart';
 import '../endpoints.dart';
@@ -122,6 +123,13 @@ class ReportsApi {
   Future<CapacityStats> capacity({bool silent403 = false}) async {
     final response = await _client.get(Endpoints.reportsCapacity, silent403: silent403);
     return _client.unwrap(response, (data) => CapacityStats.fromJson(data as Map<String, dynamic>));
+  }
+
+  /// GET /api/dashboard/summary — not behind the 'reports' module gate;
+  /// each section is shaped by the caller's own role instead.
+  Future<DashboardSummary> dashboardSummary() async {
+    final response = await _client.get(Endpoints.dashboardSummary);
+    return _client.unwrap(response, (data) => DashboardSummary.fromJson(data as Map<String, dynamic>));
   }
 
   Future<List<CountItem>> capturedOverTime({

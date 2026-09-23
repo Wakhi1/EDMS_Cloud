@@ -26,6 +26,7 @@ router.use('/retention', require('./retention.routes'));
 router.use('/notifications', require('./notifications.routes'));
 router.use('/integrations', require('./integrations.routes'));
 router.use('/reports', require('./reports.routes'));
+router.use('/dashboard', require('./dashboard.routes'));
 router.use('/report-templates', require('./report-templates.routes'));
 router.use('/capture-batches', require('./capture.routes'));
 router.use('/departments', require('./departments.routes'));

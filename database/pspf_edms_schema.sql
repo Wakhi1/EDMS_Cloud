@@ -25,7 +25,7 @@ CREATE DATABASE IF NOT EXISTS `pspf_edms`
 USE `pspf_edms`;
 
 -- ---------------------------------------------------------------------
--- 0. PLATFORM / LICENSING (DocSecure staff only — structurally separate
+-- 0. PLATFORM / LICENSING (Docsecure staff only — structurally separate
 --    identity space from every tenant-owned table below. A tenant user's
 --    session can never authenticate here: platform-admin tokens are
 --    signed with their own secret pair, see backend/.env.example.)
@@ -960,7 +960,11 @@ INSERT INTO `system_settings` (`setting_key`, `company_id`, `setting_value`, `de
 ('backup_schedule_enabled', 1, 'false', 'Run an automatic nightly database backup'),
 ('backup_schedule_hour', 1, '2', 'Hour of day (0-23, server local time) the automatic nightly backup runs'),
 ('storage_capacity_bytes', 1, '107374182400', 'Total provisioned storage capacity in bytes, shown on the Dashboard (default 100 GB)'),
-('license_key', 1, NULL, 'The license key this deployment was activated with — verified live against DocSecure''s licensing platform on every check'),
+('storage_capacity_bytes_local', 1, '0', 'Capacity in bytes of the Local disk storage location, shown on the Dashboard (0 = use the disk''s own size)'),
+('storage_capacity_bytes_aws_s3', 1, '0', 'Provisioned capacity in bytes of the AWS S3 storage location, shown on the Dashboard (0 = not set)'),
+('storage_capacity_bytes_azure_blob', 1, '0', 'Provisioned capacity in bytes of the Azure Blob storage location, shown on the Dashboard (0 = not set)'),
+('storage_capacity_bytes_gcp_storage', 1, '0', 'Provisioned capacity in bytes of the Google Cloud Storage location, shown on the Dashboard (0 = not set)'),
+('license_key', 1, NULL, 'The license key this deployment was activated with — verified live against Docsecure''s licensing platform on every check'),
 ('embed_approval_signatures', 1, 'false', 'When a signature-required approval step is approved, stamp the signature directly onto the document (as a new version), not just the approval record');
 
 -- Role x module permission matrix. `module` = dashboard, repository, capture,

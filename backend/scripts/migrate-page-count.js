@@ -10,6 +10,8 @@
  * already declares the column — but the backfill step is harmless there.
  * Run manually:
  *   node scripts/migrate-page-count.js
+ * Pass --recount-estimated to also re-count versions whose stored figure is
+ * only an estimate (e.g. after pageCount.service.js learns a new format).
  */
 require('dotenv').config();
 const { pool } = require('../config/db');
@@ -17,6 +19,8 @@ const logger = require('../config/logger');
 const { envelopeDecryptFile } = require('../services/crypto.service');
 const storageService = require('../services/storage/storage.service');
 const { countPages, isCountable } = require('../services/pageCount.service');
+
+const RECOUNT_ESTIMATED = process.argv.includes('--recount-estimated');
 
 async function columnExists(table, column) {
   const [[row]] = await pool.query(
@@ -33,7 +37,7 @@ async function backfill() {
      FROM document_versions dv
      JOIN document_storage_objects dso ON dso.id = dv.storage_object_id
      LEFT JOIN document_encryption_keys dek ON dek.document_version_id = dv.id
-     WHERE dv.page_count IS NULL`
+     WHERE dv.page_count IS NULL${RECOUNT_ESTIMATED ? ' OR dv.page_count_estimated = 1' : ''}`
   );
 
   let counted = 0;

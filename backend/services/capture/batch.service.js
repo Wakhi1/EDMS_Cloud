@@ -9,8 +9,9 @@
  */
 const { pool } = require('../../config/db');
 const { registerDocument, DuplicateContentError } = require('../document.service');
-const { suggestDocumentTypeCode, suggestMemberNumber, resolveDocumentTypeId } = require('../classification.service');
-const { claimNextAvailable, releaseIndex, linkIndexToDocument } = require('../recordIndex.service');
+const { suggestDocumentType, suggestMemberNumber, resolveDocumentTypeId } = require('../classification.service');
+const { claimNextAvailable, releaseIndex, linkIndexToDocument, NoAvailableIndexError } = require('../recordIndex.service');
+const { extractText } = require('../ocr.service');
 const { logAudit } = require('../audit.service');
 const { autoTriggerWorkflow } = require('../workflow.service');
 const logger = require('../../config/logger');
@@ -54,25 +55,39 @@ async function processFile(batchId, { buffer, fileName, mimeType, defaultFolderI
     // [overrideDocumentTypeId] (e.g. the operator picking a type for the whole
     // batch in NewBatchDialog) skips this guess entirely.
     let documentTypeId;
+    let text = null;
     if (overrideDocumentTypeId) {
       documentTypeId = overrideDocumentTypeId;
     } else {
-      const suggestedCode = suggestDocumentTypeCode(fileName) || suggestDocumentTypeCode(mimeType);
-      documentTypeId = await resolveDocumentTypeId(suggestedCode);
+      // Text-layer extraction (PDF/DOCX/XLSX/plain text) is cheap; image OCR
+      // is not, so scans are classified from their file name alone.
+      if (!String(mimeType || '').startsWith('image/')) {
+        text = (await extractText(buffer, mimeType, fileName).catch(() => ({ text: null }))).text;
+      }
+      const suggested = await suggestDocumentType({ text, fileName, companyId });
+      documentTypeId = suggested ? suggested.id : await resolveDocumentTypeId(null);
     }
     if (!documentTypeId) throw new Error('No document types configured — cannot auto-classify batch intake');
     if (!defaultFolderId) throw new Error('No default folder configured for this batch/connector');
 
     // No human reviews automated/bulk intake, so there's no picker here —
     // just claim the oldest available index for the resolved type (see
-    // services/recordIndex.service.js). Throws NoAvailableIndexError,
-    // caught below like any other per-file failure, if the pool is empty.
-    claimedIndex = await claimNextAvailable({ documentTypeId, companyId });
+    // services/recordIndex.service.js). A guessed type with an empty index
+    // pool falls back to the default type; otherwise NoAvailableIndexError
+    // is caught below like any other per-file failure.
+    try {
+      claimedIndex = await claimNextAvailable({ documentTypeId, companyId });
+    } catch (err) {
+      const fallbackTypeId = await resolveDocumentTypeId(null);
+      if (overrideDocumentTypeId || !(err instanceof NoAvailableIndexError) || !fallbackTypeId || fallbackTypeId === documentTypeId) throw err;
+      documentTypeId = fallbackTypeId;
+      claimedIndex = await claimNextAvailable({ documentTypeId, companyId });
+    }
 
     const result = await registerDocument({
       buffer, originalName: fileName, mimeType,
       recordNo: claimedIndex.indexValue, title: fileName, documentTypeId, folderId: defaultFolderId,
-      memberNumber: suggestMemberNumber(fileName), classification: 'internal',
+      memberNumber: suggestMemberNumber(fileName) || suggestMemberNumber(text), classification: 'internal',
       userId: createdBy, ip,
     });
     await linkIndexToDocument(claimedIndex.id, result.id);

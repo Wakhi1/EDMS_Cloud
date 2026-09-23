@@ -4,12 +4,18 @@ import '../../../core/api/api_providers.dart';
 import '../../../core/models/approval_item.dart';
 import '../../../core/models/capacity_stats.dart';
 import '../../../core/models/count_item.dart';
+import '../../../core/models/dashboard_summary.dart';
 import '../../../core/models/notification_item.dart';
 import '../../../core/models/retention_status_stat.dart';
 
 // Each dashboard section is its own provider (not one combined call) so a
 // 403 on one module (e.g. 'reports' for a role that only has 'approvals')
 // doesn't blank out sections the role DOES have access to.
+
+/// Role-shaped headline figures (documents / folders / storage by location).
+final dashboardSummaryProvider = FutureProvider.autoDispose<DashboardSummary>((ref) {
+  return ref.watch(reportsApiProvider).dashboardSummary();
+});
 
 final dashboardByStatusProvider = FutureProvider.autoDispose<List<CountItem>>((ref) {
   return ref.watch(reportsApiProvider).byStatus(silent403: true);

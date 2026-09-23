@@ -173,7 +173,8 @@ class UploadQueueNotifier extends Notifier<List<UploadRow>> {
           status: UploadRowStatus.recognized,
           extractedText: () => result.text,
           confidence: () => result.confidence,
-          documentTypeId: () => result.suggestedDocumentTypeId,
+          // A type the user already picked while recognition ran wins over the suggestion.
+          documentTypeId: () => r.documentTypeId ?? result.suggestedDocumentTypeId,
           memberNumber: result.suggestedMemberNumber ?? r.memberNumber,
           duplicateOf: () => result.duplicateOf,
         ),
