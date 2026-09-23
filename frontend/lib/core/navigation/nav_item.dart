@@ -44,7 +44,6 @@ const kNavGroups = <NavGroup>[
     NavItem(label: 'Capture & Scan', shortLabel: 'Capture', icon: PhosphorIconsDuotone.scan, path: '/capture', moduleKey: 'capture'),
     NavItem(label: 'Search', shortLabel: 'Search', icon: PhosphorIconsDuotone.magnifyingGlass, path: RoutePaths.search, moduleKey: 'repository'),
     NavItem(label: 'Sharing & Links', shortLabel: 'Share', icon: PhosphorIconsDuotone.shareNetwork, path: RoutePaths.sharing),
-    NavItem(label: 'Version History', shortLabel: 'Versions', icon: PhosphorIconsDuotone.clockCounterClockwise, path: '/versions', moduleKey: 'versions'),
   ]),
   NavGroup('Governance', [
     NavItem(label: 'Audit Trail', shortLabel: 'Audit', icon: PhosphorIconsDuotone.listMagnifyingGlass, path: '/audit', moduleKey: 'audit'),

@@ -21,7 +21,11 @@ async function withClient(config, fn) {
       port: config.port || 21,
       user: config.user,
       password: config.password || process.env.FTP_INTAKE_PASSWORD || '',
-      secure: false,
+      // Explicit FTPS (AUTH TLS) — what cPanel offers on port 21. Shared
+      // hosts often present the server's own certificate rather than one for
+      // the domain, hence the opt-in allowSelfSigned.
+      secure: config.secure === true,
+      secureOptions: config.secure === true && config.allowSelfSigned === true ? { rejectUnauthorized: false } : undefined,
     });
     return await fn(client);
   } finally {

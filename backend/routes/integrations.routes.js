@@ -26,8 +26,13 @@ const adService = require('../services/ad.service');
 const smsService = require('../services/sms.service');
 const { CONNECTORS: INTAKE_CONNECTORS, rescheduleConnector, parseConfig } = require('../services/capture/scheduler');
 const { PUSH_CONNECTORS, reschedulePushConnector } = require('../services/push/scheduler');
-const { importFromStorage } = require('../services/import.service');
+const { importFromStorage, isImportable, registeredKeys } = require('../services/import.service');
+
 const { PERMISSION_LEVELS, PRINCIPAL_TYPES } = require('../config/constants');
+
+// Top-level areas this app writes its own (encrypted) objects into.
+const SYSTEM_STORAGE_FOLDERS = ['documents', 'system-backups'];
+const MAX_REGISTER_DEPTH = 8;
 
 const router = express.Router();
 router.use(authenticate);
@@ -217,8 +222,99 @@ router.get('/:id/browse', requireModuleAccess('capture'), asyncHandler(async (re
   const provider = STORAGE_PROVIDERS[req.params.id];
   if (!provider) return fail(res, `"${req.params.id}" is not a browsable storage connector`, 400);
 
-  const listing = await provider.list(req.query.prefix || '');
-  return ok(res, listing);
+  const prefix = (req.query.prefix || '').replace(/\/+$/, '');
+  const listing = await provider.list(prefix);
+  // Hide placeholders and this app's own encrypted objects; flag the app's
+  // system areas at the root so they aren't mistaken for foreign content.
+  const files = listing.files.filter(isImportable);
+  const keyFor = (name) => (prefix ? `${prefix}/${name}` : name);
+  const registered = await registeredKeys(req.params.id, files.map(keyFor));
+  const [folderRows] = await pool.query(
+    'SELECT id, path, storage_prefix FROM folders WHERE company_id = ? AND storage_provider_id = ? AND storage_prefix IS NOT NULL',
+    [req.user.companyId, req.params.id]
+  );
+  const folderByPrefix = new Map(folderRows.map((f) => [f.storage_prefix.replace(/\/+$/, ''), f]));
+
+  return ok(res, {
+    folders: listing.folders,
+    files,
+    systemFolders: prefix ? [] : listing.folders.filter((f) => SYSTEM_STORAGE_FOLDERS.includes(f)),
+    registeredFiles: files
+      .filter((name) => registered.has(keyFor(name)))
+      .map((name) => ({ name, ...registered.get(keyFor(name)) })),
+    registeredFolders: listing.folders
+      .filter((name) => folderByPrefix.has(keyFor(name)))
+      .map((name) => ({ name, folderId: folderByPrefix.get(keyFor(name)).id, path: folderByPrefix.get(keyFor(name)).path })),
+    currentFolder: folderByPrefix.has(prefix) ? { folderId: folderByPrefix.get(prefix).id, path: folderByPrefix.get(prefix).path } : null,
+  });
+}));
+
+/**
+ * POST /api/integrations/:id/register — makes an existing storage folder
+ * appear in the Repository: creates (or reuses) a Repository folder named
+ * after it, linked to that storage location, and imports its files with
+ * auto-detected document types. With `recursive`, subfolders become
+ * subfolders the same way. System-Administrator-only, like /import.
+ * Body: { prefix, parentFolderId?, recursive?, documentTypeId?, classification? }
+ */
+router.post('/:id/register', allowRoles('System Administrator'), asyncHandler(async (req, res) => {
+  const provider = STORAGE_PROVIDERS[req.params.id];
+  if (!provider) return fail(res, `"${req.params.id}" is not a browsable storage connector`, 400);
+
+  const { parentFolderId, recursive, documentTypeId, classification } = req.body;
+  const rootPrefix = String(req.body.prefix || '').replace(/^\/+|\/+$/g, '');
+  if (!rootPrefix) return fail(res, 'Choose a folder inside the storage location to register', 400);
+
+  let parentPath = null;
+  if (parentFolderId) {
+    const [[parent]] = await pool.query('SELECT path FROM folders WHERE id = ? AND company_id = ?', [parentFolderId, req.user.companyId]);
+    if (!parent) return fail(res, 'Parent folder not found', 404);
+    parentPath = parent.path;
+  }
+
+  const summary = { folders: [], imported: 0, skipped: [] };
+
+  async function registerOne(prefix, parentId, parentFolderPath, depth) {
+    const name = prefix.split('/').pop();
+    const path = parentFolderPath ? `${parentFolderPath} / ${name}` : name;
+    const [[existing]] = await pool.query('SELECT id FROM folders WHERE company_id = ? AND path = ?', [req.user.companyId, path]);
+    let folderId;
+    if (existing) {
+      folderId = existing.id;
+      await pool.query('UPDATE folders SET storage_provider_id = ?, storage_prefix = ? WHERE id = ?', [req.params.id, prefix, folderId]);
+    } else {
+      const [result] = await pool.query(
+        `INSERT INTO folders (company_id, parent_id, name, path, storage_provider_id, storage_prefix, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [req.user.companyId, parentId || null, name, path, req.params.id, prefix, req.user.id]
+      );
+      folderId = result.insertId;
+      await logAudit({ userId: req.user.id, action: 'Create', recordType: 'folder', recordId: folderId, detail: `${path} (registered from ${req.params.id}:${prefix})`, ip: req.ip });
+    }
+    summary.folders.push({ folderId, path, prefix });
+
+    const { imported, skipped } = await importFromStorage({
+      providerId: req.params.id, prefix, folderId, documentTypeId: documentTypeId || null, classification,
+      userId: req.user.id, ip: req.ip,
+    });
+    summary.imported += imported.length;
+    summary.skipped.push(...skipped.map((s) => ({ ...s, folder: path })));
+
+    if (recursive && depth < MAX_REGISTER_DEPTH) {
+      const { folders } = await provider.list(prefix);
+      for (const child of folders) {
+        // eslint-disable-next-line no-await-in-loop
+        await registerOne(`${prefix}/${child}`, folderId, path, depth + 1);
+      }
+    }
+  }
+
+  await registerOne(rootPrefix, parentFolderId || null, parentPath, 0);
+  await logAudit({
+    userId: req.user.id, action: 'Integration', recordType: 'integration', recordId: req.params.id,
+    detail: `Registered ${req.params.id}:${rootPrefix} — ${summary.folders.length} folder(s), ${summary.imported} file(s)`, ip: req.ip,
+  });
+  return ok(res, summary, `Registered ${summary.folders.length} folder(s) and ${summary.imported} file(s)`, 201);
 }));
 
 /** POST /api/integrations/:id/folders — create a folder for a storage-type connector. See GET /browse above for the RBAC rationale. */

@@ -1,4 +1,6 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
@@ -26,7 +28,11 @@ class RepositoryScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final width = MediaQuery.sizeOf(context).width;
     final showTree = width >= 900;
-    final showDetails = width >= 1280;
+    final sidePanel = width >= _kSidePanelBreakpoint;
+    // Details pane grows with the window, like Explorer's: 240–340px.
+    final panelWidth = (width * 0.2).clamp(240.0, 340.0);
+    final hasSelection = ref.watch(repositorySelectionProvider).isNotEmpty;
+    final overlayOpen = ref.watch(repositoryDetailsOverlayProvider);
     final detailsCollapsed = ref.watch(repositoryDetailsCollapsedProvider);
     final documentsAsync = ref.watch(repositoryDocumentsProvider);
     final recycleBin = ref.watch(repositoryRecycleBinProvider);
@@ -49,7 +55,7 @@ class RepositoryScreen extends ConsumerWidget {
                 ],
               );
               final filterBar = _FilterBar();
-              const viewToggle = _ViewModeToggle();
+              const viewToggle = Row(mainAxisSize: MainAxisSize.min, children: [_DetailsToggle(), SizedBox(width: 6), _ViewModeToggle()]);
               const recycleToggle = _RecycleBinToggle();
               const emptyBinButton = _EmptyRecycleBinButton();
               if (constraints.maxWidth < 640) {
@@ -81,25 +87,53 @@ class RepositoryScreen extends ConsumerWidget {
                 if (showTree) const SizedBox(width: 200, child: _FolderTree()),
                 if (showTree) const SizedBox(width: 12),
                 Expanded(
-                  child: documentsAsync.when(
-                    loading: () => const Center(child: CircularProgressIndicator()),
-                    error: (error, _) =>
-                        ErrorState(message: error is ApiException ? error.message : '$error', onRetry: () => ref.invalidate(repositoryDocumentsProvider)),
-                    data: (docs) {
-                      final sorted = _sortDocuments(docs, sort.column, sort.ascending);
-                      return switch (viewMode) {
-                        RepositoryViewMode.grid => _DocumentGrid(docs: sorted, recycleBin: recycleBin),
-                        RepositoryViewMode.list => _DocumentCompactList(docs: sorted, recycleBin: recycleBin),
-                        RepositoryViewMode.table => _DocumentTable(docs: sorted, recycleBin: recycleBin),
-                      };
-                    },
+                  child: Stack(
+                    children: [
+                      Positioned.fill(
+                        child: documentsAsync.when(
+                          loading: () => const Center(child: CircularProgressIndicator()),
+                          error: (error, _) =>
+                              ErrorState(message: error is ApiException ? error.message : '$error', onRetry: () => ref.invalidate(repositoryDocumentsProvider)),
+                          data: (docs) {
+                            final sorted = _sortDocuments(docs, sort.column, sort.ascending);
+                            return _SelectionKeyboard(
+                              docs: sorted,
+                              recycleBin: recycleBin,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  _SelectionBar(docs: sorted, recycleBin: recycleBin),
+                                  Expanded(
+                                    child: switch (viewMode) {
+                                      RepositoryViewMode.grid => _DocumentGrid(docs: sorted, recycleBin: recycleBin),
+                                      RepositoryViewMode.list => _DocumentCompactList(docs: sorted, recycleBin: recycleBin),
+                                      RepositoryViewMode.table => _DocumentTable(docs: sorted, recycleBin: recycleBin),
+                                    },
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                      // Narrow windows: the details pane floats over the list instead of squeezing it.
+                      if (!sidePanel && overlayOpen && hasSelection)
+                        Positioned(
+                          top: 0,
+                          right: 0,
+                          bottom: 0,
+                          width: panelWidth,
+                          child: Material(
+                            elevation: 8,
+                            child: _PropertiesPanel(onClose: () => ref.read(repositoryDetailsOverlayProvider.notifier).state = false),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
-                if (showDetails) ...[
+                if (sidePanel) ...[
                   const SizedBox(width: 12),
-                  detailsCollapsed || ref.watch(selectedDocumentProvider) == null
-                      ? const _CollapsedDetailsTab()
-                      : const SizedBox(width: 260, child: _PropertiesPanel()),
+                  detailsCollapsed || !hasSelection ? const _CollapsedDetailsTab() : SizedBox(width: panelWidth, child: const _PropertiesPanel()),
                 ],
               ],
             ),
@@ -123,7 +157,7 @@ class _RecycleBinToggle extends ConsumerWidget {
       child: OutlinedButton.icon(
         onPressed: () {
           ref.read(repositoryRecycleBinProvider.notifier).state = !active;
-          ref.read(selectedDocumentProvider.notifier).state = null;
+          _setSelection(ref, <int>{});
         },
         style: active ? OutlinedButton.styleFrom(backgroundColor: tokens.sel, foregroundColor: tokens.ink) : null,
         icon: Icon(active ? Icons.arrow_back : Icons.delete_outline, size: 16),
@@ -667,9 +701,9 @@ class _FolderRow extends ConsumerWidget {
       return InkWell(onTap: onTap, child: row());
     }
 
-    return DragTarget<DocumentRecord>(
+    return DragTarget<List<DocumentRecord>>(
       onWillAcceptWithDetails: (details) => true,
-      onAcceptWithDetails: (details) => _moveDocument(context, ref, details.data, folderId: folderId!, folderLabel: label),
+      onAcceptWithDetails: (details) => _moveDocuments(context, ref, details.data, folderId: folderId!, folderLabel: label),
       builder: (context, candidateData, rejectedData) {
         return InkWell(
           onTap: onTap,
@@ -786,18 +820,6 @@ Future<void> _restoreDocument(BuildContext context, WidgetRef ref, DocumentRecor
   }
 }
 
-Future<void> _moveDocument(BuildContext context, WidgetRef ref, DocumentRecord doc, {required int folderId, required String folderLabel}) async {
-  try {
-    await ref.read(documentsApiProvider).update(doc.id, folderId: folderId);
-    ref.invalidate(repositoryDocumentsProvider);
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Moved "${doc.title}" to $folderLabel.')));
-    }
-  } on ApiException catch (e) {
-    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
-  }
-}
-
 /// Per-document quick actions — "Manage access" jumps straight to the
 /// folder/document access screen without opening the record first (the
 /// only other way in was via the Viewer). Recycle-bin mode swaps the whole
@@ -845,22 +867,403 @@ class _DocumentActionsButton extends ConsumerWidget {
   }
 }
 
-/// Opens a record in the viewer, remembering it as the selection.
+/// Opens a record in the viewer, remembering it as the focused record.
 void _openDocument(BuildContext context, WidgetRef ref, DocumentRecord d) {
   ref.read(selectedDocumentProvider.notifier).state = d;
   context.go(RoutePaths.viewerFor('${d.id}'));
 }
 
-/// Wraps a row/card so it can be dragged onto a File Plan folder (not in the recycle bin).
-Widget _draggable(DocumentRecord d, bool recycleBin, Widget content, VoidCallback onTap) {
-  final tappable = InkWell(onTap: onTap, child: content);
-  if (recycleBin) return tappable;
-  return Draggable<DocumentRecord>(
-    data: d,
-    feedback: _DragFeedback(doc: d),
-    childWhenDragging: Opacity(opacity: 0.4, child: content),
-    child: tappable,
+/// The records currently selected, in list order.
+List<DocumentRecord> _selectedDocs(WidgetRef ref, List<DocumentRecord> docs) {
+  final ids = ref.read(repositorySelectionProvider);
+  return docs.where((d) => ids.contains(d.id)).toList();
+}
+
+void _setSelection(WidgetRef ref, Set<int> ids, {DocumentRecord? focus, int? anchor}) {
+  ref.read(repositorySelectionProvider.notifier).state = ids;
+  ref.read(selectedDocumentProvider.notifier).state = ids.isEmpty ? null : focus;
+  if (anchor != null) ref.read(repositorySelectionAnchorProvider.notifier).state = anchor;
+}
+
+/// Explorer-style click: plain = select one, Ctrl = toggle, Shift = range
+/// from the anchor, Ctrl+Shift = add range.
+void _selectAt(WidgetRef ref, List<DocumentRecord> docs, int index) {
+  final keys = HardwareKeyboard.instance;
+  final ctrl = keys.isControlPressed || keys.isMetaPressed;
+  final shift = keys.isShiftPressed;
+  final d = docs[index];
+  final current = ref.read(repositorySelectionProvider);
+  final anchorId = ref.read(repositorySelectionAnchorProvider);
+  final anchorIndex = anchorId == null ? -1 : docs.indexWhere((x) => x.id == anchorId);
+
+  if (shift && anchorIndex >= 0) {
+    final lo = anchorIndex < index ? anchorIndex : index;
+    final hi = anchorIndex < index ? index : anchorIndex;
+    final range = {for (var i = lo; i <= hi; i++) docs[i].id};
+    _setSelection(ref, ctrl ? {...current, ...range} : range, focus: d);
+  } else if (ctrl) {
+    final next = {...current};
+    if (!next.remove(d.id)) next.add(d.id);
+    final focus = next.contains(d.id) ? d : docs.where((x) => next.contains(x.id)).firstOrNull;
+    _setSelection(ref, next, focus: focus, anchor: d.id);
+  } else {
+    _setSelection(ref, {d.id}, focus: d, anchor: d.id);
+  }
+}
+
+/// Moves the focus by [delta] rows (arrow keys); Shift extends the selection.
+void _moveFocus(WidgetRef ref, List<DocumentRecord> docs, int delta) {
+  if (docs.isEmpty) return;
+  final focus = ref.read(selectedDocumentProvider);
+  final from = focus == null ? -1 : docs.indexWhere((d) => d.id == focus.id);
+  final to = (from + delta).clamp(0, docs.length - 1);
+  if (HardwareKeyboard.instance.isShiftPressed && ref.read(repositorySelectionAnchorProvider) != null) {
+    _selectAt(ref, docs, to);
+  } else {
+    _setSelection(ref, {docs[to].id}, focus: docs[to], anchor: docs[to].id);
+  }
+}
+
+/// Runs [action] for each record, then reports how many succeeded.
+Future<void> _bulk(
+  BuildContext context,
+  WidgetRef ref,
+  List<DocumentRecord> docs,
+  Future<void> Function(DocumentRecord d) action, {
+  required String done,
+}) async {
+  var ok = 0;
+  final errors = <String>[];
+  for (final d in docs) {
+    try {
+      await action(d);
+      ok += 1;
+    } on ApiException catch (e) {
+      errors.add('${d.recordNo}: ${e.message}');
+    }
+  }
+  ref.invalidate(repositoryDocumentsProvider);
+  _setSelection(ref, <int>{});
+  if (!context.mounted) return;
+  if (errors.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$ok record${ok == 1 ? '' : 's'} $done.')));
+  } else {
+    await ResultDialog.showError(context, '$ok $done, ${errors.length} failed:\n${errors.take(8).join('\n')}');
+  }
+}
+
+Future<void> _deleteDocuments(BuildContext context, WidgetRef ref, List<DocumentRecord> docs) async {
+  if (docs.isEmpty) return;
+  if (docs.length == 1) return _deleteDocument(context, ref, docs.first);
+  final confirmed = await ConfirmDialog.show(
+    context,
+    title: 'Delete ${docs.length} records?',
+    body: 'Moves them to the recycle bin — they can be restored from there later.',
+    okLabel: 'Delete ${docs.length}',
+    danger: true,
   );
+  if (confirmed == null || !context.mounted) return;
+  await _bulk(context, ref, docs, (d) => ref.read(documentsApiProvider).delete(d.id), done: 'moved to the recycle bin');
+}
+
+Future<void> _restoreDocuments(BuildContext context, WidgetRef ref, List<DocumentRecord> docs) async {
+  if (docs.isEmpty) return;
+  await _bulk(context, ref, docs, (d) => ref.read(documentsApiProvider).restore(d.id), done: 'restored');
+}
+
+Future<void> _moveDocuments(BuildContext context, WidgetRef ref, List<DocumentRecord> docs, {required int folderId, required String folderLabel}) async {
+  if (docs.isEmpty) return;
+  await _bulk(context, ref, docs, (d) => ref.read(documentsApiProvider).update(d.id, folderId: folderId), done: 'moved to $folderLabel');
+}
+
+/// "Move to…" — pick a destination folder from the File Plan.
+Future<void> _pickFolderAndMove(BuildContext context, WidgetRef ref, List<DocumentRecord> docs) async {
+  final folders = await ref.read(foldersApiProvider).list();
+  if (!context.mounted) return;
+  final sorted = [...folders]..sort((a, b) => a.path.compareTo(b.path));
+  final picked = await showDialog<FolderRow>(
+    context: context,
+    builder: (context) {
+      final tokens = context.tokens;
+      return AlertDialog(
+        title: Text('Move ${docs.length} record${docs.length == 1 ? '' : 's'} to…'),
+        contentPadding: const EdgeInsets.fromLTRB(0, 12, 0, 0),
+        content: SizedBox(
+          width: 380,
+          height: 360,
+          child: ListView(
+            children: [
+              for (final f in sorted)
+                InkWell(
+                  onTap: () => Navigator.of(context).pop(f),
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(20.0 + 14 * ' / '.allMatches(f.path).length, 8, 20, 8),
+                    child: Row(
+                      children: [
+                        Icon(PhosphorIconsDuotone.folder, size: 16, color: tokens.accD),
+                        const SizedBox(width: 8),
+                        Expanded(child: Text(f.name, style: const TextStyle(fontSize: 13))),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        actions: [TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel'))],
+      );
+    },
+  );
+  if (picked == null || !context.mounted) return;
+  await _moveDocuments(context, ref, docs, folderId: picked.id, folderLabel: picked.name);
+}
+
+/// Right-click menu — acts on the whole selection, like Explorer.
+Future<void> _showContextMenu(BuildContext context, WidgetRef ref, List<DocumentRecord> docs, Offset position, bool recycleBin) async {
+  final selected = _selectedDocs(ref, docs);
+  if (selected.isEmpty) return;
+  final single = selected.length == 1 ? selected.first : null;
+  final overlay = Overlay.of(context).context.findRenderObject()! as RenderBox;
+
+  PopupMenuItem<String> item(String value, IconData icon, String label, {String? shortcut, bool danger = false}) => PopupMenuItem<String>(
+    value: value,
+    height: 34,
+    child: Row(
+      children: [
+        Icon(icon, size: 15, color: danger ? context.tokens.bad : context.tokens.ink2),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(label, style: TextStyle(fontSize: 12.5, color: danger ? context.tokens.bad : null)),
+        ),
+        if (shortcut != null) Text(shortcut, style: TextStyle(fontSize: 11, color: context.tokens.ink3)),
+      ],
+    ),
+  );
+
+  final choice = await showMenu<String>(
+    context: context,
+    position: RelativeRect.fromRect(position & const Size(1, 1), Offset.zero & overlay.size),
+    items: recycleBin
+        ? [item('restore', PhosphorIconsRegular.arrowCounterClockwise, selected.length == 1 ? 'Restore' : 'Restore ${selected.length} records')]
+        : [
+            if (single != null) item('open', PhosphorIconsRegular.arrowSquareOut, 'Open', shortcut: 'Enter'),
+            if (single != null) item('edit', PhosphorIconsRegular.pencilSimple, 'Edit properties', shortcut: 'F2'),
+            if (single != null) item('versions', PhosphorIconsRegular.clockCounterClockwise, 'Version history'),
+            if (single != null) item('access', PhosphorIconsRegular.lockKey, 'Manage access'),
+            item('move', PhosphorIconsRegular.folderSimpleDashed, selected.length == 1 ? 'Move to…' : 'Move ${selected.length} to…'),
+            const PopupMenuDivider(),
+            item('delete', PhosphorIconsRegular.trash, selected.length == 1 ? 'Delete' : 'Delete ${selected.length} records', shortcut: 'Del', danger: true),
+          ],
+  );
+  if (choice == null || !context.mounted) return;
+  switch (choice) {
+    case 'open':
+      _openDocument(context, ref, single!);
+    case 'edit':
+      await _editDocument(context, ref, single!);
+    case 'versions':
+      context.go(RoutePaths.versionsFor('${single!.id}'));
+    case 'access':
+      context.go('/permissions/document/${single!.id}');
+    case 'move':
+      await _pickFolderAndMove(context, ref, selected);
+    case 'delete':
+      await _deleteDocuments(context, ref, selected);
+    case 'restore':
+      await _restoreDocuments(context, ref, selected);
+  }
+}
+
+/// Record pressed while already selected — narrowed to on release unless a drag starts.
+int? _collapseOnRelease;
+
+/// One row/card: click/Ctrl/Shift select, double-click opens, right-click
+/// menu, and dragging carries the whole selection onto a File Plan folder.
+class _ItemInteraction extends ConsumerWidget {
+  const _ItemInteraction({required this.docs, required this.index, required this.recycleBin, required this.child});
+
+  final List<DocumentRecord> docs;
+  final int index;
+  final bool recycleBin;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final d = docs[index];
+    final interactive = Listener(
+      onPointerDown: (event) {
+        if (event.buttons == kSecondaryMouseButton) {
+          if (!ref.read(repositorySelectionProvider).contains(d.id)) {
+            _setSelection(ref, {d.id}, focus: d, anchor: d.id);
+          }
+          _showContextMenu(context, ref, docs, event.position, recycleBin);
+        } else if (event.buttons == kPrimaryMouseButton) {
+          // Pressing on an already-selected item keeps the selection so it can be
+          // dragged as a group; releasing without a drag narrows it to that item.
+          final keys = HardwareKeyboard.instance;
+          final modifier = keys.isControlPressed || keys.isMetaPressed || keys.isShiftPressed;
+          if (modifier || !ref.read(repositorySelectionProvider).contains(d.id)) {
+            _selectAt(ref, docs, index);
+            _collapseOnRelease = null;
+          } else {
+            _collapseOnRelease = d.id;
+          }
+        }
+      },
+      onPointerUp: (_) {
+        if (_collapseOnRelease == d.id) _setSelection(ref, {d.id}, focus: d, anchor: d.id);
+        _collapseOnRelease = null;
+      },
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onDoubleTap: () => _openDocument(context, ref, d),
+        child: MouseRegion(cursor: SystemMouseCursors.click, child: child),
+      ),
+    );
+    if (recycleBin) return interactive;
+
+    final selection = ref.watch(repositorySelectionProvider);
+    final dragging = selection.contains(d.id) ? docs.where((x) => selection.contains(x.id)).toList() : [d];
+    return Draggable<List<DocumentRecord>>(
+      data: dragging,
+      feedback: _DragFeedback(docs: dragging),
+      onDragStarted: () => _collapseOnRelease = null,
+      childWhenDragging: Opacity(opacity: 0.4, child: child),
+      child: interactive,
+    );
+  }
+}
+
+/// Keyboard layer over the record view: Ctrl+A, Esc, Delete, Enter, F2,
+/// arrows (Shift extends), Alt+Enter toggles the details panel.
+class _SelectionKeyboard extends ConsumerStatefulWidget {
+  const _SelectionKeyboard({required this.docs, required this.recycleBin, required this.child});
+
+  final List<DocumentRecord> docs;
+  final bool recycleBin;
+  final Widget child;
+
+  @override
+  ConsumerState<_SelectionKeyboard> createState() => _SelectionKeyboardState();
+}
+
+class _SelectionKeyboardState extends ConsumerState<_SelectionKeyboard> {
+  final _focusNode = FocusNode(debugLabel: 'repository-records');
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  KeyEventResult _onKey(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) return KeyEventResult.ignored;
+    final keys = HardwareKeyboard.instance;
+    final ctrl = keys.isControlPressed || keys.isMetaPressed;
+    final docs = widget.docs;
+    final key = event.logicalKey;
+    final focus = ref.read(selectedDocumentProvider);
+
+    if (ctrl && key == LogicalKeyboardKey.keyA) {
+      _setSelection(ref, {for (final d in docs) d.id}, focus: focus ?? docs.firstOrNull);
+    } else if (key == LogicalKeyboardKey.escape) {
+      _setSelection(ref, <int>{});
+    } else if (key == LogicalKeyboardKey.arrowDown) {
+      _moveFocus(ref, docs, 1);
+    } else if (key == LogicalKeyboardKey.arrowUp) {
+      _moveFocus(ref, docs, -1);
+    } else if (key == LogicalKeyboardKey.home) {
+      _moveFocus(ref, docs, -docs.length);
+    } else if (key == LogicalKeyboardKey.end) {
+      _moveFocus(ref, docs, docs.length);
+    } else if (key == LogicalKeyboardKey.enter && keys.isAltPressed) {
+      _toggleDetails(ref, MediaQuery.sizeOf(context).width);
+    } else if (key == LogicalKeyboardKey.enter && focus != null && event is KeyDownEvent) {
+      _openDocument(context, ref, focus);
+    } else if (key == LogicalKeyboardKey.f2 && focus != null && !widget.recycleBin && event is KeyDownEvent) {
+      _editDocument(context, ref, focus);
+    } else if (key == LogicalKeyboardKey.delete && event is KeyDownEvent) {
+      final selected = _selectedDocs(ref, docs);
+      widget.recycleBin ? _restoreDocuments(context, ref, selected) : _deleteDocuments(context, ref, selected);
+    } else {
+      return KeyEventResult.ignored;
+    }
+    return KeyEventResult.handled;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Focus(
+      focusNode: _focusNode,
+      autofocus: true,
+      onKeyEvent: _onKey,
+      child: Listener(behavior: HitTestBehavior.translucent, onPointerDown: (_) => _focusNode.requestFocus(), child: widget.child),
+    );
+  }
+}
+
+void _toggleDetails(WidgetRef ref, double width) {
+  if (width >= _kSidePanelBreakpoint) {
+    ref.read(repositoryDetailsCollapsedProvider.notifier).update((v) => !v);
+  } else {
+    ref.read(repositoryDetailsOverlayProvider.notifier).update((v) => !v);
+  }
+}
+
+const _kSidePanelBreakpoint = 1280.0;
+
+/// Shown while anything is selected: count plus the bulk actions.
+class _SelectionBar extends ConsumerWidget {
+  const _SelectionBar({required this.docs, required this.recycleBin});
+
+  final List<DocumentRecord> docs;
+  final bool recycleBin;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final tokens = context.tokens;
+    final ids = ref.watch(repositorySelectionProvider);
+    final selected = docs.where((d) => ids.contains(d.id)).toList();
+    if (selected.length < 2) return const SizedBox.shrink();
+
+    Widget action(IconData icon, String label, VoidCallback onTap, {Color? color}) => TextButton.icon(
+      onPressed: onTap,
+      style: TextButton.styleFrom(
+        foregroundColor: color ?? tokens.ink,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        minimumSize: const Size(0, 30),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        visualDensity: VisualDensity.compact,
+      ),
+      icon: Icon(icon, size: 15),
+      label: Text(label, style: const TextStyle(fontSize: 12)),
+    );
+
+    final size = selected.fold<int>(0, (s, d) => s + (d.sizeBytes ?? 0));
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+      decoration: BoxDecoration(
+        color: tokens.sel,
+        border: Border.all(color: tokens.acc.withValues(alpha: 0.5)),
+      ),
+      child: Row(
+        children: [
+          Text('${selected.length} selected', style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700)),
+          Text('  ·  ${_formatSize(size)}', style: TextStyle(fontSize: 12, color: tokens.ink2)),
+          const Spacer(),
+          if (recycleBin)
+            action(PhosphorIconsRegular.arrowCounterClockwise, 'Restore', () => _restoreDocuments(context, ref, selected))
+          else ...[
+            action(PhosphorIconsRegular.folderSimpleDashed, 'Move to…', () => _pickFolderAndMove(context, ref, selected)),
+            action(PhosphorIconsRegular.trash, 'Delete', () => _deleteDocuments(context, ref, selected), color: tokens.bad),
+          ],
+          Container(width: 1, height: 18, color: tokens.line2, margin: const EdgeInsets.symmetric(horizontal: 6)),
+          action(PhosphorIconsRegular.x, 'Clear', () => _setSelection(ref, <int>{})),
+        ],
+      ),
+    );
+  }
 }
 
 /// Full-column table with sortable headers.
@@ -873,19 +1276,40 @@ class _DocumentTable extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     if (docs.isEmpty) return const EmptyState(message: 'No records match. Try clearing the filters.');
-    final tokens = context.tokens;
-    final selected = ref.watch(selectedDocumentProvider);
-    final sort = ref.watch(repositorySortProvider);
 
-    const columns = <(String, int, RepositorySortColumn?)>[
-      ('Record no.', 3, RepositorySortColumn.recordNo),
-      ('Title', 5, RepositorySortColumn.title),
-      ('Type', 3, RepositorySortColumn.type),
-      ('Department', 2, null),
-      ('Status', 3, RepositorySortColumn.status),
-      ('Pages', 1, RepositorySortColumn.pages),
-      ('Registered', 2, RepositorySortColumn.registered),
-    ];
+    // Like Explorer's details view, lower-priority columns drop out as the
+    // pane narrows (e.g. when the details pane is open) instead of squeezing.
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final w = constraints.maxWidth;
+        final showDept = w >= 900;
+        final showType = w >= 720;
+        final showDate = w >= 620;
+        final columns = <(String, int, RepositorySortColumn?)>[
+          ('Record no.', 3, RepositorySortColumn.recordNo),
+          ('Title', 5, RepositorySortColumn.title),
+          if (showType) ('Type', 3, RepositorySortColumn.type),
+          if (showDept) ('Department', 2, null),
+          ('Status', 3, RepositorySortColumn.status),
+          ('Pages', 1, RepositorySortColumn.pages),
+          if (showDate) ('Registered', 2, RepositorySortColumn.registered),
+        ];
+        return _table(context, ref, columns, showType: showType, showDept: showDept, showDate: showDate);
+      },
+    );
+  }
+
+  Widget _table(
+    BuildContext context,
+    WidgetRef ref,
+    List<(String, int, RepositorySortColumn?)> columns, {
+    required bool showType,
+    required bool showDept,
+    required bool showDate,
+  }) {
+    final tokens = context.tokens;
+    final selection = ref.watch(repositorySelectionProvider);
+    final sort = ref.watch(repositorySortProvider);
 
     Widget header((String, int, RepositorySortColumn?) c) {
       final (label, flex, column) = c;
@@ -940,7 +1364,7 @@ class _DocumentTable extends ConsumerWidget {
                 final content = Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10),
                   decoration: BoxDecoration(
-                    color: selected?.id == d.id ? tokens.sel : (i.isOdd ? tokens.surf2.withValues(alpha: 0.35) : null),
+                    color: selection.contains(d.id) ? tokens.sel : (i.isOdd ? tokens.surf2.withValues(alpha: 0.35) : null),
                     border: Border(top: BorderSide(color: tokens.line)),
                   ),
                   child: Row(
@@ -969,11 +1393,11 @@ class _DocumentTable extends ConsumerWidget {
                           ],
                         ),
                       ),
-                      cell(3, plain(d.documentType ?? '—', color: tokens.ink2)),
-                      cell(2, plain(d.department ?? '—', color: tokens.ink2)),
+                      if (showType) cell(3, plain(d.documentType ?? '—', color: tokens.ink2)),
+                      if (showDept) cell(2, plain(d.department ?? '—', color: tokens.ink2)),
                       cell(3, Align(alignment: Alignment.centerLeft, child: StatusChip.forDocumentStatus(d.status))),
                       cell(1, plain(d.pagesLabel, color: tokens.ink2)),
-                      cell(2, plain(_date(d.createdAt), color: tokens.ink2)),
+                      if (showDate) cell(2, plain(_date(d.createdAt), color: tokens.ink2)),
                       SizedBox(
                         width: 64,
                         child: _DocumentActionsButton(doc: d, recycleBin: recycleBin),
@@ -981,7 +1405,7 @@ class _DocumentTable extends ConsumerWidget {
                     ],
                   ),
                 );
-                return _draggable(d, recycleBin, content, () => _openDocument(context, ref, d));
+                return _ItemInteraction(docs: docs, index: i, recycleBin: recycleBin, child: content);
               },
             ),
           ),
@@ -1004,7 +1428,7 @@ class _DocumentCompactList extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     if (docs.isEmpty) return const EmptyState(message: 'No records match. Try clearing the filters.');
     final tokens = context.tokens;
-    final selected = ref.watch(selectedDocumentProvider);
+    final selection = ref.watch(repositorySelectionProvider);
 
     return Container(
       decoration: BoxDecoration(
@@ -1024,7 +1448,7 @@ class _DocumentCompactList extends ConsumerWidget {
                 final content = Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10),
                   decoration: BoxDecoration(
-                    color: selected?.id == d.id ? tokens.sel : null,
+                    color: selection.contains(d.id) ? tokens.sel : null,
                     border: Border(bottom: BorderSide(color: tokens.line)),
                   ),
                   child: Row(
@@ -1088,7 +1512,7 @@ class _DocumentCompactList extends ConsumerWidget {
                     ],
                   ),
                 );
-                return _draggable(d, recycleBin, content, () => _openDocument(context, ref, d));
+                return _ItemInteraction(docs: docs, index: i, recycleBin: recycleBin, child: content);
               },
             ),
           ),
@@ -1136,9 +1560,9 @@ IconData _iconForMime(String? mimeType) {
 /// Small drag-feedback chip shown under the cursor while moving a document
 /// between folders — a full row/card would be too heavy to drag around.
 class _DragFeedback extends StatelessWidget {
-  const _DragFeedback({required this.doc});
+  const _DragFeedback({required this.docs});
 
-  final DocumentRecord doc;
+  final List<DocumentRecord> docs;
 
   @override
   Widget build(BuildContext context) {
@@ -1155,10 +1579,14 @@ class _DragFeedback extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(_iconForMime(doc.mimeType), size: 16, color: tokens.accD),
+            Icon(docs.length == 1 ? _iconForMime(docs.first.mimeType) : PhosphorIconsRegular.files, size: 16, color: tokens.accD),
             const SizedBox(width: 6),
             Flexible(
-              child: Text(doc.title, style: const TextStyle(fontSize: 12), overflow: TextOverflow.ellipsis),
+              child: Text(
+                docs.length == 1 ? docs.first.title : 'Move ${docs.length} records',
+                style: const TextStyle(fontSize: 12),
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
           ],
         ),
@@ -1179,7 +1607,7 @@ class _DocumentGrid extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     if (docs.isEmpty) return const EmptyState(message: 'No records match. Try clearing the filters.');
     final tokens = context.tokens;
-    final selected = ref.watch(selectedDocumentProvider);
+    final selection = ref.watch(repositorySelectionProvider);
 
     return GridView.builder(
       padding: const EdgeInsets.only(bottom: 4),
@@ -1187,7 +1615,7 @@ class _DocumentGrid extends ConsumerWidget {
       itemCount: docs.length,
       itemBuilder: (context, i) {
         final d = docs[i];
-        final isSelected = selected?.id == d.id;
+        final isSelected = selection.contains(d.id);
         final card = Container(
           padding: const EdgeInsets.fromLTRB(10, 8, 2, 8),
           decoration: BoxDecoration(
@@ -1250,87 +1678,267 @@ class _DocumentGrid extends ConsumerWidget {
             ],
           ),
         );
-        return _draggable(d, recycleBin, card, () => _openDocument(context, ref, d));
+        return _ItemInteraction(docs: docs, index: i, recycleBin: recycleBin, child: card);
       },
     );
   }
 }
 
+/// ⓘ — shows/hides the details pane (Alt+Enter does the same).
+class _DetailsToggle extends ConsumerWidget {
+  const _DetailsToggle();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final tokens = context.tokens;
+    final width = MediaQuery.sizeOf(context).width;
+    final open = width >= _kSidePanelBreakpoint ? !ref.watch(repositoryDetailsCollapsedProvider) : ref.watch(repositoryDetailsOverlayProvider);
+    return Tooltip(
+      message: 'Details pane (Alt+Enter)',
+      child: InkWell(
+        onTap: () => _toggleDetails(ref, width),
+        child: Container(
+          width: 30,
+          height: 30,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            border: Border.all(color: tokens.line),
+            color: open ? tokens.sel : null,
+          ),
+          child: Icon(PhosphorIconsRegular.sidebarSimple, size: 16, color: open ? tokens.accD : tokens.ink2),
+        ),
+      ),
+    );
+  }
+}
+
+/// Details pane: the focused record's properties, or a summary when several are selected.
 class _PropertiesPanel extends ConsumerWidget {
-  const _PropertiesPanel();
+  const _PropertiesPanel({this.onClose});
+
+  /// Set when shown as an overlay; otherwise the button collapses the side pane.
+  final VoidCallback? onClose;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final tokens = context.tokens;
     final doc = ref.watch(selectedDocumentProvider);
+    final ids = ref.watch(repositorySelectionProvider);
+    final docs = ref.watch(repositoryDocumentsProvider).valueOrNull ?? const <DocumentRecord>[];
+    final selected = docs.where((d) => ids.contains(d.id)).toList();
+    final recycleBin = ref.watch(repositoryRecycleBinProvider);
 
-    final collapseButton = Align(
-      alignment: Alignment.topRight,
-      child: IconButton(
-        style: _compactIconStyle,
-        tooltip: 'Hide properties',
-        icon: Icon(Icons.chevron_right, size: 18, color: tokens.ink2),
-        onPressed: () => ref.read(repositoryDetailsCollapsedProvider.notifier).state = true,
+    final header = Row(
+      children: [
+        Expanded(
+          child: Text(
+            'DETAILS',
+            style: TextStyle(fontSize: 10.5, letterSpacing: 0.8, fontWeight: FontWeight.w700, color: tokens.ink3),
+          ),
+        ),
+        IconButton(
+          style: _compactIconStyle,
+          tooltip: onClose != null ? 'Close' : 'Hide details pane',
+          icon: Icon(onClose != null ? PhosphorIconsRegular.x : PhosphorIconsRegular.caretRight, size: 15, color: tokens.ink2),
+          onPressed: onClose ?? () => ref.read(repositoryDetailsCollapsedProvider.notifier).state = true,
+        ),
+      ],
+    );
+
+    Widget kv(String k, String v) => Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 86,
+            child: Text(k, style: TextStyle(fontSize: 11.5, color: tokens.ink3)),
+          ),
+          Expanded(child: Text(v, style: const TextStyle(fontSize: 12.5))),
+        ],
       ),
     );
 
-    if (doc == null) {
-      return Container(
-        decoration: BoxDecoration(
-          border: Border.all(color: tokens.line),
-          color: tokens.surf,
-        ),
-        child: Column(
-          children: [
-            collapseButton,
-            const Expanded(child: EmptyState(message: 'Select a record to see its properties.')),
+    Widget body;
+    if (selected.length > 1) {
+      final size = selected.fold<int>(0, (s, d) => s + (d.sizeBytes ?? 0));
+      final pages = selected.fold<int>(0, (s, d) => s + (d.pageCount ?? 0));
+      final byStatus = <String, int>{};
+      final byType = <String, int>{};
+      for (final d in selected) {
+        byStatus[d.status] = (byStatus[d.status] ?? 0) + 1;
+        byType[d.documentType ?? '—'] = (byType[d.documentType ?? '—'] ?? 0) + 1;
+      }
+      body = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                alignment: Alignment.center,
+                color: tokens.accT,
+                child: Icon(PhosphorIconsRegular.files, size: 18, color: tokens.accD),
+              ),
+              const SizedBox(width: 10),
+              Text('${selected.length} items selected', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+            ],
+          ),
+          const SizedBox(height: 12),
+          kv('Total size', _formatSize(size)),
+          kv('Pages', '$pages'),
+          const SizedBox(height: 8),
+          Text('Status', style: TextStyle(fontSize: 11.5, color: tokens.ink3)),
+          const SizedBox(height: 4),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [for (final e in byStatus.entries) _CountChip(label: e.key.replaceAll('_', ' '), count: e.value)],
+          ),
+          const SizedBox(height: 10),
+          Text('Types', style: TextStyle(fontSize: 11.5, color: tokens.ink3)),
+          const SizedBox(height: 4),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [for (final e in byType.entries) _CountChip(label: e.key, count: e.value)],
+          ),
+          const SizedBox(height: 14),
+          if (recycleBin)
+            _PanelButton(icon: PhosphorIconsRegular.arrowCounterClockwise, label: 'Restore all', onTap: () => _restoreDocuments(context, ref, selected))
+          else ...[
+            _PanelButton(icon: PhosphorIconsRegular.folderSimpleDashed, label: 'Move to…', onTap: () => _pickFolderAndMove(context, ref, selected)),
+            const SizedBox(height: 6),
+            _PanelButton(icon: PhosphorIconsRegular.trash, label: 'Delete', danger: true, onTap: () => _deleteDocuments(context, ref, selected)),
           ],
-        ),
+        ],
+      );
+    } else if (doc == null) {
+      body = const EmptyState(message: 'Select a record to see its details.');
+    } else {
+      body = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                alignment: Alignment.center,
+                color: tokens.accT,
+                child: Icon(_iconForMime(doc.mimeType), size: 18, color: tokens.accD),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(doc.title, style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700)),
+                    Text(doc.recordNo, style: TextStyle(fontSize: 11.5, color: tokens.accD)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          StatusChip.forDocumentStatus(doc.status),
+          const SizedBox(height: 10),
+          kv('Type', doc.documentType ?? '—'),
+          kv('Department', doc.department ?? '—'),
+          kv('Custodian', doc.ownerName ?? '—'),
+          kv('Version', doc.currentVersionNo != null ? 'v${doc.currentVersionNo}' : '—'),
+          kv('Pages', doc.pagesLabel),
+          kv('Size', doc.sizeBytes == null ? '—' : _formatSize(doc.sizeBytes!)),
+          kv('Classification', doc.classification),
+          kv('File plan', doc.folderPath ?? '—'),
+          kv('Storage', doc.storageProvider != null ? storageProviderIconAndLabel(doc.storageProvider!).$2 : '—'),
+          kv('Registered', _date(doc.createdAt)),
+          const SizedBox(height: 12),
+          _PanelButton(icon: PhosphorIconsRegular.arrowSquareOut, label: 'Open', primary: true, onTap: () => _openDocument(context, ref, doc)),
+          if (!recycleBin) ...[
+            const SizedBox(height: 6),
+            _PanelButton(
+              icon: PhosphorIconsRegular.clockCounterClockwise,
+              label: 'Version history',
+              onTap: () => context.go(RoutePaths.versionsFor('${doc.id}')),
+            ),
+            const SizedBox(height: 6),
+            _PanelButton(icon: PhosphorIconsRegular.lockKey, label: 'Manage access', onTap: () => context.go('/permissions/document/${doc.id}')),
+          ],
+        ],
       );
     }
-
-    final rows = <(String, String)>[
-      ('Type', doc.documentType ?? '—'),
-      ('Department', doc.department ?? '—'),
-      ('Custodian', doc.ownerName ?? '—'),
-      ('Status', doc.status.replaceAll('_', ' ')),
-      ('Version', doc.currentVersionNo != null ? 'v${doc.currentVersionNo}' : '—'),
-      ('Pages', doc.pagesLabel),
-      ('Classification', doc.classification),
-      ('File plan', doc.folderPath ?? '—'),
-      ('Storage', doc.storageProvider != null ? storageProviderIconAndLabel(doc.storageProvider!).$2 : '—'),
-    ];
 
     return Container(
       decoration: BoxDecoration(
         border: Border.all(color: tokens.line),
         color: tokens.surf,
       ),
-      padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
+      padding: const EdgeInsets.fromLTRB(12, 4, 6, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          header,
+          Expanded(
+            child: SingleChildScrollView(padding: const EdgeInsets.only(right: 6, top: 4), child: body),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CountChip extends StatelessWidget {
+  const _CountChip({required this.label, required this.count});
+
+  final String label;
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.tokens;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        border: Border.all(color: tokens.line),
+        color: tokens.surf2,
+      ),
+      child: Text('$label · $count', style: const TextStyle(fontSize: 11)),
+    );
+  }
+}
+
+class _PanelButton extends StatelessWidget {
+  const _PanelButton({required this.icon, required this.label, required this.onTap, this.primary = false, this.danger = false});
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final bool primary;
+  final bool danger;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.tokens;
+    final color = danger ? tokens.bad : (primary ? Colors.white : tokens.ink);
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        height: 30,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        decoration: BoxDecoration(
+          color: primary ? tokens.acc : null,
+          border: Border.all(color: primary ? tokens.acc : (danger ? tokens.bad.withValues(alpha: 0.5) : tokens.line2)),
+        ),
+        child: Row(
           children: [
-            collapseButton,
-            Text(doc.title, style: Theme.of(context).textTheme.titleSmall),
-            Text(doc.recordNo, style: TextStyle(fontSize: 12, color: tokens.ink2)),
-            const SizedBox(height: 10),
-            for (final (k, v) in rows)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 3),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    SizedBox(width: 88, child: Text(k.toUpperCase(), style: Theme.of(context).textTheme.labelSmall)),
-                    Expanded(child: Text(v, style: const TextStyle(fontSize: 12.5))),
-                  ],
-                ),
-              ),
-            const SizedBox(height: 10),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton(onPressed: () => context.go(RoutePaths.viewerFor('${doc.id}')), child: const Text('Open in viewer')),
+            Icon(icon, size: 14, color: color),
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style: TextStyle(fontSize: 12, color: color, fontWeight: primary ? FontWeight.w600 : FontWeight.w400),
             ),
           ],
         ),

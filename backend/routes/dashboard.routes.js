@@ -46,7 +46,8 @@ async function documentsSection(user) {
   const [rows] = await pool.query(
     `SELECT d.id, d.status, d.created_by, d.created_at, d.current_version_id, dt.name AS type_name
      FROM documents d JOIN document_types dt ON dt.id = d.document_type_id
-     WHERE d.company_id = ?`,
+     LEFT JOIN document_versions v ON v.id = d.current_version_id
+     WHERE d.company_id = ? AND (v.file_name IS NULL OR v.file_name NOT LIKE '.%')`,
     [user.companyId]
   );
   const docs = await aclService.filterAccessible(user.id, user.role, 'document', rows);

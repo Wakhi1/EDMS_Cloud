@@ -111,6 +111,49 @@ class IntegrationsApi {
     });
   }
 
+  /// Same listing as [browse], plus which files/folders are already in the
+  /// Repository and which top-level folders are this app's own system areas.
+  Future<StorageListing> browseDetailed(String id, {String? prefix}) async {
+    final response = await _client.get(
+      Endpoints.integrationBrowse(id),
+      queryParameters: {if (prefix != null && prefix.isNotEmpty) 'prefix': prefix},
+    );
+    return _client.unwrap(response, (data) => StorageListing.fromJson(data as Map<String, dynamic>));
+  }
+
+  /// POST /api/integrations/:id/register — mirrors a storage folder (and,
+  /// with [recursive], its subfolders) into the Repository and imports its
+  /// files with auto-detected document types. System-Administrator-only.
+  Future<({int folders, int imported, List<String> skipped})> registerFolder(
+    String id, {
+    required String prefix,
+    int? parentFolderId,
+    bool recursive = true,
+    int? documentTypeId,
+    String? classification,
+  }) async {
+    final response = await _client.post(
+      '/api/integrations/$id/register',
+      data: {
+        'prefix': prefix,
+        'parentFolderId': ?parentFolderId,
+        'recursive': recursive,
+        'documentTypeId': ?documentTypeId,
+        'classification': ?classification,
+      },
+    );
+    return _client.unwrap(response, (data) {
+      final map = data as Map<String, dynamic>;
+      return (
+        folders: (map['folders'] as List).length,
+        imported: (map['imported'] as num).toInt(),
+        skipped: [
+          for (final s in (map['skipped'] as List)) '${(s as Map)['fileName']} — ${s['reason']}',
+        ],
+      );
+    });
+  }
+
   /// Returns the new folder's full prefix (e.g. `hr/contracts`), so callers
   /// can auto-select it right after creation.
   Future<String> createFolder(String id, {String? prefix, required String name}) async {
@@ -164,5 +207,48 @@ class IntegrationsApi {
         skippedCount: (map['skipped'] as List).length,
       );
     });
+  }
+}
+
+/// One level of a storage location, as GET /api/integrations/:id/browse returns it.
+class StorageListing {
+  const StorageListing({
+    required this.folders,
+    required this.files,
+    required this.systemFolders,
+    required this.registeredFiles,
+    required this.registeredFolders,
+    this.currentFolderPath,
+  });
+
+  final List<String> folders;
+  final List<String> files;
+
+  /// Top-level folders this app writes its own encrypted objects into.
+  final Set<String> systemFolders;
+
+  /// File name → record number, for files already in the Repository.
+  final Map<String, String> registeredFiles;
+
+  /// Folder name → Repository folder path, for folders already registered.
+  final Map<String, String> registeredFolders;
+
+  /// Repository path of the folder being browsed, when it is itself registered.
+  final String? currentFolderPath;
+
+  factory StorageListing.fromJson(Map<String, dynamic> json) {
+    final current = json['currentFolder'];
+    return StorageListing(
+      folders: [for (final f in (json['folders'] as List? ?? const [])) '$f'],
+      files: [for (final f in (json['files'] as List? ?? const [])) '$f'],
+      systemFolders: {for (final f in (json['systemFolders'] as List? ?? const [])) '$f'},
+      registeredFiles: {
+        for (final f in (json['registeredFiles'] as List? ?? const [])) '${(f as Map)['name']}': '${f['recordNo']}',
+      },
+      registeredFolders: {
+        for (final f in (json['registeredFolders'] as List? ?? const [])) '${(f as Map)['name']}': '${f['path']}',
+      },
+      currentFolderPath: current is Map ? '${current['path']}' : null,
+    );
   }
 }

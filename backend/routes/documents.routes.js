@@ -70,6 +70,9 @@ router.get('/', requireModuleAccess('repository'), asyncHandler(async (req, res)
     clauses.push('EXISTS (SELECT 1 FROM capture_batch_items cbi WHERE cbi.document_id = d.id AND cbi.batch_id = ?)');
     params.push(captureBatchId);
   }
+  // Placeholder/system files (".keep", ".DS_Store", ...) that came in with a
+  // storage folder are never records anyone wants to see.
+  clauses.push("(v.file_name IS NULL OR v.file_name NOT LIKE '.%')");
 
   const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
   const [rows] = await pool.query(

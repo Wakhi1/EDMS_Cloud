@@ -73,7 +73,7 @@ final _kTopLevelPaths = kNavGroups.expand((g) => g.items).map((i) => i.path).toS
 String? _backTargetFor(String matchedLocation) {
   if (_kTopLevelPaths.contains(matchedLocation)) return null;
   if (matchedLocation.startsWith('/viewer/')) return RoutePaths.repository;
-  if (matchedLocation.startsWith('/versions/')) return RoutePaths.versions;
+  if (matchedLocation.startsWith('/versions')) return RoutePaths.repository;
   if (matchedLocation.startsWith('/permissions/')) return RoutePaths.permissions;
   return null;
 }
@@ -121,7 +121,7 @@ class _TopAppBar extends ConsumerWidget implements PreferredSizeWidget {
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 440),
                   child: SizedBox(
-                    height: 32,
+                    height: 36,
                     child: TextField(
                       controller: searchController,
                       style: const TextStyle(fontSize: 12.5),

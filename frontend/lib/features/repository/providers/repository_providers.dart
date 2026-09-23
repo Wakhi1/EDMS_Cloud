@@ -41,7 +41,18 @@ final repositoryDocumentsProvider = FutureProvider.autoDispose<List<DocumentReco
   return ref.watch(documentsApiProvider).search(q: filters.q, folderId: filters.folderId, status: recycleBin ? 'archived' : filters.status);
 });
 
+/// The focused record (last clicked) — what the details panel describes.
 final selectedDocumentProvider = StateProvider<DocumentRecord?>((ref) => null);
+
+/// Multi-selection (document ids), Windows Explorer style: click, Ctrl+click,
+/// Shift+click, Ctrl+A. Always contains the focused record when non-empty.
+final repositorySelectionProvider = StateProvider<Set<int>>((ref) => <int>{});
+
+/// Where a Shift+click range starts (document id).
+final repositorySelectionAnchorProvider = StateProvider<int?>((ref) => null);
+
+/// Details panel shown as an overlay on narrower windows (toggled by the ⓘ button / Alt+Enter).
+final repositoryDetailsOverlayProvider = StateProvider<bool>((ref) => false);
 
 enum RepositoryViewMode { list, table, grid }
 

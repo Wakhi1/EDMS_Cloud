@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/models/folder_row.dart';
 import '../../../core/models/integration_row.dart';
+
+/// What the editor returns: the fields PUT /api/integrations/:id accepts.
+typedef IntegrationEdit = ({String name, String description, String status, String endpoint, Map<String, dynamic>? configJson});
 
 const _kIntegrationStatuses = <String>['connected', 'disconnected', 'error'];
 
@@ -16,9 +20,16 @@ const _kIntakeConnectorIds = <String>['watched_folder', 'ftp', 'email_intake'];
 /// happens in the caller (integrations_screen.dart), same "pure editor,
 /// caller mutates" shape as EditRetentionClassDialog.
 class EditIntegrationDialog extends StatefulWidget {
-  const EditIntegrationDialog({super.key, required this.integration});
+  const EditIntegrationDialog({super.key, required this.integration, this.onSubmit, this.folders = const []});
 
   final IntegrationRow integration;
+
+  /// When set, the form renders inline (no dialog chrome) and Save calls this
+  /// instead of popping — used by the Integrations screen's settings pane.
+  final Future<void> Function(IntegrationEdit result)? onSubmit;
+
+  /// Repository folders, for the intake connectors' destination picker.
+  final List<FolderRow> folders;
 
   @override
   State<EditIntegrationDialog> createState() => _EditIntegrationDialogState();
@@ -39,10 +50,13 @@ class _EditIntegrationDialogState extends State<EditIntegrationDialog> {
   late final _pathController = TextEditingController(text: '${_config['path'] ?? ''}');
   late final _mailboxController = TextEditingController(text: '${_config['mailbox'] ?? ''}');
   final _passwordController = TextEditingController();
-  late final _intervalController = TextEditingController(
-    text: '${_config['pollIntervalSeconds'] ?? _config['pollIntervalMinutes'] ?? ''}',
-  );
+  late final _intervalController = TextEditingController(text: '${_config['pollIntervalSeconds'] ?? _config['pollIntervalMinutes'] ?? ''}');
   late bool _enabled = _config['enabled'] == true;
+  // Intake destination (capture/scheduler.js reads config.defaultFolderId) and FTP TLS options.
+  late int? _defaultFolderId = (_config['defaultFolderId'] as num?)?.toInt();
+  late bool _ftpSecure = _config['secure'] == true;
+  late bool _ftpAllowSelfSigned = _config['allowSelfSigned'] == true;
+  bool _saving = false;
 
   // Active Directory config fields — only used/shown when this is the 'ad'
   // integration. The bind password is deliberately not editable here, same
@@ -155,11 +169,7 @@ class _EditIntegrationDialogState extends State<EditIntegrationDialog> {
   }
 
   Map<String, dynamic> _buildSmsConfigJson() {
-    return {
-      'provider': 'vonage',
-      'from': _smsFromController.text.trim().isEmpty ? 'PSPFEDMS' : _smsFromController.text.trim(),
-      'enabled': _enabled,
-    };
+    return {'provider': 'vonage', 'from': _smsFromController.text.trim().isEmpty ? 'PSPFEDMS' : _smsFromController.text.trim(), 'enabled': _enabled};
   }
 
   Map<String, dynamic> _buildSmtpConfigJson() {
@@ -247,294 +257,419 @@ class _EditIntegrationDialogState extends State<EditIntegrationDialog> {
       if (id == 'email_intake') 'mailbox': _mailboxController.text.trim().isEmpty ? 'INBOX' : _mailboxController.text.trim(),
       if (id == 'watched_folder') 'pollIntervalSeconds': interval,
       if (id == 'ftp' || id == 'email_intake') 'pollIntervalMinutes': interval,
+      if (id == 'ftp') 'secure': _ftpSecure,
+      if (id == 'ftp') 'allowSelfSigned': _ftpAllowSelfSigned,
+      'defaultFolderId': ?_defaultFolderId,
       'enabled': _enabled,
     };
   }
 
+  IntegrationEdit _result() => (
+    name: _nameController.text.trim(),
+    description: _descriptionController.text.trim(),
+    status: _status,
+    endpoint: _isAd ? _adUrlController.text.trim() : _endpointController.text.trim(),
+    configJson: _buildConfigJsonForSave(),
+  );
+
+  Future<void> _saveInline() async {
+    setState(() => _saving = true);
+    try {
+      await widget.onSubmit!(_result());
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final form = _form(context);
+    if (widget.onSubmit != null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          form,
+          const SizedBox(height: 16),
+          ElevatedButton(
+            onPressed: _saving ? null : _saveInline,
+            child: _saving ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Save changes'),
+          ),
+        ],
+      );
+    }
     return AlertDialog(
       title: Text('Edit ${widget.integration.name}'),
-      content: SizedBox(
-        width: 380,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              TextField(controller: _nameController, decoration: const InputDecoration(labelText: 'Name')),
-              const SizedBox(height: 12),
-              TextField(controller: _descriptionController, decoration: const InputDecoration(labelText: 'Description')),
-              const SizedBox(height: 12),
-              if (!_isIntakeConnector &&
-                  !_isAd &&
-                  !_isSms &&
-                  !_isSmtp &&
-                  !_isAwsS3 &&
-                  !_isAzureBlob &&
-                  !_isGcpStorage &&
-                  !_isLocal &&
-                  !_isWebhook) ...[
-                TextField(controller: _endpointController, decoration: const InputDecoration(labelText: 'Endpoint')),
-                const SizedBox(height: 12),
-              ],
-              DropdownButtonFormField<String>(
-                initialValue: _status,
-                isExpanded: true,
-                decoration: const InputDecoration(labelText: 'Status'),
-                items: [for (final s in _kIntegrationStatuses) DropdownMenuItem(value: s, child: Text(s))],
-                onChanged: (v) => setState(() => _status = v ?? _status),
-              ),
-              if (_isIntakeConnector) ...[
-                const Divider(height: 28),
-                Text('Connection', style: Theme.of(context).textTheme.titleSmall),
-                const SizedBox(height: 10),
-                if (widget.integration.id != 'watched_folder') ...[
-                  Row(
-                    children: [
-                      Expanded(flex: 2, child: TextField(controller: _hostController, decoration: const InputDecoration(labelText: 'Host'))),
-                      const SizedBox(width: 8),
-                      Expanded(child: TextField(controller: _portController, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Port'))),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(controller: _userController, decoration: const InputDecoration(labelText: 'Username')),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _passwordController,
-                    obscureText: true,
-                    decoration: const InputDecoration(labelText: 'Password', hintText: 'Leave blank to keep the current password'),
-                  ),
-                  const SizedBox(height: 12),
-                ],
-                if (widget.integration.id == 'watched_folder')
-                  TextField(controller: _pathController, decoration: const InputDecoration(labelText: 'Subfolder (blank = root intake directory)')),
-                if (widget.integration.id == 'ftp')
-                  TextField(controller: _pathController, decoration: const InputDecoration(labelText: 'Remote path')),
-                if (widget.integration.id == 'email_intake')
-                  TextField(controller: _mailboxController, decoration: const InputDecoration(labelText: 'Mailbox')),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _intervalController,
-                  keyboardType: TextInputType.number,
-                  decoration: InputDecoration(labelText: widget.integration.id == 'watched_folder' ? 'Poll interval (seconds)' : 'Poll interval (minutes)'),
-                ),
-                const SizedBox(height: 4),
-                CheckboxListTile(
-                  value: _enabled,
-                  onChanged: (v) => setState(() => _enabled = v ?? false),
-                  controlAffinity: ListTileControlAffinity.leading,
-                  contentPadding: EdgeInsets.zero,
-                  dense: true,
-                  title: const Text('Enabled — poll automatically while the server is running'),
-                ),
-              ],
-              if (_isAd) ...[
-                const Divider(height: 28),
-                Text('Connection', style: Theme.of(context).textTheme.titleSmall),
-                const SizedBox(height: 10),
-                TextField(controller: _adUrlController, decoration: const InputDecoration(labelText: 'URL (e.g. ldaps://dc01.example.local:636)')),
-                const SizedBox(height: 12),
-                TextField(controller: _adBindDnController, decoration: const InputDecoration(labelText: 'Service account bind DN')),
-                const SizedBox(height: 12),
-                const Text(
-                  'Bind password is set via the backend .env file (AD_BIND_PASSWORD), not here.',
-                  style: TextStyle(fontSize: 11.5),
-                ),
-                const SizedBox(height: 12),
-                TextField(controller: _adSearchBaseController, decoration: const InputDecoration(labelText: 'Search base (e.g. dc=example,dc=local)')),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _adSearchFilterController,
-                  decoration: const InputDecoration(labelText: 'Search filter ({{email}} is substituted)'),
-                ),
-                const SizedBox(height: 4),
-                CheckboxListTile(
-                  value: _adTlsRejectUnauthorized,
-                  onChanged: (v) => setState(() => _adTlsRejectUnauthorized = v ?? true),
-                  controlAffinity: ListTileControlAffinity.leading,
-                  contentPadding: EdgeInsets.zero,
-                  dense: true,
-                  title: const Text('Reject unauthorized TLS certificates'),
-                ),
-                CheckboxListTile(
-                  value: _enabled,
-                  onChanged: (v) => setState(() => _enabled = v ?? false),
-                  controlAffinity: ListTileControlAffinity.leading,
-                  contentPadding: EdgeInsets.zero,
-                  dense: true,
-                  title: const Text('Enabled'),
-                ),
-              ],
-              if (_isSms) ...[
-                const Divider(height: 28),
-                Text('Connection', style: Theme.of(context).textTheme.titleSmall),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: _smsFromController,
-                  decoration: const InputDecoration(labelText: 'Sender ID (shown to recipients as "from")'),
-                ),
-                const SizedBox(height: 12),
-                const Text(
-                  'API key/secret are set via the backend .env file (VONAGE_API_KEY / VONAGE_API_SECRET), not here. '
-                  'Only users with a valid phone number in international format (e.g. +268...) are offered SMS as an MFA method.',
-                  style: TextStyle(fontSize: 11.5),
-                ),
-                const SizedBox(height: 4),
-                CheckboxListTile(
-                  value: _enabled,
-                  onChanged: (v) => setState(() => _enabled = v ?? false),
-                  controlAffinity: ListTileControlAffinity.leading,
-                  contentPadding: EdgeInsets.zero,
-                  dense: true,
-                  title: const Text('Enabled'),
-                ),
-              ],
-              if (_isSmtp) ...[
-                const Divider(height: 28),
-                Text('Connection', style: Theme.of(context).textTheme.titleSmall),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(flex: 2, child: TextField(controller: _hostController, decoration: const InputDecoration(labelText: 'Host'))),
-                    const SizedBox(width: 8),
-                    Expanded(child: TextField(controller: _portController, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Port'))),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                TextField(controller: _userController, decoration: const InputDecoration(labelText: 'Username')),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _passwordController,
-                  obscureText: true,
-                  decoration: const InputDecoration(labelText: 'Password', hintText: 'Leave blank to keep the current password'),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _smtpFromController,
-                  decoration: const InputDecoration(labelText: 'From', hintText: 'PSPF EDMS <no-reply@pspf.co.sz>'),
-                ),
-                const SizedBox(height: 4),
-                CheckboxListTile(
-                  value: _smtpSecure,
-                  onChanged: (v) => setState(() => _smtpSecure = v ?? false),
-                  controlAffinity: ListTileControlAffinity.leading,
-                  contentPadding: EdgeInsets.zero,
-                  dense: true,
-                  title: const Text('Use TLS/SSL (secure)'),
-                ),
-                CheckboxListTile(
-                  value: _enabled,
-                  onChanged: (v) => setState(() => _enabled = v ?? false),
-                  controlAffinity: ListTileControlAffinity.leading,
-                  contentPadding: EdgeInsets.zero,
-                  dense: true,
-                  title: const Text('Enabled'),
-                ),
-              ],
-              if (_isAwsS3) ...[
-                const Divider(height: 28),
-                Text('Connection', style: Theme.of(context).textTheme.titleSmall),
-                const SizedBox(height: 10),
-                TextField(controller: _awsRegionController, decoration: const InputDecoration(labelText: 'Region (e.g. eu-north-1)')),
-                const SizedBox(height: 12),
-                TextField(controller: _awsAccessKeyIdController, decoration: const InputDecoration(labelText: 'Access key ID')),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _awsSecretAccessKeyController,
-                  obscureText: true,
-                  decoration: const InputDecoration(labelText: 'Secret access key', hintText: 'Leave blank to keep the current value'),
-                ),
-                const SizedBox(height: 12),
-                TextField(controller: _awsBucketController, decoration: const InputDecoration(labelText: 'Bucket')),
-              ],
-              if (_isAzureBlob) ...[
-                const Divider(height: 28),
-                Text('Connection', style: Theme.of(context).textTheme.titleSmall),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: _azureConnectionStringController,
-                  obscureText: true,
-                  decoration: const InputDecoration(labelText: 'Connection string', hintText: 'Leave blank to keep the current value'),
-                ),
-                const SizedBox(height: 12),
-                TextField(controller: _azureContainerController, decoration: const InputDecoration(labelText: 'Container')),
-              ],
-              if (_isGcpStorage) ...[
-                const Divider(height: 28),
-                Text('Connection', style: Theme.of(context).textTheme.titleSmall),
-                const SizedBox(height: 10),
-                TextField(controller: _gcpProjectIdController, decoration: const InputDecoration(labelText: 'Project ID')),
-                const SizedBox(height: 12),
-                TextField(controller: _gcpBucketController, decoration: const InputDecoration(labelText: 'Bucket')),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _gcpServiceAccountJsonController,
-                  maxLines: 4,
-                  decoration: const InputDecoration(
-                    labelText: 'Service account JSON key',
-                    hintText: 'Paste the downloaded key file\'s contents — leave blank to keep the current value',
-                    alignLabelWithHint: true,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _gcpKeyFilePathController,
-                  decoration: const InputDecoration(labelText: 'Key file path (used only if no JSON key is set above)'),
-                ),
-              ],
-              if (_isLocal) ...[
-                const Divider(height: 28),
-                Text('Connection', style: Theme.of(context).textTheme.titleSmall),
-                const SizedBox(height: 10),
-                TextField(controller: _localRootPathController, decoration: const InputDecoration(labelText: 'Root path on the server')),
-              ],
-              if (_isWebhook) ...[
-                const Divider(height: 28),
-                Text('Connection', style: Theme.of(context).textTheme.titleSmall),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: _webhookUrlController,
-                  decoration: const InputDecoration(labelText: 'Webhook URL', hintText: 'https://example.com/hooks/pspf-edms'),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _webhookAuthTokenController,
-                  obscureText: true,
-                  decoration: const InputDecoration(labelText: 'Auth token (sent as Bearer)', hintText: 'Leave blank to keep the current value'),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _intervalController,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'Push interval (minutes)'),
-                ),
-                const SizedBox(height: 4),
-                CheckboxListTile(
-                  value: _enabled,
-                  onChanged: (v) => setState(() => _enabled = v ?? false),
-                  controlAffinity: ListTileControlAffinity.leading,
-                  contentPadding: EdgeInsets.zero,
-                  dense: true,
-                  title: const Text('Enabled — push automatically while the server is running'),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
+      content: SizedBox(width: 380, child: SingleChildScrollView(child: form)),
       actions: [
         TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
-        ElevatedButton(
-          onPressed: () => Navigator.of(context).pop((
-            name: _nameController.text.trim(),
-            description: _descriptionController.text.trim(),
-            status: _status,
-            endpoint: _isAd ? _adUrlController.text.trim() : _endpointController.text.trim(),
-            configJson: _buildConfigJsonForSave(),
-          )),
-          child: const Text('Save'),
+        ElevatedButton(onPressed: () => Navigator.of(context).pop(_result()), child: const Text('Save')),
+      ],
+    );
+  }
+
+  Widget _form(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextField(
+          controller: _nameController,
+          decoration: const InputDecoration(labelText: 'Name'),
         ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _descriptionController,
+          decoration: const InputDecoration(labelText: 'Description'),
+        ),
+        const SizedBox(height: 12),
+        if (!_isIntakeConnector && !_isAd && !_isSms && !_isSmtp && !_isAwsS3 && !_isAzureBlob && !_isGcpStorage && !_isLocal && !_isWebhook) ...[
+          TextField(
+            controller: _endpointController,
+            decoration: const InputDecoration(labelText: 'Endpoint'),
+          ),
+          const SizedBox(height: 12),
+        ],
+        DropdownButtonFormField<String>(
+          initialValue: _status,
+          isExpanded: true,
+          decoration: const InputDecoration(labelText: 'Status'),
+          items: [for (final s in _kIntegrationStatuses) DropdownMenuItem(value: s, child: Text(s))],
+          onChanged: (v) => setState(() => _status = v ?? _status),
+        ),
+        if (_isIntakeConnector) ...[
+          const Divider(height: 28),
+          Text('Connection', style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 10),
+          if (widget.integration.id != 'watched_folder') ...[
+            Row(
+              children: [
+                Expanded(
+                  flex: 2,
+                  child: TextField(
+                    controller: _hostController,
+                    decoration: const InputDecoration(labelText: 'Host'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextField(
+                    controller: _portController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Port'),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _userController,
+              decoration: const InputDecoration(labelText: 'Username'),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _passwordController,
+              obscureText: true,
+              decoration: const InputDecoration(labelText: 'Password', hintText: 'Leave blank to keep the current password'),
+            ),
+            const SizedBox(height: 12),
+          ],
+          if (widget.integration.id == 'watched_folder')
+            TextField(
+              controller: _pathController,
+              decoration: const InputDecoration(labelText: 'Subfolder (blank = root intake directory)'),
+            ),
+          if (widget.integration.id == 'ftp')
+            TextField(
+              controller: _pathController,
+              decoration: const InputDecoration(labelText: 'Remote path'),
+            ),
+          if (widget.integration.id == 'email_intake')
+            TextField(
+              controller: _mailboxController,
+              decoration: const InputDecoration(labelText: 'Mailbox'),
+            ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _intervalController,
+            keyboardType: TextInputType.number,
+            decoration: InputDecoration(labelText: widget.integration.id == 'watched_folder' ? 'Poll interval (seconds)' : 'Poll interval (minutes)'),
+          ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<int?>(
+            initialValue: widget.folders.any((f) => f.id == _defaultFolderId) ? _defaultFolderId : null,
+            isExpanded: true,
+            decoration: const InputDecoration(labelText: 'Destination folder in the Repository', helperText: 'Captured files are filed here'),
+            items: [
+              for (final f in [...widget.folders]..sort((a, b) => a.path.compareTo(b.path)))
+                DropdownMenuItem<int?>(
+                  value: f.id,
+                  child: Text(f.path, overflow: TextOverflow.ellipsis),
+                ),
+            ],
+            onChanged: (v) => setState(() => _defaultFolderId = v),
+          ),
+          if (widget.integration.id == 'ftp') ...[
+            const SizedBox(height: 4),
+            CheckboxListTile(
+              value: _ftpSecure,
+              onChanged: (v) => setState(() => _ftpSecure = v ?? false),
+              controlAffinity: ListTileControlAffinity.leading,
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              title: const Text('Use FTPS (explicit TLS) — recommended'),
+            ),
+            if (_ftpSecure)
+              CheckboxListTile(
+                value: _ftpAllowSelfSigned,
+                onChanged: (v) => setState(() => _ftpAllowSelfSigned = v ?? false),
+                controlAffinity: ListTileControlAffinity.leading,
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                title: const Text('Accept the server\'s own certificate (shared hosting)'),
+              ),
+          ],
+          const SizedBox(height: 4),
+          CheckboxListTile(
+            value: _enabled,
+            onChanged: (v) => setState(() => _enabled = v ?? false),
+            controlAffinity: ListTileControlAffinity.leading,
+            contentPadding: EdgeInsets.zero,
+            dense: true,
+            title: const Text('Enabled — poll automatically while the server is running'),
+          ),
+        ],
+        if (_isAd) ...[
+          const Divider(height: 28),
+          Text('Connection', style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _adUrlController,
+            decoration: const InputDecoration(labelText: 'URL (e.g. ldaps://dc01.example.local:636)'),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _adBindDnController,
+            decoration: const InputDecoration(labelText: 'Service account bind DN'),
+          ),
+          const SizedBox(height: 12),
+          const Text('Bind password is set via the backend .env file (AD_BIND_PASSWORD), not here.', style: TextStyle(fontSize: 11.5)),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _adSearchBaseController,
+            decoration: const InputDecoration(labelText: 'Search base (e.g. dc=example,dc=local)'),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _adSearchFilterController,
+            decoration: const InputDecoration(labelText: 'Search filter ({{email}} is substituted)'),
+          ),
+          const SizedBox(height: 4),
+          CheckboxListTile(
+            value: _adTlsRejectUnauthorized,
+            onChanged: (v) => setState(() => _adTlsRejectUnauthorized = v ?? true),
+            controlAffinity: ListTileControlAffinity.leading,
+            contentPadding: EdgeInsets.zero,
+            dense: true,
+            title: const Text('Reject unauthorized TLS certificates'),
+          ),
+          CheckboxListTile(
+            value: _enabled,
+            onChanged: (v) => setState(() => _enabled = v ?? false),
+            controlAffinity: ListTileControlAffinity.leading,
+            contentPadding: EdgeInsets.zero,
+            dense: true,
+            title: const Text('Enabled'),
+          ),
+        ],
+        if (_isSms) ...[
+          const Divider(height: 28),
+          Text('Connection', style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _smsFromController,
+            decoration: const InputDecoration(labelText: 'Sender ID (shown to recipients as "from")'),
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'API key/secret are set via the backend .env file (VONAGE_API_KEY / VONAGE_API_SECRET), not here. '
+            'Only users with a valid phone number in international format (e.g. +268...) are offered SMS as an MFA method.',
+            style: TextStyle(fontSize: 11.5),
+          ),
+          const SizedBox(height: 4),
+          CheckboxListTile(
+            value: _enabled,
+            onChanged: (v) => setState(() => _enabled = v ?? false),
+            controlAffinity: ListTileControlAffinity.leading,
+            contentPadding: EdgeInsets.zero,
+            dense: true,
+            title: const Text('Enabled'),
+          ),
+        ],
+        if (_isSmtp) ...[
+          const Divider(height: 28),
+          Text('Connection', style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                flex: 2,
+                child: TextField(
+                  controller: _hostController,
+                  decoration: const InputDecoration(labelText: 'Host'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: TextField(
+                  controller: _portController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Port'),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _userController,
+            decoration: const InputDecoration(labelText: 'Username'),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _passwordController,
+            obscureText: true,
+            decoration: const InputDecoration(labelText: 'Password', hintText: 'Leave blank to keep the current password'),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _smtpFromController,
+            decoration: const InputDecoration(labelText: 'From', hintText: 'PSPF EDMS <no-reply@pspf.co.sz>'),
+          ),
+          const SizedBox(height: 4),
+          CheckboxListTile(
+            value: _smtpSecure,
+            onChanged: (v) => setState(() => _smtpSecure = v ?? false),
+            controlAffinity: ListTileControlAffinity.leading,
+            contentPadding: EdgeInsets.zero,
+            dense: true,
+            title: const Text('Use TLS/SSL (secure)'),
+          ),
+          CheckboxListTile(
+            value: _enabled,
+            onChanged: (v) => setState(() => _enabled = v ?? false),
+            controlAffinity: ListTileControlAffinity.leading,
+            contentPadding: EdgeInsets.zero,
+            dense: true,
+            title: const Text('Enabled'),
+          ),
+        ],
+        if (_isAwsS3) ...[
+          const Divider(height: 28),
+          Text('Connection', style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _awsRegionController,
+            decoration: const InputDecoration(labelText: 'Region (e.g. eu-north-1)'),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _awsAccessKeyIdController,
+            decoration: const InputDecoration(labelText: 'Access key ID'),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _awsSecretAccessKeyController,
+            obscureText: true,
+            decoration: const InputDecoration(labelText: 'Secret access key', hintText: 'Leave blank to keep the current value'),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _awsBucketController,
+            decoration: const InputDecoration(labelText: 'Bucket'),
+          ),
+        ],
+        if (_isAzureBlob) ...[
+          const Divider(height: 28),
+          Text('Connection', style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _azureConnectionStringController,
+            obscureText: true,
+            decoration: const InputDecoration(labelText: 'Connection string', hintText: 'Leave blank to keep the current value'),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _azureContainerController,
+            decoration: const InputDecoration(labelText: 'Container'),
+          ),
+        ],
+        if (_isGcpStorage) ...[
+          const Divider(height: 28),
+          Text('Connection', style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _gcpProjectIdController,
+            decoration: const InputDecoration(labelText: 'Project ID'),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _gcpBucketController,
+            decoration: const InputDecoration(labelText: 'Bucket'),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _gcpServiceAccountJsonController,
+            maxLines: 4,
+            decoration: const InputDecoration(
+              labelText: 'Service account JSON key',
+              hintText: 'Paste the downloaded key file\'s contents — leave blank to keep the current value',
+              alignLabelWithHint: true,
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _gcpKeyFilePathController,
+            decoration: const InputDecoration(labelText: 'Key file path (used only if no JSON key is set above)'),
+          ),
+        ],
+        if (_isLocal) ...[
+          const Divider(height: 28),
+          Text('Connection', style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _localRootPathController,
+            decoration: const InputDecoration(labelText: 'Root path on the server'),
+          ),
+        ],
+        if (_isWebhook) ...[
+          const Divider(height: 28),
+          Text('Connection', style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _webhookUrlController,
+            decoration: const InputDecoration(labelText: 'Webhook URL', hintText: 'https://example.com/hooks/pspf-edms'),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _webhookAuthTokenController,
+            obscureText: true,
+            decoration: const InputDecoration(labelText: 'Auth token (sent as Bearer)', hintText: 'Leave blank to keep the current value'),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _intervalController,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(labelText: 'Push interval (minutes)'),
+          ),
+          const SizedBox(height: 4),
+          CheckboxListTile(
+            value: _enabled,
+            onChanged: (v) => setState(() => _enabled = v ?? false),
+            controlAffinity: ListTileControlAffinity.leading,
+            contentPadding: EdgeInsets.zero,
+            dense: true,
+            title: const Text('Enabled — push automatically while the server is running'),
+          ),
+        ],
       ],
     );
   }

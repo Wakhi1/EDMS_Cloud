@@ -18,7 +18,27 @@ const storageService = require('./storage/storage.service');
 const ocrService = require('./ocr.service');
 const { countPages } = require('./pageCount.service');
 const { findDuplicateByContentHash } = require('./document.service');
-const { claimNextAvailable, releaseIndex, linkIndexToDocument } = require('./recordIndex.service');
+const { claimNextAvailable, releaseIndex, linkIndexToDocument, NoAvailableIndexError } = require('./recordIndex.service');
+const { suggestDocumentType, resolveDocumentTypeId } = require('./classification.service');
+
+/** Placeholder/system files and this app's own encrypted objects — never importable content. */
+function isImportable(fileName) {
+  return !fileName.startsWith('.') && !fileName.endsWith('.enc');
+}
+
+/** Which of `keys` are already registered as a document's storage object, keyed by object key. */
+async function registeredKeys(providerId, keys) {
+  if (!keys.length) return new Map();
+  const [rows] = await pool.query(
+    `SELECT dso.object_key, d.id AS documentId, d.record_no AS recordNo
+     FROM document_storage_objects dso
+     JOIN document_versions v ON v.storage_object_id = dso.id
+     JOIN documents d ON d.id = v.document_id
+     WHERE dso.provider = ? AND dso.object_key IN (?)`,
+    [providerId, keys]
+  );
+  return new Map(rows.map((r) => [r.object_key, { documentId: r.documentId, recordNo: r.recordNo }]));
+}
 
 function guessMimeType(filename) {
   const ext = (filename.split('.').pop() || '').toLowerCase();
@@ -32,7 +52,9 @@ function guessMimeType(filename) {
 
 /**
  * Imports every file directly under `prefix` (non-recursive — subfolders
- * are left for a separate import call) into `folderId`.
+ * are left for a separate import call) into `folderId`. With no
+ * documentTypeId each file's type is suggested from its name and text.
+ * Already-registered files, placeholders and encrypted app objects are skipped.
  * @returns {Promise<{imported: Array, skipped: Array}>}
  */
 async function importFromStorage({
@@ -43,8 +65,10 @@ async function importFromStorage({
   const provider = storageService.providers[providerId];
   if (!provider) throw new Error(`"${providerId}" is not a known storage provider`);
 
-  const [[docType]] = await pool.query('SELECT id FROM document_types WHERE id = ?', [documentTypeId]);
-  if (!docType) throw new Error('Unknown document type');
+  if (documentTypeId) {
+    const [[docType]] = await pool.query('SELECT id FROM document_types WHERE id = ?', [documentTypeId]);
+    if (!docType) throw new Error('Unknown document type');
+  }
 
   const [[actingUser]] = await pool.query('SELECT company_id FROM users WHERE id = ?', [userId]);
   if (!actingUser) throw new Error(`importFromStorage: userId ${userId} does not resolve to a user`);
@@ -54,8 +78,16 @@ async function importFromStorage({
   const imported = [];
   const skipped = [];
 
-  for (const fileName of files) {
-    const objectKey = prefix ? `${prefix.replace(/\/+$/, '')}/${fileName}` : fileName;
+  const keyFor = (fileName) => (prefix ? `${prefix.replace(/\/+$/, '')}/${fileName}` : fileName);
+  const candidates = files.filter(isImportable);
+  const already = await registeredKeys(providerId, candidates.map(keyFor));
+
+  for (const fileName of candidates) {
+    const objectKey = keyFor(fileName);
+    if (already.has(objectKey)) {
+      skipped.push({ fileName, reason: `Already registered as ${already.get(objectKey).recordNo}` });
+      continue; // eslint-disable-line no-continue
+    }
     // eslint-disable-next-line no-await-in-loop
     const buffer = await provider.download(objectKey);
     const contentHash = sha256(buffer);
@@ -77,8 +109,22 @@ async function importFromStorage({
     // for this type rather than presenting a picker (same as Capture &
     // Scan's automated paths) — claimed outside conn's transaction below,
     // so a rollback there must explicitly release it too (see catch).
-    // eslint-disable-next-line no-await-in-loop
-    const claimedIndex = await claimNextAvailable({ documentTypeId, companyId });
+    let typeId = documentTypeId;
+    if (!typeId) {
+      // eslint-disable-next-line no-await-in-loop
+      const suggested = await suggestDocumentType({ text: ocrResult.text, fileName, companyId });
+      // eslint-disable-next-line no-await-in-loop
+      typeId = suggested ? suggested.id : await resolveDocumentTypeId(null);
+    }
+    let claimedIndex;
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      claimedIndex = await claimNextAvailable({ documentTypeId: typeId, companyId });
+    } catch (err) {
+      if (!(err instanceof NoAvailableIndexError)) throw err;
+      skipped.push({ fileName, reason: 'No record numbers left for its document type — generate more in Settings → Indexing' });
+      continue; // eslint-disable-line no-continue
+    }
     const recordNo = claimedIndex.indexValue;
 
     // eslint-disable-next-line no-await-in-loop
@@ -101,7 +147,7 @@ async function importFromStorage({
         `INSERT INTO documents
            (company_id, record_no, title, document_type_id, folder_id, department_id, classification, retention_class_id, owner_id, created_by)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [companyId, recordNo, fileName, documentTypeId, folderId, departmentId || null, classification || 'internal', retentionClassId || null, userId, userId]
+        [companyId, recordNo, fileName, typeId, folderId, departmentId || null, classification || 'internal', retentionClassId || null, userId, userId]
       );
 
       const [version] = await conn.query(
@@ -133,4 +179,4 @@ async function importFromStorage({
   return { imported, skipped };
 }
 
-module.exports = { importFromStorage };
+module.exports = { importFromStorage, isImportable, registeredKeys };
