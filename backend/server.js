@@ -35,6 +35,7 @@ const {
   startScheduler: startLicenseScheduler,
 } = require("./services/license/scheduler");
 const { startPushScheduler } = require("./services/push/scheduler");
+const { startAuditRetentionScheduler } = require("./services/audit/retention.scheduler");
 
 const app = express();
 
@@ -140,6 +141,7 @@ const PORT = process.env.PORT || 4000;
     startWorkflowScheduleScheduler();
     startLicenseScheduler();
     await startPushScheduler();
+    startAuditRetentionScheduler();
   } catch (err) {
     logger.error("Failed to start server — check DB configuration", {
       error: err.message,

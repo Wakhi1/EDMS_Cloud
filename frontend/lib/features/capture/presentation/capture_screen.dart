@@ -97,8 +97,8 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
     setState(() => _exporting = true);
     try {
       final result = await ref.read(captureBatchesApiProvider).exportCsv();
-      await saveBytes(bytes: result.bytes, fileName: result.fileName, mimeType: 'text/csv');
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Downloaded ${result.fileName}')));
+      final saved = await saveBytes(bytes: result.bytes, fileName: result.fileName, mimeType: 'text/csv');
+      if (mounted && saved) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Saved ${result.fileName}')));
     } on ApiException catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
     } finally {

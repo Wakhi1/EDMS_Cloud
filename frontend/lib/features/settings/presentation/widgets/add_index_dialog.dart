@@ -19,13 +19,20 @@ class AddIndexDialog extends StatefulWidget {
 }
 
 class _AddIndexDialogState extends State<AddIndexDialog> {
+  // No type is pre-selected: silently defaulting to the first type is how
+  // numbers ended up filed under the wrong type and never offered on upload.
   int? _documentTypeId;
+  bool _typeChosenByUser = false;
+  bool _showErrors = false;
   final _valueController = TextEditingController();
 
-  @override
-  void initState() {
-    super.initState();
-    if (widget.types.isNotEmpty) _documentTypeId = widget.types.first.id;
+  /// Picks the type whose code the value starts with (e.g. "PV-2026-0042" → PV),
+  /// until the user chooses a type themselves.
+  void _onValueChanged(String value) {
+    if (_typeChosenByUser) return;
+    final prefix = RegExp(r'^[A-Za-z]+').stringMatch(value.trim())?.toUpperCase();
+    final match = prefix == null ? null : widget.types.where((t) => t.code.toUpperCase() == prefix).firstOrNull;
+    setState(() => _documentTypeId = match?.id);
   }
 
   @override
@@ -37,24 +44,37 @@ class _AddIndexDialogState extends State<AddIndexDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Add index'),
+      title: const Text('Add record number'),
       content: SizedBox(
         width: 340,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            DropdownButtonFormField<int>(
-              initialValue: _documentTypeId,
-              isExpanded: true,
-              decoration: const InputDecoration(labelText: 'Document type'),
-              items: [for (final t in widget.types) DropdownMenuItem(value: t.id, child: Text(t.name, overflow: TextOverflow.ellipsis))],
-              onChanged: (v) => setState(() => _documentTypeId = v),
-            ),
-            const SizedBox(height: 12),
             TextField(
               controller: _valueController,
               autofocus: true,
-              decoration: const InputDecoration(labelText: 'Index value', hintText: 'e.g. PC-2026-0433'),
+              onChanged: _onValueChanged,
+              decoration: InputDecoration(
+                labelText: 'Record number',
+                hintText: 'e.g. PC-2026-0433',
+                errorText: _showErrors && _valueController.text.trim().isEmpty ? 'Enter the number' : null,
+              ),
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<int>(
+              key: ValueKey(_documentTypeId),
+              initialValue: _documentTypeId,
+              isExpanded: true,
+              decoration: InputDecoration(
+                labelText: 'Document type',
+                helperText: 'Uploads of this type will offer this number',
+                errorText: _showErrors && _documentTypeId == null ? 'Choose the type this number belongs to' : null,
+              ),
+              items: [for (final t in widget.types) DropdownMenuItem(value: t.id, child: Text('${t.name}  (${t.code})', overflow: TextOverflow.ellipsis))],
+              onChanged: (v) => setState(() {
+                _documentTypeId = v;
+                _typeChosenByUser = true;
+              }),
             ),
           ],
         ),
@@ -64,7 +84,10 @@ class _AddIndexDialogState extends State<AddIndexDialog> {
         ElevatedButton(
           onPressed: () {
             final value = _valueController.text.trim();
-            if (_documentTypeId == null || value.isEmpty) return;
+            if (_documentTypeId == null || value.isEmpty) {
+              setState(() => _showErrors = true);
+              return;
+            }
             Navigator.of(context).pop((documentTypeId: _documentTypeId!, indexValue: value));
           },
           child: const Text('Add'),

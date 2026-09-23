@@ -960,6 +960,8 @@ INSERT INTO `system_settings` (`setting_key`, `company_id`, `setting_value`, `de
 ('backup_schedule_enabled', 1, 'false', 'Run an automatic nightly database backup'),
 ('backup_schedule_hour', 1, '2', 'Hour of day (0-23, server local time) the automatic nightly backup runs'),
 ('storage_capacity_bytes', 1, '107374182400', 'Total provisioned storage capacity in bytes, shown on the Dashboard (default 100 GB)'),
+('audit_retention_days', 1, '0', 'How many days audit entries are kept (0 = forever, otherwise at least 90). Older entries are deleted daily.'),
+('audit_chain_anchor_hash', 1, NULL, 'Hash of the last audit entry removed by retention — where hash-chain verification starts. Managed automatically.'),
 ('storage_capacity_bytes_local', 1, '0', 'Capacity in bytes of the Local disk storage location, shown on the Dashboard (0 = use the disk''s own size)'),
 ('storage_capacity_bytes_aws_s3', 1, '0', 'Provisioned capacity in bytes of the AWS S3 storage location, shown on the Dashboard (0 = not set)'),
 ('storage_capacity_bytes_azure_blob', 1, '0', 'Provisioned capacity in bytes of the Azure Blob storage location, shown on the Dashboard (0 = not set)'),

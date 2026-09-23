@@ -4,7 +4,7 @@ import 'package:web/web.dart' as web;
 
 /// Triggers a browser download via an object URL — Blob download, per the
 /// approved plan's design for web-target document download.
-Future<void> saveBytes({required List<int> bytes, required String fileName, String? mimeType}) async {
+Future<bool> saveBytes({required List<int> bytes, required String fileName, String? mimeType}) async {
   final blob = web.Blob(
     [Uint8List.fromList(bytes).toJS].toJS,
     web.BlobPropertyBag(type: mimeType ?? 'application/octet-stream'),
@@ -18,4 +18,5 @@ Future<void> saveBytes({required List<int> bytes, required String fileName, Stri
   anchor.click();
   anchor.remove();
   web.URL.revokeObjectURL(url);
+  return true;
 }

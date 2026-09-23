@@ -175,9 +175,9 @@ class _ViewerBodyState extends ConsumerState<_ViewerBody> {
     try {
       final content = await ref.read(documentsApiProvider).content(doc.id, reason: reason);
       final fileName = content.fileName ?? '${doc.recordNo}.pdf';
-      await saveBytes(bytes: content.bytes, fileName: fileName, mimeType: content.contentType);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Downloaded $fileName')));
+      final saved = await saveBytes(bytes: content.bytes, fileName: fileName, mimeType: content.contentType);
+      if (mounted && saved) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Saved $fileName')));
       }
     } on ApiException catch (e) {
       if (mounted) {

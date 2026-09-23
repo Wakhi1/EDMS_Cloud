@@ -15,6 +15,8 @@ const { requireModuleAccess, allowRoles } = require('../middleware/rbac.middlewa
 const { logAudit } = require('../services/audit.service');
 const { getStoredLicenseKey, verifyLicenseKeyWithProvider } = require('../services/license.service');
 
+const { MIN_RETENTION_DAYS } = require('../services/audit/retention.scheduler');
+
 const router = express.Router();
 router.use(authenticate);
 
@@ -111,6 +113,13 @@ router.put(
 
     const [[before]] = await pool.query('SELECT setting_value FROM system_settings WHERE setting_key = ?', [req.params.key]);
     if (!before) return fail(res, 'Unknown setting key', 404);
+    if (req.params.key === 'audit_chain_anchor_hash') return fail(res, 'This value is managed automatically', 403);
+    if (req.params.key === 'audit_retention_days') {
+      const days = Number(req.body.value);
+      if (!Number.isInteger(days) || days < 0 || (days > 0 && days < MIN_RETENTION_DAYS)) {
+        return fail(res, `Keep audit entries forever (0) or for at least ${MIN_RETENTION_DAYS} days`, 422);
+      }
+    }
 
     await pool.query('UPDATE system_settings SET setting_value = ? WHERE setting_key = ?', [String(req.body.value), req.params.key]);
     await logAudit({

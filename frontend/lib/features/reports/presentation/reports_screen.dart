@@ -8,6 +8,7 @@ import '../../../core/models/count_item.dart';
 import '../../../core/theme/pspf_tokens.dart';
 import '../../../core/utils/file_saver/file_saver.dart';
 import '../../../core/utils/format_bytes.dart';
+import '../../../core/widgets/compact_controls.dart';
 import '../../../core/widgets/compact_date_range_picker.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/label_value_bar_chart.dart';
@@ -42,17 +43,10 @@ class ReportsScreen extends ConsumerStatefulWidget {
 class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   bool _exporting = false;
 
-  static const _mimeTypes = {
-    'csv': 'text/csv',
-    'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'pdf': 'application/pdf',
-  };
+  static const _mimeTypes = {'csv': 'text/csv', 'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'pdf': 'application/pdf'};
 
   Future<void> _openExportDialog() async {
-    final result = await showDialog<({String format, bool includeSignature})>(
-      context: context,
-      builder: (_) => const ExportReportDialog(),
-    );
+    final result = await showDialog<({String format, bool includeSignature})>(context: context, builder: (_) => const ExportReportDialog());
     if (result == null) return;
     await _export(result.format, includeSignature: result.includeSignature);
   }
@@ -66,7 +60,9 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     try {
       final f = ref.read(reportsFiltersProvider);
       final sections = ref.read(selectedReportSectionsProvider);
-      final result = await ref.read(reportsApiProvider).export(
+      final result = await ref
+          .read(reportsApiProvider)
+          .export(
             format: format,
             from: f.from,
             to: f.to,
@@ -77,8 +73,8 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
             sections: sections.toList(),
             includeSignature: includeSignature,
           );
-      await saveBytes(bytes: result.bytes, fileName: result.fileName, mimeType: _mimeTypes[format]!);
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Downloaded ${result.fileName}')));
+      final saved = await saveBytes(bytes: result.bytes, fileName: result.fileName, mimeType: _mimeTypes[format]!);
+      if (mounted && saved) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Saved ${result.fileName}')));
     } on ApiException catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
     } finally {
@@ -92,19 +88,10 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     final initialFrom = filters.from != null ? DateTime.tryParse(filters.from!) : null;
     final initialTo = filters.to != null ? DateTime.tryParse(filters.to!) : null;
 
-    final picked = await showCompactDateRangePicker(
-      context,
-      firstDate: DateTime(now.year - 10),
-      lastDate: now,
-      initialFrom: initialFrom,
-      initialTo: initialTo,
-    );
+    final picked = await showCompactDateRangePicker(context, firstDate: DateTime(now.year - 10), lastDate: now, initialFrom: initialFrom, initialTo: initialTo);
     if (picked == null) return;
 
-    ref.read(reportsFiltersProvider.notifier).state = filters.copyWith(
-      from: () => _dateFormat.format(picked.start),
-      to: () => _dateFormat.format(picked.end),
-    );
+    ref.read(reportsFiltersProvider.notifier).state = filters.copyWith(from: () => _dateFormat.format(picked.start), to: () => _dateFormat.format(picked.end));
   }
 
   @override
@@ -117,113 +104,76 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     final foldersAsync = ref.watch(foldersProvider);
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              Text('Governance / Reports', style: Theme.of(context).textTheme.titleMedium),
-              const Spacer(),
-              OutlinedButton.icon(
-                onPressed: _openCustomizeDialog,
-                icon: const Icon(Icons.tune, size: 16),
-                label: const Text('Customize'),
-              ),
-              const SizedBox(width: 10),
-              OutlinedButton.icon(
-                onPressed: _exporting ? null : _openExportDialog,
-                icon: _exporting
-                    ? const SizedBox(height: 14, width: 14, child: CircularProgressIndicator(strokeWidth: 2))
-                    : const Icon(Icons.download, size: 16),
-                label: const Text('Export report'),
-              ),
+          PageHeader(
+            title: 'Reports',
+            breadcrumb: 'Governance / Reports — filter once, every section follows',
+            actions: [
+              CompactButton(label: 'Customize', icon: Icons.tune, onPressed: _openCustomizeDialog),
+              CompactButton(label: 'Export', icon: Icons.download, busy: _exporting, primary: true, onPressed: _openExportDialog),
             ],
           ),
-          const SizedBox(height: 14),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              OutlinedButton.icon(
-                onPressed: _pickDateRange,
-                icon: const Icon(Icons.calendar_today, size: 14),
-                label: Text(filters.from != null && filters.to != null ? '${filters.from} → ${filters.to}' : 'Date range'),
-              ),
-              SizedBox(
-                width: 180,
-                child: DropdownButtonFormField<int?>(
-                  initialValue: filters.departmentId,
-                  isExpanded: true,
-                  isDense: true,
-                  decoration: const InputDecoration(labelText: 'Department', isDense: true),
-                  items: [
-                    const DropdownMenuItem(value: null, child: Text('All departments')),
-                    for (final d in departmentsAsync.valueOrNull ?? const []) DropdownMenuItem(value: d.id, child: Text(d.name, overflow: TextOverflow.ellipsis)),
-                  ],
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: context.tokens.surf2,
+              border: Border.all(color: context.tokens.line),
+            ),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                CompactButton(
+                  label: filters.from != null && filters.to != null ? '${filters.from} → ${filters.to}' : 'Any date',
+                  icon: Icons.calendar_today,
+                  onPressed: _pickDateRange,
+                ),
+                CompactSelect<int?>(
+                  width: 200,
+                  label: 'Department',
+                  value: filters.departmentId,
+                  items: [(null, 'All'), for (final d in departmentsAsync.valueOrNull ?? const []) (d.id as int?, d.name as String)],
                   onChanged: (v) => ref.read(reportsFiltersProvider.notifier).state = filters.copyWith(departmentId: () => v),
                 ),
-              ),
-              SizedBox(
-                width: 180,
-                child: DropdownButtonFormField<int?>(
-                  initialValue: filters.documentTypeId,
-                  isExpanded: true,
-                  isDense: true,
-                  decoration: const InputDecoration(labelText: 'Document type', isDense: true),
-                  items: [
-                    const DropdownMenuItem(value: null, child: Text('All types')),
-                    for (final t in typesAsync.valueOrNull ?? const []) DropdownMenuItem(value: t.id, child: Text(t.name, overflow: TextOverflow.ellipsis)),
-                  ],
+                CompactSelect<int?>(
+                  width: 200,
+                  label: 'Type',
+                  value: filters.documentTypeId,
+                  items: [(null, 'All'), for (final t in typesAsync.valueOrNull ?? const []) (t.id as int?, t.name as String)],
                   onChanged: (v) => ref.read(reportsFiltersProvider.notifier).state = filters.copyWith(documentTypeId: () => v),
                 ),
-              ),
-              SizedBox(
-                width: 200,
-                child: DropdownButtonFormField<int?>(
-                  initialValue: filters.folderId,
-                  isExpanded: true,
-                  isDense: true,
-                  decoration: const InputDecoration(labelText: 'Folder', isDense: true),
-                  items: [
-                    const DropdownMenuItem(value: null, child: Text('All folders')),
-                    for (final f in foldersAsync.valueOrNull ?? const []) DropdownMenuItem(value: f.id, child: Text(f.path, overflow: TextOverflow.ellipsis)),
-                  ],
+                CompactSelect<int?>(
+                  width: 220,
+                  label: 'Folder',
+                  value: filters.folderId,
+                  items: [(null, 'All'), for (final f in foldersAsync.valueOrNull ?? const []) (f.id as int?, f.path as String)],
                   onChanged: (v) => ref.read(reportsFiltersProvider.notifier).state = filters.copyWith(folderId: () => v),
                 ),
-              ),
-              SizedBox(
-                width: 170,
-                child: DropdownButtonFormField<String?>(
-                  initialValue: filters.classification,
-                  isExpanded: true,
-                  isDense: true,
-                  decoration: const InputDecoration(labelText: 'Classification', isDense: true),
-                  items: [
-                    const DropdownMenuItem(value: null, child: Text('All classifications')),
-                    for (final c in _kClassifications) DropdownMenuItem(value: c, child: Text(c)),
-                  ],
+                CompactSelect<String?>(
+                  width: 190,
+                  label: 'Access',
+                  value: filters.classification,
+                  items: [(null, 'All'), for (final c in _kClassifications) (c, c)],
                   onChanged: (v) => ref.read(reportsFiltersProvider.notifier).state = filters.copyWith(classification: () => v),
                 ),
-              ),
-              if (!filters.isEmpty)
-                TextButton(
-                  onPressed: () => ref.read(reportsFiltersProvider.notifier).state = const ReportsFilters(),
-                  child: const Text('Clear filters'),
-                ),
-            ],
+                if (!filters.isEmpty)
+                  TextButton(
+                    onPressed: () => ref.read(reportsFiltersProvider.notifier).state = const ReportsFilters(),
+                    child: const Text('Clear', style: TextStyle(fontSize: 12)),
+                  ),
+              ],
+            ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           GridView(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
-            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: columns,
-              childAspectRatio: 1.05,
-              crossAxisSpacing: 14,
-              mainAxisSpacing: 14,
-            ),
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: columns, childAspectRatio: 1.3, crossAxisSpacing: 10, mainAxisSpacing: 10),
             // Keyed by the same section keys as kReportSectionDefs (see
             // reports_providers.dart) and built in that same order, so
             // "Customize" and GET /export always agree on what a section is.
@@ -232,10 +182,19 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                 'by-status': _CountChartCard(title: 'Records by status', provider: reportsByStatusProvider, colorKey: _ChartColor.acc),
                 'by-department': _CountChartCard(title: 'Records by department', provider: reportsByDepartmentProvider, colorKey: _ChartColor.accD),
                 'by-category': _CountBarListCard(title: 'Records by category', provider: reportsByCategoryProvider, colorKey: _ChartColor.acc2, showSize: true),
-                'by-folder': _CountBarListCard(title: 'Records by folder (top 15) — capacity', provider: reportsByFolderProvider, colorKey: _ChartColor.info, showSize: true),
+                'by-folder': _CountBarListCard(
+                  title: 'Records by folder (top 15) — capacity',
+                  provider: reportsByFolderProvider,
+                  colorKey: _ChartColor.info,
+                  showSize: true,
+                ),
                 'by-classification': _CountChartCard(title: 'Records by classification', provider: reportsByClassificationProvider, colorKey: _ChartColor.warn),
                 'capacity': const _CapacityCard(),
-                'captured-over-time': _CountLineChartCard(title: 'Records captured over time', provider: reportsCapturedOverTimeProvider, colorKey: _ChartColor.acc),
+                'captured-over-time': _CountLineChartCard(
+                  title: 'Records captured over time',
+                  provider: reportsCapturedOverTimeProvider,
+                  colorKey: _ChartColor.acc,
+                ),
                 'capture-by-source': const _CaptureBySourceCard(),
                 'claim-turnaround': const _ClaimTurnaroundCard(),
                 'retention-status': const _RetentionStatusCard(),
@@ -275,13 +234,21 @@ class _SectionCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = context.tokens;
     return Container(
-      decoration: BoxDecoration(border: Border.all(color: tokens.line), color: tokens.surf),
-      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        border: Border.all(color: tokens.line),
+        color: tokens.surf,
+      ),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: Theme.of(context).textTheme.titleSmall, maxLines: 2, overflow: TextOverflow.ellipsis),
-          const SizedBox(height: 10),
+          Text(
+            title,
+            style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 8),
           Expanded(child: child),
         ],
       ),
@@ -305,10 +272,19 @@ class _CountChartCard extends ConsumerWidget {
       title: title,
       child: async.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text(e is ApiException ? e.message : '$e', style: TextStyle(color: tokens.ink2), textAlign: TextAlign.center)),
+        error: (e, _) => Center(
+          child: Text(
+            e is ApiException ? e.message : '$e',
+            style: TextStyle(color: tokens.ink2),
+            textAlign: TextAlign.center,
+          ),
+        ),
         data: (counts) {
           if (counts.isEmpty) return const EmptyState(message: 'No data for this filter.');
-          return LabelValueBarChart(points: [for (final c in counts) (c.label.replaceAll('_', ' '), c.total.toDouble())], color: _resolveColor(tokens, colorKey));
+          return LabelValueBarChart(
+            points: [for (final c in counts) (c.label.replaceAll('_', ' '), c.total.toDouble())],
+            color: _resolveColor(tokens, colorKey),
+          );
         },
       ),
     );
@@ -338,16 +314,19 @@ class _CountBarListCard extends ConsumerWidget {
       title: title,
       child: async.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text(e is ApiException ? e.message : '$e', style: TextStyle(color: tokens.ink2), textAlign: TextAlign.center)),
+        error: (e, _) => Center(
+          child: Text(
+            e is ApiException ? e.message : '$e',
+            style: TextStyle(color: tokens.ink2),
+            textAlign: TextAlign.center,
+          ),
+        ),
         data: (counts) {
           if (counts.isEmpty) return const EmptyState(message: 'No data for this filter.');
           return LabelValueBarList(
             points: [
               for (final c in counts)
-                (
-                  showSize ? '${c.label.replaceAll('_', ' ')} — ${formatBytes(c.totalBytes ?? 0)}' : c.label.replaceAll('_', ' '),
-                  c.total.toDouble(),
-                ),
+                (showSize ? '${c.label.replaceAll('_', ' ')} — ${formatBytes(c.totalBytes ?? 0)}' : c.label.replaceAll('_', ' '), c.total.toDouble()),
             ],
             color: _resolveColor(tokens, colorKey),
             valueSuffix: showSize ? ' files' : '',
@@ -374,7 +353,13 @@ class _CountLineChartCard extends ConsumerWidget {
       title: title,
       child: async.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text(e is ApiException ? e.message : '$e', style: TextStyle(color: tokens.ink2), textAlign: TextAlign.center)),
+        error: (e, _) => Center(
+          child: Text(
+            e is ApiException ? e.message : '$e',
+            style: TextStyle(color: tokens.ink2),
+            textAlign: TextAlign.center,
+          ),
+        ),
         data: (counts) {
           if (counts.isEmpty) return const EmptyState(message: 'No data for this filter.');
           return LabelValueLineChart(points: [for (final c in counts) (c.label, c.total.toDouble())], color: _resolveColor(tokens, colorKey));
@@ -396,14 +381,23 @@ class _CapacityCard extends ConsumerWidget {
       title: 'Storage capacity',
       child: async.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text(e is ApiException ? e.message : '$e', style: TextStyle(color: tokens.ink2), textAlign: TextAlign.center)),
+        error: (e, _) => Center(
+          child: Text(
+            e is ApiException ? e.message : '$e',
+            style: TextStyle(color: tokens.ink2),
+            textAlign: TextAlign.center,
+          ),
+        ),
         data: (stats) {
           return Column(
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(formatBytes(stats.usedBytes), style: Theme.of(context).textTheme.displaySmall?.copyWith(fontSize: 28)),
-              Text('of ${formatBytes(stats.capacityBytes)} (${(stats.usedFraction * 100).toStringAsFixed(1)}%)', style: TextStyle(color: tokens.ink2, fontSize: 12)),
+              Text(
+                'of ${formatBytes(stats.capacityBytes)} (${(stats.usedFraction * 100).toStringAsFixed(1)}%)',
+                style: TextStyle(color: tokens.ink2, fontSize: 12),
+              ),
               const SizedBox(height: 10),
               ClipRRect(
                 child: LinearProgressIndicator(value: stats.usedFraction, minHeight: 8, backgroundColor: tokens.surf2, color: tokens.acc),
@@ -430,7 +424,13 @@ class _CaptureBySourceCard extends ConsumerWidget {
       title: 'Capture success by source',
       child: async.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text(e is ApiException ? e.message : '$e', style: TextStyle(color: tokens.ink2), textAlign: TextAlign.center)),
+        error: (e, _) => Center(
+          child: Text(
+            e is ApiException ? e.message : '$e',
+            style: TextStyle(color: tokens.ink2),
+            textAlign: TextAlign.center,
+          ),
+        ),
         data: (rows) {
           // Not a plain LabelValueBarList: the bar here is an absolute 0-100
           // success-rate gauge (not proportional to the list's max), and each
@@ -477,7 +477,13 @@ class _ClaimTurnaroundCard extends ConsumerWidget {
       title: 'Claim turnaround (avg days)',
       child: async.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text(e is ApiException ? e.message : '$e', style: TextStyle(color: tokens.ink2), textAlign: TextAlign.center)),
+        error: (e, _) => Center(
+          child: Text(
+            e is ApiException ? e.message : '$e',
+            style: TextStyle(color: tokens.ink2),
+            textAlign: TextAlign.center,
+          ),
+        ),
         data: (points) {
           if (points.isEmpty) return const EmptyState(message: 'No decided workflow steps yet.');
           return LabelValueLineChart(points: [for (final p in points) (p.month, p.avgDaysToFirstDecision)], color: tokens.info);
@@ -499,7 +505,13 @@ class _RetentionStatusCard extends ConsumerWidget {
       title: 'Retention & disposal status',
       child: async.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text(e is ApiException ? e.message : '$e', style: TextStyle(color: tokens.ink2), textAlign: TextAlign.center)),
+        error: (e, _) => Center(
+          child: Text(
+            e is ApiException ? e.message : '$e',
+            style: TextStyle(color: tokens.ink2),
+            textAlign: TextAlign.center,
+          ),
+        ),
         data: (rows) {
           if (rows.isEmpty) return const EmptyState(message: 'No data for this filter.');
           return ListView.separated(
@@ -513,7 +525,9 @@ class _RetentionStatusCard extends ConsumerWidget {
                 children: [
                   Row(
                     children: [
-                      Expanded(child: Text(r.retentionClass, style: const TextStyle(fontSize: 12), overflow: TextOverflow.ellipsis)),
+                      Expanded(
+                        child: Text(r.retentionClass, style: const TextStyle(fontSize: 12), overflow: TextOverflow.ellipsis),
+                      ),
                       Text('${r.disposed}/${r.total} disposed', style: TextStyle(fontSize: 11, color: tokens.ink2)),
                     ],
                   ),
@@ -546,17 +560,24 @@ class _OverdueRetentionCard extends ConsumerWidget {
       title: 'Overdue for disposal',
       child: async.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text(e is ApiException ? e.message : '$e', style: TextStyle(color: tokens.ink2), textAlign: TextAlign.center)),
+        error: (e, _) => Center(
+          child: Text(
+            e is ApiException ? e.message : '$e',
+            style: TextStyle(color: tokens.ink2),
+            textAlign: TextAlign.center,
+          ),
+        ),
         data: (count) => Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Text(
-                '$count',
-                style: Theme.of(context).textTheme.displaySmall?.copyWith(fontSize: 32, color: count > 0 ? tokens.bad : tokens.ink),
-              ),
+              Text('$count', style: Theme.of(context).textTheme.displaySmall?.copyWith(fontSize: 32, color: count > 0 ? tokens.bad : tokens.ink)),
               const SizedBox(height: 6),
-              Text('records past their retention due date', style: TextStyle(color: tokens.ink2, fontSize: 11.5), textAlign: TextAlign.center),
+              Text(
+                'records past their retention due date',
+                style: TextStyle(color: tokens.ink2, fontSize: 11.5),
+                textAlign: TextAlign.center,
+              ),
             ],
           ),
         ),

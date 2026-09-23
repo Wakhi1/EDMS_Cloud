@@ -109,6 +109,27 @@ router.post(
   })
 );
 
+/** PUT /api/record-indexes/:id — { documentTypeId } — refile an unused index under another type. */
+router.put(
+  '/:id',
+  requireModuleAccess('indexing', true),
+  [body('documentTypeId').isInt()],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return fail(res, 'Validation failed', 422, errors.array());
+
+    const [[row]] = await pool.query('SELECT id, status, index_value FROM record_indexes WHERE id = ? AND company_id = ?', [req.params.id, req.user.companyId]);
+    if (!row) return fail(res, 'Index not found', 404);
+    if (row.status === 'used') return fail(res, 'Cannot change an index already assigned to a record', 409);
+    const [[type]] = await pool.query('SELECT id, name FROM document_types WHERE id = ? AND company_id = ?', [req.body.documentTypeId, req.user.companyId]);
+    if (!type) return fail(res, 'Unknown document type', 404);
+
+    await pool.query('UPDATE record_indexes SET document_type_id = ? WHERE id = ?', [type.id, row.id]);
+    await logAudit({ userId: req.user.id, action: 'Update', recordType: 'record_index', recordId: row.id, detail: `${row.index_value} → ${type.name}`, ip: req.ip });
+    return ok(res, null, 'Index updated');
+  })
+);
+
 /** DELETE /api/record-indexes/:id — refuses if already used. */
 router.delete('/:id', requireModuleAccess('indexing', true), asyncHandler(async (req, res) => {
   const [[row]] = await pool.query('SELECT id, status, index_value FROM record_indexes WHERE id = ? AND company_id = ?', [req.params.id, req.user.companyId]);

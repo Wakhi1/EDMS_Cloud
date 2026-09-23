@@ -19,6 +19,7 @@ import '../../../core/models/watermark_template_row.dart';
 import '../../../core/theme/pspf_tokens.dart';
 import '../../../core/theme/theme_mode_provider.dart';
 import '../../../core/utils/hex_color.dart';
+import '../../../core/widgets/compact_controls.dart';
 import '../../../core/widgets/confirm_dialog.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/result_dialog.dart';
@@ -39,43 +40,101 @@ class SettingsScreen extends StatefulWidget {
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProviderStateMixin {
-  late final _tabController = TabController(length: 6, vsync: this);
+class _SettingsScreenState extends State<SettingsScreen> {
+  int _section = 0;
 
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
-  }
+  static const _sections = <(IconData, String, String)>[
+    (Icons.tune, 'System', 'Behaviour, limits and retention'),
+    (Icons.person_outline, 'Profile', 'Your name, email and password'),
+    (Icons.palette_outlined, 'Appearance', 'Theme, density and brand colours'),
+    (Icons.draw_outlined, 'My signature', 'Used when approving with a signature'),
+    (Icons.tag, 'Record numbers', 'Numbers uploads are filed under'),
+    (Icons.water_drop_outlined, 'Watermarks', 'Text stamped on downloads'),
+  ];
+
+  static const _pages = <Widget>[_SystemSettingsTab(), _ProfileTab(), _AppearanceTab(), _SignatureTab(), _IndexingTab(), _WatermarksTab()];
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    final tokens = context.tokens;
+    final wide = MediaQuery.sizeOf(context).width >= 900;
+    final (_, title, subtitle) = _sections[_section];
+
+    final nav = Container(
+      decoration: BoxDecoration(
+        color: tokens.surf,
+        border: Border.all(color: tokens.line),
+      ),
+      child: ListView(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        scrollDirection: wide ? Axis.vertical : Axis.horizontal,
         children: [
-          Text('Settings', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 12),
-          TabBar(
-            controller: _tabController,
-            isScrollable: true,
-            tabAlignment: TabAlignment.start,
-            tabs: const [
-              Tab(text: 'System Settings'),
-              Tab(text: 'Profile'),
-              Tab(text: 'Appearance'),
-              Tab(text: 'My Signature'),
-              Tab(text: 'Indexing'),
-              Tab(text: 'Watermarks'),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              children: const [_SystemSettingsTab(), _ProfileTab(), _AppearanceTab(), _SignatureTab(), _IndexingTab(), _WatermarksTab()],
+          for (var i = 0; i < _sections.length; i++)
+            InkWell(
+              onTap: () => setState(() => _section = i),
+              child: Container(
+                height: 34,
+                padding: const EdgeInsets.symmetric(horizontal: 11),
+                decoration: BoxDecoration(
+                  color: _section == i ? tokens.sel : null,
+                  border: Border(left: BorderSide(color: _section == i ? tokens.acc : Colors.transparent, width: 3)),
+                ),
+                child: Row(
+                  mainAxisSize: wide ? MainAxisSize.max : MainAxisSize.min,
+                  children: [
+                    Icon(_sections[i].$1, size: 16, color: _section == i ? tokens.accD : tokens.ink2),
+                    const SizedBox(width: 9),
+                    Text(_sections[i].$2, style: TextStyle(fontSize: 12.5, fontWeight: _section == i ? FontWeight.w600 : FontWeight.w400)),
+                  ],
+                ),
+              ),
             ),
+        ],
+      ),
+    );
+
+    final content = Container(
+      decoration: BoxDecoration(
+        color: tokens.surf,
+        border: Border.all(color: tokens.line),
+      ),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+          Text(subtitle, style: TextStyle(fontSize: 11.5, color: tokens.ink3)),
+          const SizedBox(height: 12),
+          Expanded(child: _pages[_section]),
+        ],
+      ),
+    );
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(18, 12, 18, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const PageHeader(title: 'Settings', breadcrumb: 'Administration / Settings'),
+          const SizedBox(height: 10),
+          Expanded(
+            child: wide
+                ? Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      SizedBox(width: 210, child: nav),
+                      const SizedBox(width: 12),
+                      Expanded(child: content),
+                    ],
+                  )
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      SizedBox(height: 46, child: nav),
+                      const SizedBox(height: 10),
+                      Expanded(child: content),
+                    ],
+                  ),
           ),
         ],
       ),
@@ -84,18 +143,30 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
 }
 
 /// Boolean-shaped settings (`'true'`/`'false'`) render as a Switch, applied
-/// immediately; everything else opens a value-entry dialog — this app's
-/// settings are a small fixed set (watermarking, redaction, export limit,
-/// confidential-reason, backup schedule), not an open-ended key/value store.
+/// immediately; everything else opens a value-entry dialog.
 ///
 /// GET /api/settings is gated server-side to System Administrator / Records
 /// Manager only. Every authenticated user reaches this screen for the
-/// Profile/Appearance tabs, and TabBarView builds all three tab widgets up
-/// front — so without this client-side role check, any other role would
-/// trigger a 403 on screen load and get bounced to Access Denied just for
-/// opening Settings, the same "auxiliary widget's own API call" bug class
-/// documented for the old Smart Upload screen.
+/// Profile/Appearance sections, so this section checks the role before
+/// fetching — otherwise any other role would get a 403 and be bounced to
+/// Access Denied just for opening Settings.
 const _kSystemSettingsRoles = {'System Administrator', 'Records Manager'};
+
+/// Settings that are managed by the system and never shown for editing.
+const _kHiddenSettings = {'audit_chain_anchor_hash', 'license_key'};
+
+/// Readable name for a setting key: "storage_capacity_bytes_aws_s3" → "Storage capacity bytes aws s3".
+String _settingLabel(String key) {
+  const names = {
+    'audit_retention_days': 'Audit retention (days, 0 = forever)',
+    'active_storage_provider': 'Storage for new uploads',
+    'storage_capacity_bytes': 'Total storage capacity (bytes)',
+  };
+  final known = names[key];
+  if (known != null) return known;
+  final words = key.replaceAll('_', ' ');
+  return words.isEmpty ? key : words[0].toUpperCase() + words.substring(1);
+}
 
 class _SystemSettingsTab extends ConsumerWidget {
   const _SystemSettingsTab();
@@ -114,7 +185,7 @@ class _SystemSettingsTab extends ConsumerWidget {
   Future<void> _editValue(BuildContext context, WidgetRef ref, SystemSettingRow row) async {
     final value = await ConfirmDialog.show(
       context,
-      title: 'Edit ${row.key}',
+      title: _settingLabel(row.key),
       body: row.description,
       fieldLabel: 'Value',
       initialFieldValue: row.value,
@@ -134,13 +205,8 @@ class _SystemSettingsTab extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final tokens = context.tokens;
     // Watching the raw AsyncValue (not currentUserProvider, which collapses
-    // "still loading" and "not logged in" to the same null) — on a hard
-    // page reload, auth bootstrap is briefly in-flight, and a null role at
-    // that point must NOT be treated as "role confirmed absent, fetch
-    // anyway": that previously let this build call reach
-    // ref.watch(systemSettingsListProvider) before the role was known,
-    // firing the admin-only GET /api/settings for every role and bouncing
-    // non-admins straight to Access Denied on reload.
+    // "still loading" and "not logged in" to the same null) — a null role
+    // while auth bootstrap is in flight must not trigger the admin-only fetch.
     final authState = ref.watch(authControllerProvider);
     if (authState.isLoading) {
       return const Center(child: CircularProgressIndicator());
@@ -161,43 +227,74 @@ class _SystemSettingsTab extends ConsumerWidget {
 
     return settingsAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (error, _) => ErrorState(
-        message: error is ApiException ? error.message : '$error',
-        onRetry: () => ref.invalidate(systemSettingsListProvider),
-      ),
-      data: (rows) {
+      error: (error, _) => ErrorState(message: error is ApiException ? error.message : '$error', onRetry: () => ref.invalidate(systemSettingsListProvider)),
+      data: (all) {
+        final rows = all.where((r) => !_kHiddenSettings.contains(r.key)).toList();
         if (rows.isEmpty) return const EmptyState(message: 'No settings found.');
-        return ListView.separated(
-          itemCount: rows.length,
-          separatorBuilder: (_, _) => const SizedBox(height: 8),
-          itemBuilder: (context, i) {
-            final row = rows[i];
-            return Container(
-              decoration: BoxDecoration(border: Border.all(color: tokens.line), color: tokens.surf),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(row.key, style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600)),
-                        if (row.description != null)
-                          Text(row.description!, style: TextStyle(fontSize: 12, color: tokens.ink2)),
-                      ],
+        return Container(
+          decoration: BoxDecoration(border: Border.all(color: tokens.line)),
+          child: ListView.builder(
+            itemCount: rows.length,
+            itemBuilder: (context, i) {
+              final row = rows[i];
+              return Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                decoration: BoxDecoration(
+                  color: i.isOdd ? tokens.surf2.withValues(alpha: 0.35) : null,
+                  border: i == 0 ? null : Border(top: BorderSide(color: tokens.line)),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(_settingLabel(row.key), style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
+                          if (row.description != null)
+                            Text(
+                              row.description!,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(fontSize: 11.5, color: tokens.ink2),
+                            ),
+                        ],
+                      ),
                     ),
-                  ),
-                  if (_isBool(row.value))
-                    Switch(value: row.value == 'true', onChanged: (_) => _toggle(context, ref, row))
-                  else
-                    OutlinedButton(
-                      onPressed: () => _editValue(context, ref, row),
-                      child: Text(row.value, style: const TextStyle(fontSize: 12.5)),
-                    ),
-                ],
-              ),
-            );
-          },
+                    const SizedBox(width: 12),
+                    if (_isBool(row.value))
+                      Transform.scale(
+                        scale: 0.8,
+                        child: Switch(value: row.value == 'true', onChanged: (_) => _toggle(context, ref, row)),
+                      )
+                    else
+                      InkWell(
+                        onTap: () => _editValue(context, ref, row),
+                        child: Container(
+                          constraints: const BoxConstraints(minWidth: 80, maxWidth: 240),
+                          height: 28,
+                          alignment: Alignment.centerLeft,
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          decoration: BoxDecoration(
+                            border: Border.all(color: tokens.line2),
+                            color: tokens.surf,
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Flexible(
+                                child: Text(row.value.isEmpty ? '—' : row.value, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)),
+                              ),
+                              const SizedBox(width: 6),
+                              Icon(Icons.edit_outlined, size: 13, color: tokens.ink3),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              );
+            },
+          ),
         );
       },
     );
@@ -231,7 +328,9 @@ class _ProfileTabState extends ConsumerState<_ProfileTab> {
   Future<void> _saveProfile() async {
     setState(() => _savingProfile = true);
     try {
-      await ref.read(usersApiProvider).updateProfile(
+      await ref
+          .read(usersApiProvider)
+          .updateProfile(
             fullName: _fullNameController.text.trim().isNotEmpty ? _fullNameController.text.trim() : null,
             phoneNumber: _phoneController.text.trim().isNotEmpty ? _phoneController.text.trim() : null,
           );
@@ -250,10 +349,7 @@ class _ProfileTabState extends ConsumerState<_ProfileTab> {
     }
     setState(() => _changingPassword = true);
     try {
-      await ref.read(usersApiProvider).updatePassword(
-            currentPassword: _currentPasswordController.text,
-            newPassword: _newPasswordController.text,
-          );
+      await ref.read(usersApiProvider).updatePassword(currentPassword: _currentPasswordController.text, newPassword: _newPasswordController.text);
       _currentPasswordController.clear();
       _newPasswordController.clear();
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Password changed.')));
@@ -279,22 +375,34 @@ class _ProfileTabState extends ConsumerState<_ProfileTab> {
             const SizedBox(height: 4),
             if (user != null) Text(user.email, style: TextStyle(fontSize: 12, color: tokens.ink2)),
             const SizedBox(height: 12),
-            TextField(controller: _fullNameController, decoration: const InputDecoration(labelText: 'Full name')),
+            TextField(
+              controller: _fullNameController,
+              decoration: const InputDecoration(labelText: 'Full name'),
+            ),
             const SizedBox(height: 12),
-            TextField(controller: _phoneController, decoration: const InputDecoration(labelText: 'Phone number (optional)')),
+            TextField(
+              controller: _phoneController,
+              decoration: const InputDecoration(labelText: 'Phone number (optional)'),
+            ),
             const SizedBox(height: 12),
             ElevatedButton(
               onPressed: _savingProfile ? null : _saveProfile,
-              child: _savingProfile
-                  ? const SizedBox(height: 14, width: 14, child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Text('Save profile'),
+              child: _savingProfile ? const SizedBox(height: 14, width: 14, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Save profile'),
             ),
             const SizedBox(height: 28),
             Text('Change password', style: Theme.of(context).textTheme.titleSmall),
             const SizedBox(height: 12),
-            TextField(controller: _currentPasswordController, obscureText: true, decoration: const InputDecoration(labelText: 'Current password')),
+            TextField(
+              controller: _currentPasswordController,
+              obscureText: true,
+              decoration: const InputDecoration(labelText: 'Current password'),
+            ),
             const SizedBox(height: 12),
-            TextField(controller: _newPasswordController, obscureText: true, decoration: const InputDecoration(labelText: 'New password (min. 10 characters)')),
+            TextField(
+              controller: _newPasswordController,
+              obscureText: true,
+              decoration: const InputDecoration(labelText: 'New password (min. 10 characters)'),
+            ),
             const SizedBox(height: 12),
             OutlinedButton(
               onPressed: _changingPassword ? null : _changePassword,
@@ -325,11 +433,7 @@ class _AppearanceTab extends ConsumerWidget {
           children: [
             Text('Theme', style: Theme.of(context).textTheme.titleSmall),
             const SizedBox(height: 8),
-            for (final option in const [
-              (ThemeMode.system, 'Match system'),
-              (ThemeMode.light, 'Light'),
-              (ThemeMode.dark, 'Dark'),
-            ])
+            for (final option in const [(ThemeMode.system, 'Match system'), (ThemeMode.light, 'Light'), (ThemeMode.dark, 'Dark')])
               RadioListTile<ThemeMode>(
                 value: option.$1,
                 groupValue: mode,
@@ -338,10 +442,7 @@ class _AppearanceTab extends ConsumerWidget {
                 dense: true,
                 contentPadding: EdgeInsets.zero,
               ),
-            if (role == 'System Administrator') ...[
-              const SizedBox(height: 28),
-              const _BrandColorsSection(),
-            ],
+            if (role == 'System Administrator') ...[const SizedBox(height: 28), const _BrandColorsSection()],
           ],
         ),
       ),
@@ -394,7 +495,9 @@ class _BrandColorsSectionState extends ConsumerState<_BrandColorsSection> {
     }
     setState(() => _saving = true);
     try {
-      await ref.read(settingsApiProvider).updateTheme(
+      await ref
+          .read(settingsApiProvider)
+          .updateTheme(
             primaryColor: _primaryController.text.trim().isEmpty ? null : _primaryController.text.trim(),
             secondaryColor: _secondaryController.text.trim().isEmpty ? null : _secondaryController.text.trim(),
             accentColor: _accentController.text.trim().isEmpty ? null : _accentController.text.trim(),
@@ -470,7 +573,7 @@ class _BrandColorsSectionState extends ConsumerState<_BrandColorsSection> {
         Text('Brand colors', style: Theme.of(context).textTheme.titleSmall),
         const SizedBox(height: 4),
         Text(
-          'Applied across this deployment\'s buttons, focus states, and app bar accent — synced to DocSecure and any other deployment licensed to your organization.',
+          'Applied across this deployment\'s buttons, focus states, and app bar accent — synced to Docsecure and any other deployment licensed to your organization.',
           style: TextStyle(fontSize: 12, color: context.tokens.ink2),
         ),
         const SizedBox(height: 12),
@@ -482,9 +585,7 @@ class _BrandColorsSectionState extends ConsumerState<_BrandColorsSection> {
         const SizedBox(height: 12),
         ElevatedButton(
           onPressed: _saving ? null : _save,
-          child: _saving
-              ? const SizedBox(height: 14, width: 14, child: CircularProgressIndicator(strokeWidth: 2))
-              : const Text('Save brand colors'),
+          child: _saving ? const SizedBox(height: 14, width: 14, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Save brand colors'),
         ),
       ],
     );
@@ -585,10 +686,7 @@ class _SignatureTabState extends ConsumerState<_SignatureTab> {
           children: [
             Text('My signature', style: Theme.of(context).textTheme.titleSmall),
             const SizedBox(height: 4),
-            Text(
-              'Used to auto-stamp your approval on workflow steps that require a signature.',
-              style: TextStyle(fontSize: 12, color: tokens.ink2),
-            ),
+            Text('Used to auto-stamp your approval on workflow steps that require a signature.', style: TextStyle(fontSize: 12, color: tokens.ink2)),
             const SizedBox(height: 16),
             if (meta?.hasSignature ?? false) ...[
               Text('Currently saved', style: Theme.of(context).textTheme.labelMedium),
@@ -596,18 +694,17 @@ class _SignatureTabState extends ConsumerState<_SignatureTab> {
               Container(
                 height: 120,
                 width: 240,
-                decoration: BoxDecoration(border: Border.all(color: tokens.line), color: Colors.grey.shade100),
+                decoration: BoxDecoration(
+                  border: Border.all(color: tokens.line),
+                  color: Colors.grey.shade100,
+                ),
                 alignment: Alignment.center,
-                child: imageBytes != null
-                    ? Image.memory(imageBytes, fit: BoxFit.contain)
-                    : const CircularProgressIndicator(),
+                child: imageBytes != null ? Image.memory(imageBytes, fit: BoxFit.contain) : const CircularProgressIndicator(),
               ),
               const SizedBox(height: 8),
               OutlinedButton(
                 onPressed: _deleting ? null : _delete,
-                child: _deleting
-                    ? const SizedBox(height: 14, width: 14, child: CircularProgressIndicator(strokeWidth: 2))
-                    : const Text('Remove signature'),
+                child: _deleting ? const SizedBox(height: 14, width: 14, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Remove signature'),
               ),
               const SizedBox(height: 24),
             ],
@@ -634,7 +731,10 @@ class _SignatureTabState extends ConsumerState<_SignatureTab> {
               Container(
                 height: 160,
                 width: double.infinity,
-                decoration: BoxDecoration(border: Border.all(color: tokens.line), color: Colors.grey.shade100),
+                decoration: BoxDecoration(
+                  border: Border.all(color: tokens.line),
+                  color: Colors.grey.shade100,
+                ),
                 alignment: Alignment.center,
                 child: _uploadedBytes != null
                     ? Image.memory(_uploadedBytes!, fit: BoxFit.contain)
@@ -646,9 +746,7 @@ class _SignatureTabState extends ConsumerState<_SignatureTab> {
             const SizedBox(height: 16),
             ElevatedButton(
               onPressed: _saving ? null : _save,
-              child: _saving
-                  ? const SizedBox(height: 14, width: 14, child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Text('Save signature'),
+              child: _saving ? const SizedBox(height: 14, width: 14, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Save signature'),
             ),
           ],
         ),
@@ -687,6 +785,40 @@ class _IndexingTab extends ConsumerWidget {
       await ref.read(recordIndexesApiProvider).create(documentTypeId: result.documentTypeId, indexValue: result.indexValue);
       ref.invalidate(recordIndexListProvider);
       if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Index added.')));
+    } on ApiException catch (e) {
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
+  Future<void> _changeType(BuildContext context, WidgetRef ref, RecordIndexRow row, List<DocumentTypeRow> types) async {
+    var selected = row.documentTypeId;
+    final chosen = await showDialog<int>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: Text('Move ${row.indexValue} to…'),
+          content: SizedBox(
+            width: 340,
+            child: DropdownButtonFormField<int>(
+              initialValue: selected,
+              isExpanded: true,
+              decoration: const InputDecoration(labelText: 'Document type'),
+              items: [for (final t in types) DropdownMenuItem(value: t.id, child: Text('${t.name}  (${t.code})'))],
+              onChanged: (v) => setState(() => selected = v),
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
+            ElevatedButton(onPressed: () => Navigator.of(context).pop(selected), child: const Text('Move')),
+          ],
+        ),
+      ),
+    );
+    if (chosen == null || chosen == row.documentTypeId) return;
+    try {
+      await ref.read(recordIndexesApiProvider).changeType(row.id, documentTypeId: chosen);
+      ref.invalidate(recordIndexListProvider);
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${row.indexValue} moved.')));
     } on ApiException catch (e) {
       if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
     }
@@ -733,10 +865,8 @@ class _IndexingTab extends ConsumerWidget {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Record indexes', style: Theme.of(context).textTheme.titleSmall),
-            const SizedBox(height: 4),
             Text(
-              'Admin-issued index values. Uploads select from this list rather than the system generating a number.',
+              'Each upload takes the next available number for its document type. Add numbers from your existing register, or generate a batch.',
               style: TextStyle(fontSize: 12, color: tokens.ink2),
             ),
             const SizedBox(height: 12),
@@ -754,7 +884,11 @@ class _IndexingTab extends ConsumerWidget {
                     decoration: const InputDecoration(labelText: 'Type', isDense: true),
                     items: [
                       const DropdownMenuItem(value: null, child: Text('All types')),
-                      for (final t in types) DropdownMenuItem(value: t.id, child: Text(t.name, overflow: TextOverflow.ellipsis)),
+                      for (final t in types)
+                        DropdownMenuItem(
+                          value: t.id,
+                          child: Text(t.name, overflow: TextOverflow.ellipsis),
+                        ),
                     ],
                     onChanged: (v) => ref.read(recordIndexFiltersProvider.notifier).state = filters.copyWith(documentTypeId: () => v),
                   ),
@@ -784,43 +918,108 @@ class _IndexingTab extends ConsumerWidget {
                 loading: () => const Center(child: CircularProgressIndicator()),
                 error: (e, _) => Text(e is ApiException ? e.message : '$e', style: TextStyle(color: tokens.bad)),
                 data: (rows) {
-                  if (rows.isEmpty) return const EmptyState(message: 'No record indexes yet — generate or add some above.');
-                  return ListView.separated(
-                    itemCount: rows.length,
-                    separatorBuilder: (_, _) => const SizedBox(height: 6),
-                    itemBuilder: (context, i) {
-                      final row = rows[i];
-                      return Container(
-                        decoration: BoxDecoration(border: Border.all(color: tokens.line), color: tokens.surf),
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              flex: 2,
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(row.indexValue, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                                  Text(row.documentTypeName ?? '', style: TextStyle(fontSize: 11.5, color: tokens.ink2)),
-                                ],
-                              ),
-                            ),
-                            Expanded(
-                              child: StatusChip(row.status ?? '', tone: row.status == 'used' ? StatusTone.plain : StatusTone.ok),
-                            ),
-                            Expanded(
-                              flex: 2,
-                              child: Text(
-                                row.usedByTitle != null ? 'Used by: ${row.usedByTitle}' : '—',
-                                style: TextStyle(fontSize: 11.5, color: tokens.ink2),
-                              ),
-                            ),
-                            if (row.status != 'used')
-                              OutlinedButton(onPressed: () => _delete(context, ref, row), child: const Text('Delete')),
-                          ],
+                  if (rows.isEmpty) return const EmptyState(message: 'No record numbers yet — generate or add some above.');
+                  final available = rows.where((r) => r.status != 'used').length;
+                  return Container(
+                    decoration: BoxDecoration(border: Border.all(color: tokens.line)),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Container(
+                          color: tokens.surf2,
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                          child: Row(
+                            children: [
+                              for (final (label, flex) in const [('Number', 3), ('Document type', 3), ('Status', 2), ('Used by', 4)])
+                                Expanded(
+                                  flex: flex,
+                                  child: Text(
+                                    label.toUpperCase(),
+                                    style: TextStyle(fontSize: 10.5, letterSpacing: 0.5, fontWeight: FontWeight.w700, color: tokens.ink2),
+                                  ),
+                                ),
+                              const SizedBox(width: 30),
+                            ],
+                          ),
                         ),
-                      );
-                    },
+                        Expanded(
+                          child: ListView.builder(
+                            itemCount: rows.length,
+                            itemExtent: 34,
+                            itemBuilder: (context, i) {
+                              final row = rows[i];
+                              final used = row.status == 'used';
+                              return Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10),
+                                decoration: BoxDecoration(
+                                  color: i.isOdd ? tokens.surf2.withValues(alpha: 0.35) : null,
+                                  border: Border(top: BorderSide(color: tokens.line)),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      flex: 3,
+                                      child: Text(row.indexValue, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
+                                    ),
+                                    Expanded(
+                                      flex: 3,
+                                      child: Text(
+                                        row.documentTypeName ?? '—',
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(fontSize: 12, color: tokens.ink2),
+                                      ),
+                                    ),
+                                    Expanded(
+                                      flex: 2,
+                                      child: Text(used ? 'Used' : 'Available', style: TextStyle(fontSize: 12, color: used ? tokens.ink3 : tokens.ok)),
+                                    ),
+                                    Expanded(
+                                      flex: 4,
+                                      child: Text(
+                                        row.usedByTitle ?? '—',
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(fontSize: 12, color: tokens.ink2),
+                                      ),
+                                    ),
+                                    SizedBox(
+                                      width: 30,
+                                      child: used
+                                          ? null
+                                          : PopupMenuButton<String>(
+                                              tooltip: 'More',
+                                              padding: EdgeInsets.zero,
+                                              itemBuilder: (_) => const [
+                                                PopupMenuItem(
+                                                  value: 'type',
+                                                  height: 34,
+                                                  child: Text('Change type…', style: TextStyle(fontSize: 12.5)),
+                                                ),
+                                                PopupMenuItem(
+                                                  value: 'delete',
+                                                  height: 34,
+                                                  child: Text('Delete', style: TextStyle(fontSize: 12.5)),
+                                                ),
+                                              ],
+                                              onSelected: (v) => v == 'type' ? _changeType(context, ref, row, types) : _delete(context, ref, row),
+                                              child: Icon(Icons.more_vert, size: 16, color: tokens.ink2),
+                                            ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: tokens.surf2,
+                            border: Border(top: BorderSide(color: tokens.line)),
+                          ),
+                          child: Text('$available available · ${rows.length - available} used', style: TextStyle(fontSize: 11, color: tokens.ink2)),
+                        ),
+                      ],
+                    ),
                   );
                 },
               ),
@@ -951,10 +1150,7 @@ class _WatermarksTab extends ConsumerWidget {
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   Text(row.label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                                  if (isActive) ...[
-                                    const SizedBox(width: 8),
-                                    StatusChip('active', tone: StatusTone.ok),
-                                  ],
+                                  if (isActive) ...[const SizedBox(width: 8), StatusChip('active', tone: StatusTone.ok)],
                                 ],
                               ),
                               Text(row.text, style: TextStyle(fontSize: 11.5, color: tokens.ink2)),

@@ -90,6 +90,19 @@ class UploadRow {
 
   bool get needsAttention => status == UploadRowStatus.recognitionFailed || status == UploadRowStatus.commitFailed;
 
+  /// What still has to be filled in before this file can be registered.
+  List<String> get missing => [
+    if (documentTypeId == null) 'type',
+    if (documentTypeId != null && recordIndexId == null) 'record no.',
+    if (folderId == null) 'folder',
+    if (duplicateOf != null && !allowDuplicate) 'duplicate confirmation',
+  ];
+
+  bool get isBusy => status == UploadRowStatus.recognizing || status == UploadRowStatus.committing;
+
+  /// Recognised (or failed only at commit) and nothing missing.
+  bool get isReady => !isBusy && status != UploadRowStatus.committed && status != UploadRowStatus.queued && missing.isEmpty;
+
   UploadRow copyWith({
     UploadRowStatus? status,
     String? Function()? error,
@@ -129,6 +142,20 @@ class UploadRow {
   }
 }
 
+/// Values applied to every file added to the queue (and, on request, to the
+/// files already in it) so a batch is configured once, not file by file.
+class UploadDefaults {
+  const UploadDefaults({this.folderId, this.documentTypeId, this.classification = 'internal'});
+
+  final int? folderId;
+
+  /// null = keep each file's auto-detected type.
+  final int? documentTypeId;
+  final String classification;
+}
+
+final uploadDefaultsProvider = StateProvider<UploadDefaults>((ref) => const UploadDefaults());
+
 class UploadQueueNotifier extends Notifier<List<UploadRow>> {
   static final _random = Random();
 
@@ -136,6 +163,7 @@ class UploadQueueNotifier extends Notifier<List<UploadRow>> {
   List<UploadRow> build() => const [];
 
   void addFiles(List<({List<int> bytes, String fileName, String mimeType})> files) {
+    final defaults = ref.read(uploadDefaultsProvider);
     final newRows = [
       for (final f in files)
         UploadRow(
@@ -144,6 +172,9 @@ class UploadQueueNotifier extends Notifier<List<UploadRow>> {
           fileName: f.fileName,
           mimeType: f.mimeType,
           title: _titleFromFileName(f.fileName),
+          folderId: defaults.folderId,
+          documentTypeId: defaults.documentTypeId,
+          classification: defaults.classification,
         ),
     ];
     state = [...state, ...newRows];
@@ -179,11 +210,56 @@ class UploadQueueNotifier extends Notifier<List<UploadRow>> {
           duplicateOf: () => result.duplicateOf,
         ),
       );
+      await _autoPickIndex(localId);
     } on ApiException catch (e) {
       _updateRow(
         localId,
         (r) => r.copyWith(status: UploadRowStatus.recognitionFailed, error: () => e.message),
       );
+    }
+  }
+
+  /// Gives a row the next available record number for its type, skipping
+  /// numbers other rows in this batch already hold. The user can change it.
+  Future<void> _autoPickIndex(String localId) async {
+    final row = state.where((r) => r.localId == localId).firstOrNull;
+    if (row == null || row.documentTypeId == null || row.recordIndexId != null) return;
+    final typeId = row.documentTypeId!;
+    List<RecordIndexRow> available;
+    try {
+      available = await ref.read(availableRecordIndexesProvider(typeId).future);
+    } on ApiException {
+      return;
+    }
+    // Re-read after the await: the row may have changed type, or another row
+    // may have taken a number meanwhile.
+    final current = state.where((r) => r.localId == localId).firstOrNull;
+    if (current == null || current.documentTypeId != typeId || current.recordIndexId != null) return;
+    final taken = {for (final r in state) if (r.recordIndexId != null) r.recordIndexId!};
+    final next = available.where((i) => !taken.contains(i.id)).firstOrNull;
+    if (next != null) _updateRow(localId, (r) => r.copyWith(recordIndexId: () => next.id));
+  }
+
+  /// Applies the batch defaults to files already queued. With [overwrite]
+  /// false only empty fields are filled.
+  void applyDefaults({bool overwrite = false}) {
+    final d = ref.read(uploadDefaultsProvider);
+    final retyped = <String>[];
+    UploadRow apply(UploadRow r) {
+      if (r.status == UploadRowStatus.committed) return r;
+      final setType = d.documentTypeId != null && (overwrite || r.documentTypeId == null) && r.documentTypeId != d.documentTypeId;
+      if (setType) retyped.add(r.localId);
+      return r.copyWith(
+        folderId: d.folderId != null && (overwrite || r.folderId == null) ? () => d.folderId : null,
+        documentTypeId: setType ? () => d.documentTypeId : null,
+        recordIndexId: setType ? () => null : null,
+        classification: overwrite ? d.classification : null,
+      );
+    }
+
+    state = [for (final r in state) apply(r)];
+    for (final id in retyped) {
+      _autoPickIndex(id);
     }
   }
 
@@ -208,6 +284,7 @@ class UploadQueueNotifier extends Notifier<List<UploadRow>> {
         recordIndexId: documentTypeId != null ? () => null : null,
       ),
     );
+    if (documentTypeId != null) _autoPickIndex(localId);
   }
 
   /// Sets the row's chosen record index (from GET /available). The screen
@@ -251,12 +328,14 @@ class UploadQueueNotifier extends Notifier<List<UploadRow>> {
   /// derive each row's storage prefix from its chosen repository folder,
   /// unless the batch storage location has an explicit override.
   Future<void> commitAll(List<FolderRow> folders) async {
-    for (final row in state) {
-      if (row.status == UploadRowStatus.committed) continue;
-      if (row.documentTypeId == null || row.folderId == null || row.recordIndexId == null) continue;
-      if (row.duplicateOf != null && !row.allowDuplicate) continue; // needs an explicit "upload anyway"
+    for (final row in [...state]) {
+      if (!row.isReady) continue; // the screen lists what each skipped file is missing
       await _commitRow(row.localId, folders);
     }
+  }
+
+  void clearRegistered() {
+    state = state.where((r) => r.status != UploadRowStatus.committed).toList(growable: false);
   }
 
   Future<void> _commitRow(String localId, List<FolderRow> folders) async {

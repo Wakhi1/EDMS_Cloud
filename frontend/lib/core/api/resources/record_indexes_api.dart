@@ -33,6 +33,12 @@ class RecordIndexesApi {
     return _client.unwrap(response, (data) => (data as Map<String, dynamic>)['id'] as int);
   }
 
+  /// PUT /:id — move an unused index to another document type.
+  Future<void> changeType(int id, {required int documentTypeId}) async {
+    final response = await _client.put(Endpoints.recordIndexById('$id'), data: {'documentTypeId': documentTypeId});
+    _client.unwrap(response, (_) => null);
+  }
+
   Future<void> delete(int id) async {
     final response = await _client.delete(Endpoints.recordIndexById('$id'));
     _client.unwrap(response, (_) => null);
