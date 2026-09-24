@@ -61,6 +61,11 @@ app.use("/api", (req, res, next) => {
   next();
 });
 
+// Behind LiteSpeed/nginx the client's address arrives in X-Forwarded-For.
+// Trust the first proxy hop so rate limiting and audit IPs see the real
+// client instead of the proxy (and express-rate-limit stops rejecting the header).
+app.set("trust proxy", Number(process.env.TRUST_PROXY_HOPS ?? 1));
+
 app.use(
   helmet({
     contentSecurityPolicy: false, // configure per-frontend if serving HTML from this app
@@ -139,18 +144,31 @@ const PORT = process.env.PORT || 4000;
         env: process.env.NODE_ENV,
       }),
     );
-    await startScheduler();
-    startBackupScheduler();
-    startWorkflowScheduler();
-    startWorkflowScheduleScheduler();
-    startLicenseScheduler();
-    await startPushScheduler();
-    startAuditRetentionScheduler();
   } catch (err) {
     logger.error("Failed to start server — check DB configuration", {
       error: err.message,
     });
     process.exit(1);
+  }
+
+  // Background jobs start after the API is up. One failing (e.g. a table
+  // missing after an incomplete import) is logged but must not take the
+  // whole API down — that used to exit the process and loop into 503s.
+  const background = [
+    ["capture intake", startScheduler],
+    ["backup", startBackupScheduler],
+    ["workflow escalation", startWorkflowScheduler],
+    ["workflow schedule", startWorkflowScheduleScheduler],
+    ["license", startLicenseScheduler],
+    ["outbound push", startPushScheduler],
+    ["audit retention", startAuditRetentionScheduler],
+  ];
+  for (const [name, start] of background) {
+    try {
+      await start();
+    } catch (err) {
+      logger.error(`Failed to start the ${name} scheduler`, { error: err.message });
+    }
   }
 })();
 
